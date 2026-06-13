@@ -53,7 +53,9 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     @staticmethod
     @callback
     def async_get_options_flow(config_entry: config_entries.ConfigEntry):
-        return OptionsFlowHandler(config_entry)
+        # Home Assistant injects the current config entry into the options flow.
+        # Passing/storing config_entry manually causes a 500 error on newer HA versions.
+        return OptionsFlowHandler()
 
     async def async_step_user(self, user_input=None):
         if self._async_current_entries():
@@ -73,13 +75,16 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 class OptionsFlowHandler(config_entries.OptionsFlowWithReload):
     """UI task editor for Home Maintenance Manager."""
 
-    def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
-        self.config_entry = config_entry
-        self.tasks: list[dict[str, Any]] = _tasks_from_entry(config_entry)
+    def _ensure_state(self) -> None:
+        """Initialize per-flow editor state after HA has attached config_entry."""
+        if hasattr(self, "tasks"):
+            return
+        self.tasks: list[dict[str, Any]] = _tasks_from_entry(self.config_entry)
         self._selected_task_id: str | None = None
         self._task_in_progress: dict[str, Any] | None = None
 
     async def async_step_init(self, user_input=None):
+        self._ensure_state()
         task_count = len(self.tasks)
         if user_input is not None:
             action = user_input["action"]
