@@ -23,6 +23,7 @@ TASK_SCHEMA = vol.Schema({
     vol.Optional("category", default="General"): cv.string,
     vol.Optional("area"): cv.string,
     vol.Optional("linked_entities", default=[]): vol.All(cv.ensure_list, [cv.entity_id]),
+    vol.Optional("linked_device_id"): cv.string,
     vol.Optional("rules", default=[]): list,
     vol.Optional("rule_logic", default="any"): vol.In(["any", "all", "primary"]),
     vol.Optional("primary_rule_id"): cv.string,
@@ -39,6 +40,8 @@ TASK_SCHEMA = vol.Schema({
     vol.Optional("max_snooze_days", default=30): vol.Coerce(int),
     vol.Optional("warning_percent", default=0.8): vol.Coerce(float),
     vol.Optional("paused", default=False): cv.boolean,
+    vol.Optional("last_completed"): cv.string,
+    vol.Optional("baseline_method"): cv.string,
 })
 
 CONFIG_SCHEMA = vol.Schema({

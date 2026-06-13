@@ -35,6 +35,7 @@ class MaintenanceTask:
     category: str = "General"
     area: str | None = None
     linked_entities: list[str] = field(default_factory=list)
+    linked_device_id: str | None = None
     rules: list[dict[str, Any]] = field(default_factory=list)
     rule_logic: str = LOGIC_ANY
     primary_rule_id: str | None = None
@@ -96,7 +97,10 @@ class MaintenanceTask:
     def _last_completed_dt(self) -> datetime:
         if self.last_completed:
             return dt_util.parse_datetime(self.last_completed) or dt_util.utcnow()
-        return dt_util.utcnow()
+        # New tasks should start tracking immediately instead of staying unknown until
+        # the user presses Mark Complete for the first time.
+        self.last_completed = dt_util.utcnow().isoformat()
+        return dt_util.parse_datetime(self.last_completed) or dt_util.utcnow()
 
     def rule_progress(self, hass: HomeAssistant) -> list[RuleProgress]:
         progress: list[RuleProgress] = []
@@ -181,11 +185,54 @@ class MaintenanceTask:
         values = [p.remaining for p in self.rule_progress(hass) if p.rule_type == RULE_RUNTIME and p.remaining is not None]
         return min(values) if values else None
 
+
+    def has_runtime_rule(self) -> bool:
+        return any(rule.get("type") == RULE_RUNTIME for rule in self.rules)
+
+    def next_due_datetime(self, hass: HomeAssistant) -> datetime | None:
+        last = self._last_completed_dt()
+        due_dates: list[datetime] = []
+        for rule in self.rules:
+            if rule.get("type") == RULE_TIME:
+                days = float(rule.get("days") or 0)
+                if "months" in rule:
+                    days = float(rule["months"]) * 30.4375
+                if "years" in rule:
+                    days = float(rule["years"]) * 365.25
+                if days > 0:
+                    due_dates.append(last + timedelta(days=days))
+        return min(due_dates) if due_dates else None
+
+    def summary_attributes(self, hass: HomeAssistant) -> dict[str, Any]:
+        progress = self.rule_progress(hass)
+        next_due = self.next_due_datetime(hass)
+        return {
+            "task_id": self.id,
+            "category": self.category,
+            "area": self.area,
+            "linked_device_id": self.linked_device_id,
+            "linked_entities": self.linked_entities,
+            "status": self.status(hass),
+            "percent_used": self.percent_used(hass),
+            "days_remaining": self.days_remaining(hass),
+            "runtime_remaining": self.runtime_remaining(hass) if self.has_runtime_rule() else "N/A",
+            "next_due": next_due.isoformat() if next_due else None,
+            "last_completed": self.last_completed,
+            "completion_count": len(self.completion_history),
+            "late_count": self.late_count,
+            "rule_progress": [p.__dict__ for p in progress],
+        }
+
     def linked_device_entry(self, hass: HomeAssistant):
+        from homeassistant.helpers import device_registry as dr
+        device_registry = dr.async_get(hass)
+        if self.linked_device_id:
+            dev = device_registry.async_get(self.linked_device_id)
+            if dev:
+                return dev
         registry = er.async_get(hass)
         for entity_id in self.linked_entities:
             entity_entry = registry.async_get(entity_id)
             if entity_entry and entity_entry.device_id:
-                from homeassistant.helpers import device_registry as dr
-                return dr.async_get(hass).async_get(entity_entry.device_id)
+                return device_registry.async_get(entity_entry.device_id)
         return None

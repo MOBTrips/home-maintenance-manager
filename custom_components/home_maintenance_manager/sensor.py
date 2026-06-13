@@ -10,22 +10,93 @@ from homeassistant.util import dt as dt_util
 from .const import DOMAIN
 
 SENSOR_TYPES = {
+    "summary": ("Summary", None, None),
     "status": ("Status", None, None),
     "percent_used": ("Percent Used", PERCENTAGE, None),
     "days_remaining": ("Days Remaining", UnitOfTime.DAYS, None),
-    "runtime_remaining": ("Runtime Remaining", UnitOfTime.HOURS, None),
+    # Unit intentionally omitted so time-only tasks can show N/A instead of Unknown.
+    "runtime_remaining": ("Runtime Remaining", None, None),
+    "next_due": ("Next Due", None, SensorDeviceClass.TIMESTAMP),
     "last_completed": ("Last Completed", None, SensorDeviceClass.TIMESTAMP),
     "completion_count": ("Completion Count", None, None),
     "late_count": ("Late Count", None, None),
 }
 
+GLOBAL_SENSOR_TYPES = {
+    "health_score": ("Maintenance Health Score", PERCENTAGE, None),
+    "tasks_upcoming": ("Maintenance Tasks Upcoming", None, None),
+    "tasks_due": ("Maintenance Tasks Due", None, None),
+    "tasks_overdue": ("Maintenance Tasks Overdue", None, None),
+}
+
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback) -> None:
     coordinator = hass.data[DOMAIN][entry.entry_id]
-    entities = []
+    entities = [MaintenanceGlobalSensor(coordinator, sensor_type) for sensor_type in GLOBAL_SENSOR_TYPES]
     for task in coordinator.tasks.values():
         for sensor_type in SENSOR_TYPES:
             entities.append(MaintenanceSensor(coordinator, task.id, sensor_type))
     async_add_entities(entities)
+
+class MaintenanceGlobalSensor(SensorEntity):
+    _attr_has_entity_name = False
+
+    def __init__(self, coordinator, sensor_type: str) -> None:
+        self.coordinator = coordinator
+        self.sensor_type = sensor_type
+        name, unit, device_class = GLOBAL_SENSOR_TYPES[sensor_type]
+        self._attr_name = name
+        self._attr_native_unit_of_measurement = unit
+        self._attr_device_class = device_class
+        self._attr_unique_id = f"home_maintenance_manager_{sensor_type}"
+
+    async def async_added_to_hass(self) -> None:
+        self.async_on_remove(self.coordinator.async_add_listener(self._handle_update))
+
+    @callback
+    def _handle_update(self) -> None:
+        self.async_write_ha_state()
+
+    @property
+    def device_info(self):
+        return {
+            "identifiers": {(DOMAIN, "manager")},
+            "name": "Home Maintenance Manager",
+            "manufacturer": "Home Maintenance Manager",
+            "model": "Maintenance Manager",
+        }
+
+    def _counts(self):
+        statuses = [task.status(self.hass) for task in self.coordinator.tasks.values()]
+        return {
+            "total": len(statuses),
+            "upcoming": statuses.count("upcoming"),
+            "due": statuses.count("due"),
+            "overdue": statuses.count("overdue"),
+            "paused": statuses.count("paused"),
+            "snoozed": statuses.count("snoozed"),
+            "unknown": statuses.count("unknown"),
+        }
+
+    @property
+    def native_value(self):
+        counts = self._counts()
+        if self.sensor_type == "tasks_upcoming":
+            return counts["upcoming"]
+        if self.sensor_type == "tasks_due":
+            return counts["due"]
+        if self.sensor_type == "tasks_overdue":
+            return counts["overdue"]
+        if self.sensor_type == "health_score":
+            total = counts["total"] or 0
+            if total == 0:
+                return 100
+            penalty = counts["overdue"] * 35 + counts["due"] * 20 + counts["upcoming"] * 5 + counts["unknown"] * 10
+            return max(0, round(100 - (penalty / total), 1))
+        return None
+
+    @property
+    def extra_state_attributes(self):
+        return self._counts()
 
 class MaintenanceSensor(SensorEntity):
     _attr_has_entity_name = True
@@ -54,17 +125,22 @@ class MaintenanceSensor(SensorEntity):
     @property
     def device_info(self):
         task = self.task
-        return {
+        info = {
             "identifiers": {task.device_identifier},
             "name": task.name,
             "manufacturer": "Home Maintenance Manager",
             "model": "Maintenance Task",
-            "sw_version": "0.1.0",
+            "sw_version": "0.3.0",
         }
+        if task.area:
+            info["suggested_area"] = task.area
+        return info
 
     @property
     def native_value(self):
         task = self.task
+        if self.sensor_type == "summary":
+            return task.status(self.hass)
         if self.sensor_type == "status":
             return task.status(self.hass)
         if self.sensor_type == "percent_used":
@@ -74,8 +150,12 @@ class MaintenanceSensor(SensorEntity):
             value = task.days_remaining(self.hass)
             return round(value, 1) if value is not None else None
         if self.sensor_type == "runtime_remaining":
+            if not task.has_runtime_rule():
+                return "N/A"
             value = task.runtime_remaining(self.hass)
             return round(value, 1) if value is not None else None
+        if self.sensor_type == "next_due":
+            return task.next_due_datetime(self.hass)
         if self.sensor_type == "last_completed":
             return dt_util.parse_datetime(task.last_completed) if task.last_completed else None
         if self.sensor_type == "completion_count":
@@ -87,18 +167,17 @@ class MaintenanceSensor(SensorEntity):
     @property
     def extra_state_attributes(self):
         task = self.task
-        if self.sensor_type == "status":
-            return {
-                "category": task.category,
+        if self.sensor_type in ("summary", "status"):
+            attrs = task.summary_attributes(self.hass)
+            attrs.update({
                 "description": task.description,
                 "instructions": task.instructions,
                 "checklist": task.checklist,
                 "parts": task.parts,
                 "tools": task.tools,
-                "linked_entities": task.linked_entities,
                 "rule_logic": task.rule_logic,
-                "rule_progress": [p.__dict__ for p in task.rule_progress(self.hass)],
                 "nfc_action": task.nfc_action,
                 "notification_mode": task.notification_mode,
-            }
+            })
+            return attrs
         return None
