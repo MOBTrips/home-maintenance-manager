@@ -1,0 +1,73 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Home Maintenance Manager",
+        "description": "Create the Home Maintenance Manager integration. Tasks can be added from Options after setup.",
+        "data": {"name": "Name"}
+      }
+    },
+    "abort": {"single_instance_allowed": "Only one Home Maintenance Manager instance is allowed."}
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Maintenance task editor",
+        "description": "{task_count} UI task(s) are configured. Choose an action, then choose Save and reload when finished.",
+        "data": {"action": "Action"}
+      },
+      "select_edit": {"title": "Select task to edit", "data": {"task_id": "Task"}},
+      "select_delete": {"title": "Select task to delete", "data": {"task_id": "Task"}},
+      "confirm_delete": {
+        "title": "Confirm delete",
+        "description": "Delete {task_name}? This removes the UI task definition and its task entities after reload.",
+        "data": {"confirm": "Delete this task"}
+      },
+      "task_basic": {
+        "title": "Task basics",
+        "description": "Create the maintenance task device and link it to Home Assistant entities.",
+        "data": {
+          "id": "Task ID",
+          "name": "Task name",
+          "description": "Description",
+          "category": "Category",
+          "area": "Area",
+          "linked_entities": "Linked entities",
+          "warning_percent": "Upcoming threshold percent",
+          "paused": "Paused"
+        }
+      },
+      "task_rules": {
+        "title": "Due rules",
+        "description": "Enter rules as JSON. Supported rule types: time, runtime, counter.",
+        "data": {"rule_logic": "Rule logic", "primary_rule_id": "Primary rule ID", "rules_json": "Rules JSON"}
+      },
+      "task_nfc_notifications": {
+        "title": "NFC and notifications",
+        "data": {
+          "nfc_tags": "NFC tag IDs, comma separated",
+          "nfc_action": "NFC action",
+          "notification_mode": "Notification mode",
+          "mobile_notify_service": "Mobile notify service",
+          "allow_snooze": "Allow snooze",
+          "max_snooze_count": "Max snooze count, 0 for unlimited",
+          "max_snooze_days": "Max snooze days"
+        }
+      },
+      "task_details": {
+        "title": "Instructions, checklist, parts, and tools",
+        "description": "Instructions support Markdown. Checklist and parts are JSON arrays.",
+        "data": {"instructions": "Instructions", "checklist_json": "Checklist JSON", "parts_json": "Parts JSON", "tools": "Tools, comma separated"}
+      },
+      "import_json": {
+        "title": "Import/replace UI tasks",
+        "description": "Paste a JSON array of task definitions. This replaces UI-created tasks, not YAML tasks.",
+        "data": {"tasks_json": "Tasks JSON"}
+      }
+    },
+    "error": {
+      "duplicate_task_id": "Another task already uses this task ID.",
+      "invalid_json": "This field must contain valid JSON."
+    }
+  }
+}

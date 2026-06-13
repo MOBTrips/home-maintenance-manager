@@ -1,0 +1,15 @@
+DOMAIN = "home_maintenance_manager"
+PLATFORMS = ["sensor", "binary_sensor", "button"]
+STORAGE_VERSION = 1
+STORAGE_KEY = f"{DOMAIN}.tasks"
+CONF_TASKS = "tasks"
+DEFAULT_WARNING_PERCENT = 0.8
+DEFAULT_NOTIFICATION_MODE = "automation_only"
+SERVICE_MARK_COMPLETE = "mark_complete"
+SERVICE_SNOOZE = "snooze"
+SERVICE_ADD_LOG = "add_log"
+SERVICE_RESET_RUNTIME = "reset_runtime"
+SERVICE_UPSERT_TASK = "upsert_task"
+SERVICE_DELETE_TASK = "delete_task"
+EVENT_ACTIVITY = f"{DOMAIN}_activity"
+EVENT_COMPLETION = f"{DOMAIN}_completion"

@@ -1,0 +1,13 @@
+{
+  "domain": "home_maintenance_manager",
+  "name": "Home Maintenance Manager",
+  "codeowners": ["@MOBTrips"],
+  "config_flow": true,
+  "dependencies": [],
+  "documentation": "https://github.com/MOBTrips/home-maintenance-manager",
+  "integration_type": "helper",
+  "iot_class": "local_push",
+  "issue_tracker": "https://github.com/MOBTrips/home-maintenance-manager/issues",
+  "requirements": [],
+  "version": "0.1.0"
+}

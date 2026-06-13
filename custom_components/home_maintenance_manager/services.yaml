@@ -1,0 +1,64 @@
+mark_complete:
+  name: Mark maintenance complete
+  description: Mark a maintenance task complete and reset its cycle.
+  fields:
+    task_id:
+      required: true
+      selector: {text: null}
+    method:
+      required: false
+      default: service
+      selector: {text: null}
+    notes:
+      required: false
+      selector: {text: {multiline: true}}
+
+snooze:
+  name: Snooze maintenance task
+  description: Snooze a maintenance task for a number of days.
+  fields:
+    task_id:
+      required: true
+      selector: {text: null}
+    days:
+      required: false
+      default: 7
+      selector: {number: {min: 1, max: 365, step: 1}}
+
+add_log:
+  name: Add maintenance log
+  description: Add an activity log entry to a maintenance task.
+  fields:
+    task_id:
+      required: true
+      selector: {text: null}
+    activity:
+      required: false
+      selector: {text: null}
+    notes:
+      required: false
+      selector: {text: {multiline: true}}
+
+reset_runtime:
+  name: Reset runtime
+  description: Reset the runtime counters for a maintenance task.
+  fields:
+    task_id:
+      required: true
+      selector: {text: null}
+
+upsert_task:
+  name: Create or update maintenance task
+  description: Create or update a task definition from an automation or developer tools.
+  fields:
+    task:
+      required: true
+      selector: {object: null}
+
+delete_task:
+  name: Delete maintenance task
+  description: Delete a maintenance task by task_id.
+  fields:
+    task_id:
+      required: true
+      selector: {text: null}
