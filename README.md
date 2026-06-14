@@ -54,3 +54,10 @@ Expected entities include:
 - `sensor.test_maintenance_runtime_remaining` = `N/A`
 - `button.test_maintenance_mark_complete`
 
+
+
+## v0.3.1
+- Added navigation controls to wizard pages so users can go back to previous steps.
+- Mobile notification target is now populated from available Home Assistant notify services.
+- Added translation file so UI labels use friendly names instead of raw field keys.
+- Renamed Advanced setup checkbox to make it clear it continues to more pages after submit.

@@ -5,77 +5,159 @@
       "user": {
         "title": "Home Maintenance Manager",
         "description": "Create one Home Maintenance Manager instance. Maintenance tasks are added from Configure after setup.",
-        "data": {"name": "Name"}
+        "data": {
+          "name": "Name"
+        }
       }
     },
-    "abort": {"single_instance_allowed": "Only one Home Maintenance Manager instance is allowed."}
+    "abort": {
+      "single_instance_allowed": "Only one Home Maintenance Manager instance is allowed."
+    }
   },
   "options": {
     "step": {
       "init": {
         "title": "Maintenance task editor",
         "description": "{task_count} task(s) are configured. Add, edit, or delete tasks. Choose Save and reload when finished.",
-        "data": {"action": "What would you like to do?"}
+        "data": {
+          "action": "What would you like to do?"
+        }
       },
-      "select_edit": {"title": "Edit maintenance task", "description": "Choose the task to edit.", "data": {"task_id": "Maintenance task"}},
-      "select_delete": {"title": "Delete maintenance task", "description": "Choose the task to delete.", "data": {"task_id": "Maintenance task"}},
-      "confirm_delete": {"title": "Confirm delete", "description": "Delete {task_name}? Runtime and history for this task will be removed.", "data": {"confirm": "Yes, delete this task"}},
+      "select_edit": {
+        "title": "Edit maintenance task",
+        "description": "Choose the task to edit.",
+        "data": {
+          "task_id": "Maintenance task"
+        }
+      },
+      "select_delete": {
+        "title": "Delete maintenance task",
+        "description": "Choose the task to delete.",
+        "data": {
+          "task_id": "Maintenance task"
+        }
+      },
+      "confirm_delete": {
+        "title": "Confirm delete",
+        "description": "Delete {task_name}? Runtime and history for this task will be removed.",
+        "data": {
+          "confirm": "Yes, delete this task"
+        }
+      },
       "task_name": {
         "title": "What maintenance are you tracking?",
         "description": "Examples: HVAC Filter Replacement, Pool Filter Cleaning, Hot Tub Water Change, Refrigerator Condenser Cleaning. Task IDs are created automatically.",
-        "data": {"name": "Task name", "category": "Category", "description": "Description", "paused": "Pause this task"}
+        "data": {
+          "name": "Task name",
+          "category": "Category",
+          "description": "Description",
+          "paused": "Pause this task"
+        }
       },
       "task_equipment": {
         "title": "What equipment is this for?",
         "description": "Link this maintenance task to a Home Assistant area, device, or entity. This helps with dashboard grouping and future device-specific views.",
-        "data": {"area": "Area", "linked_device_id": "Linked Home Assistant device", "linked_entities": "Linked entities"}
+        "data": {
+          "navigation": "Navigation",
+          "area": "Area",
+          "linked_device_id": "Linked Home Assistant device",
+          "linked_entities": "Linked entities"
+        }
       },
       "task_schedule_type": {
         "title": "When should maintenance occur?",
         "description": "Choose whether this task is due by calendar time, equipment usage, or a combination of both. Upcoming starts at the warning percent.",
-        "data": {"schedule_type": "Maintenance schedule", "warning_percent": "Upcoming warning percent"}
+        "data": {
+          "navigation": "Navigation",
+          "schedule_type": "Maintenance schedule",
+          "warning_percent": "Upcoming warning percent"
+        }
       },
       "task_time_rule": {
         "title": "Time based schedule",
         "description": "Example: every 30 days, every 6 months, or every 1 year.",
-        "data": {"time_every": "Every", "time_unit": "Time unit"}
+        "data": {
+          "navigation": "Navigation",
+          "time_every": "Every",
+          "time_unit": "Time unit"
+        }
       },
       "task_usage_rule": {
         "title": "Usage/runtime based schedule",
         "description": "Choose the entity to monitor and how runtime should be counted. Switches usually use 'on/running'. Power sensors usually use 'above threshold'.",
-        "data": {"runtime_entity": "Runtime source entity", "runtime_hours": "Trigger after runtime hours", "runtime_method": "How to count runtime", "above_threshold": "Above threshold", "specific_states": "Specific states, comma-separated"}
+        "data": {
+          "navigation": "Navigation",
+          "runtime_entity": "Runtime source entity",
+          "runtime_hours": "Trigger after runtime hours",
+          "runtime_method": "How to count runtime",
+          "above_threshold": "Above threshold",
+          "specific_states": "Specific states"
+        }
       },
       "task_last_performed": {
         "title": "When was it last done?",
         "description": "This sets the starting point so the countdown begins immediately. If unsure, choose Unknown / start tracking today.",
-        "data": {"last_performed_mode": "Last performed", "days_ago": "Days ago", "specific_date": "Specific date, YYYY-MM-DD"}
+        "data": {
+          "navigation": "Navigation",
+          "last_performed_mode": "Last performed",
+          "days_ago": "Days ago",
+          "specific_date": "Specific date"
+        }
       },
       "task_notifications": {
         "title": "Notifications and snooze",
-        "description": "Choose built-in notifications or leave this as automation only if you want to build your own Home Assistant automations from the task sensors.",
-        "data": {"notification_mode": "Notification mode", "mobile_notify_service": "Mobile notify service", "allow_snooze": "Allow snooze", "max_snooze_days": "Maximum snooze days", "advanced_setup": "Show advanced setup"}
+        "description": "Choose built-in notifications or leave this as automation only if you want to build your own Home Assistant automations from the task sensors. For mobile notifications, select a service discovered from Home Assistant, such as a mobile_app device notify service.",
+        "data": {
+          "navigation": "Navigation",
+          "notification_mode": "Notification mode",
+          "mobile_notify_service": "Mobile notification target",
+          "allow_snooze": "Allow snooze",
+          "max_snooze_days": "Maximum snooze days",
+          "advanced_setup": "Continue to advanced setup after this page"
+        }
       },
       "task_advanced": {
         "title": "Advanced options",
         "description": "Optional NFC behavior and snooze limits. NFC tag IDs can be added later.",
-        "data": {"nfc_tags": "NFC tag IDs, comma-separated", "nfc_action": "NFC scan action", "max_snooze_count": "Maximum snooze count, 0 = unlimited"}
+        "data": {
+          "navigation": "Navigation",
+          "nfc_tags": "NFC tag IDs",
+          "nfc_action": "NFC scan action",
+          "max_snooze_count": "Maximum snooze count"
+        }
       },
       "task_details": {
         "title": "Instructions, checklist, parts, and tools",
         "description": "Optional maintenance details. Checklist is a JSON list of text items. Parts is a JSON list such as [{\"name\": \"Filter\", \"qty\": 1}].",
-        "data": {"instructions": "Instructions", "checklist_json": "Checklist JSON", "parts_json": "Parts JSON", "tools": "Tools, comma-separated"}
+        "data": {
+          "navigation": "Navigation",
+          "instructions": "Instructions",
+          "checklist_json": "Checklist",
+          "parts_json": "Parts",
+          "tools": "Tools"
+        }
       },
       "task_rules_advanced": {
         "title": "Advanced rule editor",
         "description": "Power-user escape hatch. Most users can keep the generated rules. Edit JSON only if you need multiple custom rules.",
-        "data": {"rule_logic": "Rule logic", "primary_rule_id": "Primary rule ID", "rules_json": "Rules JSON"}
+        "data": {
+          "navigation": "Navigation",
+          "rule_logic": "Rule logic",
+          "primary_rule_id": "Primary rule ID",
+          "rules_json": "Rules"
+        }
       },
       "import_json": {
         "title": "Import UI tasks from JSON",
         "description": "Replace all UI-created tasks with this JSON list. YAML-created tasks are managed separately in configuration.yaml.",
-        "data": {"tasks_json": "Tasks JSON"}
+        "data": {
+          "tasks_json": "Tasks JSON"
+        }
       }
     },
-    "error": {"invalid_json": "Invalid JSON.", "duplicate_task_id": "A task with this ID already exists."}
+    "error": {
+      "invalid_json": "Invalid JSON.",
+      "duplicate_task_id": "A task with this ID already exists."
+    }
   }
 }

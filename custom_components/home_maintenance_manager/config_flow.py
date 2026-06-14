@@ -25,6 +25,21 @@ LAST_PERFORMED_MODES = ["today", "days_ago", "specific_date", "unknown"]
 RUNTIME_METHODS = ["entity_on", "above_threshold", "specific_state"]
 
 
+def _friendly_service_name(service: str) -> str:
+    name = service.replace("notify.", "").replace("mobile_app_", "Mobile app - ")
+    name = name.replace("_", " ").strip()
+    return name[:1].upper() + name[1:] if name else service
+
+def _notify_service_options(hass) -> list[dict[str, str]]:
+    services = hass.services.async_services().get("notify", {})
+    opts: list[dict[str, str]] = []
+    for service in sorted(services):
+        full = f"notify.{service}"
+        label = _friendly_service_name(full)
+        opts.append({"value": full, "label": label})
+    return opts
+
+
 def _slugify(value: str) -> str:
     value = value.strip().lower()
     value = re.sub(r"[^a-z0-9_]+", "_", value)
@@ -257,6 +272,8 @@ class OptionsFlowHandler(config_entries.OptionsFlowWithReload):
     async def async_step_task_equipment(self, user_input=None):
         task = self._task_in_progress or {}
         if user_input is not None:
+            if user_input.get("navigation") == "back":
+                return await self.async_step_task_name()
             task.update({
                 "area": user_input.get("area") or None,
                 "linked_device_id": user_input.get("linked_device_id") or None,
@@ -266,6 +283,14 @@ class OptionsFlowHandler(config_entries.OptionsFlowWithReload):
             return await self.async_step_task_schedule_type()
 
         schema = vol.Schema({
+            vol.Optional("navigation", default="continue"): selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=[
+                        {"value": "continue", "label": "Continue"},
+                        {"value": "back", "label": "Back to task name"},
+                    ], mode=selector.SelectSelectorMode.DROPDOWN,
+                )
+            ),
             vol.Optional("area", default=task.get("area") or None): selector.AreaSelector(),
             vol.Optional("linked_device_id", default=task.get("linked_device_id") or None): selector.DeviceSelector(),
             vol.Optional("linked_entities", default=task.get("linked_entities", [])): selector.EntitySelector(selector.EntitySelectorConfig(multiple=True)),
@@ -279,6 +304,8 @@ class OptionsFlowHandler(config_entries.OptionsFlowWithReload):
         has_runtime = any(r.get("type") == "runtime" for r in rules)
         default_type = "time_or_usage" if has_time and has_runtime and task.get("rule_logic") == "any" else "time_and_usage" if has_time and has_runtime else "usage" if has_runtime else "time"
         if user_input is not None:
+            if user_input.get("navigation") == "back":
+                return await self.async_step_task_equipment()
             task["_schedule_type"] = user_input["schedule_type"]
             task["warning_percent"] = float(user_input.get("warning_percent", 80)) / 100
             self._task_in_progress = task
@@ -288,6 +315,14 @@ class OptionsFlowHandler(config_entries.OptionsFlowWithReload):
         return self.async_show_form(
             step_id="task_schedule_type",
             data_schema=vol.Schema({
+                vol.Optional("navigation", default="continue"): selector.SelectSelector(
+                    selector.SelectSelectorConfig(
+                        options=[
+                            {"value": "continue", "label": "Continue"},
+                            {"value": "back", "label": "Back to equipment"},
+                        ], mode=selector.SelectSelectorMode.DROPDOWN,
+                    )
+                ),
                 vol.Required("schedule_type", default=default_type): selector.SelectSelector(
                     selector.SelectSelectorConfig(
                         options=[
@@ -309,6 +344,8 @@ class OptionsFlowHandler(config_entries.OptionsFlowWithReload):
         old = next((r for r in task.get("rules", []) if r.get("type") == "time"), {})
         default_every, default_unit = _time_unit_from_days(float(old.get("days") or 90))
         if user_input is not None:
+            if user_input.get("navigation") == "back":
+                return await self.async_step_task_schedule_type()
             days = _days_from_time(float(user_input["time_every"]), user_input["time_unit"])
             task["_time_rule"] = {
                 "id": "time_1",
@@ -323,6 +360,14 @@ class OptionsFlowHandler(config_entries.OptionsFlowWithReload):
         return self.async_show_form(
             step_id="task_time_rule",
             data_schema=vol.Schema({
+                vol.Optional("navigation", default="continue"): selector.SelectSelector(
+                    selector.SelectSelectorConfig(
+                        options=[
+                            {"value": "continue", "label": "Continue"},
+                            {"value": "back", "label": "Back to schedule type"},
+                        ], mode=selector.SelectSelectorMode.DROPDOWN,
+                    )
+                ),
                 vol.Required("time_every", default=default_every): selector.NumberSelector(
                     selector.NumberSelectorConfig(min=1, max=10000, step=1, mode=selector.NumberSelectorMode.BOX)
                 ),
@@ -337,6 +382,10 @@ class OptionsFlowHandler(config_entries.OptionsFlowWithReload):
         old = next((r for r in task.get("rules", []) if r.get("type") == "runtime"), {})
         default_method = "above_threshold" if "above" in old else "specific_state" if "states" in old else "entity_on"
         if user_input is not None:
+            if user_input.get("navigation") == "back":
+                if task.get("_schedule_type") in ("time_or_usage", "time_and_usage"):
+                    return await self.async_step_task_time_rule()
+                return await self.async_step_task_schedule_type()
             rule: dict[str, Any] = {
                 "id": "runtime_1",
                 "type": "runtime",
@@ -355,6 +404,14 @@ class OptionsFlowHandler(config_entries.OptionsFlowWithReload):
         return self.async_show_form(
             step_id="task_usage_rule",
             data_schema=vol.Schema({
+                vol.Optional("navigation", default="continue"): selector.SelectSelector(
+                    selector.SelectSelectorConfig(
+                        options=[
+                            {"value": "continue", "label": "Continue"},
+                            {"value": "back", "label": "Back to previous schedule step"},
+                        ], mode=selector.SelectSelectorMode.DROPDOWN,
+                    )
+                ),
                 vol.Required("runtime_entity", default=old.get("entity") or None): selector.EntitySelector(),
                 vol.Required("runtime_hours", default=float(old.get("hours") or 100)): selector.NumberSelector(
                     selector.NumberSelectorConfig(min=0.1, max=100000, step=0.1, mode=selector.NumberSelectorMode.BOX)
@@ -378,6 +435,10 @@ class OptionsFlowHandler(config_entries.OptionsFlowWithReload):
     async def async_step_task_last_performed(self, user_input=None):
         task = self._task_in_progress or {}
         if user_input is not None:
+            if user_input.get("navigation") == "back":
+                if task.get("_schedule_type") in ("usage", "time_or_usage", "time_and_usage"):
+                    return await self.async_step_task_usage_rule()
+                return await self.async_step_task_time_rule()
             # Compose rules from the wizard. Keep manually imported advanced rules only when editing advanced later.
             rules = []
             if task.get("_time_rule"):
@@ -397,6 +458,14 @@ class OptionsFlowHandler(config_entries.OptionsFlowWithReload):
         return self.async_show_form(
             step_id="task_last_performed",
             data_schema=vol.Schema({
+                vol.Optional("navigation", default="continue"): selector.SelectSelector(
+                    selector.SelectSelectorConfig(
+                        options=[
+                            {"value": "continue", "label": "Continue"},
+                            {"value": "back", "label": "Back to schedule"},
+                        ], mode=selector.SelectSelectorMode.DROPDOWN,
+                    )
+                ),
                 vol.Required("last_performed_mode", default="today"): selector.SelectSelector(
                     selector.SelectSelectorConfig(
                         options=[
@@ -417,6 +486,8 @@ class OptionsFlowHandler(config_entries.OptionsFlowWithReload):
     async def async_step_task_notifications(self, user_input=None):
         task = self._task_in_progress or {}
         if user_input is not None:
+            if user_input.get("navigation") == "back":
+                return await self.async_step_task_last_performed()
             task.update({
                 "notification_mode": user_input.get("notification_mode", "automation_only"),
                 "mobile_notify_service": user_input.get("mobile_notify_service") or None,
@@ -430,6 +501,14 @@ class OptionsFlowHandler(config_entries.OptionsFlowWithReload):
         return self.async_show_form(
             step_id="task_notifications",
             data_schema=vol.Schema({
+                vol.Optional("navigation", default="continue"): selector.SelectSelector(
+                    selector.SelectSelectorConfig(
+                        options=[
+                            {"value": "continue", "label": "Continue"},
+                            {"value": "back", "label": "Back to last performed"},
+                        ], mode=selector.SelectSelectorMode.DROPDOWN,
+                    )
+                ),
                 vol.Required("notification_mode", default=task.get("notification_mode", "automation_only")): selector.SelectSelector(
                     selector.SelectSelectorConfig(
                         options=[
@@ -441,7 +520,13 @@ class OptionsFlowHandler(config_entries.OptionsFlowWithReload):
                         ], mode=selector.SelectSelectorMode.DROPDOWN,
                     )
                 ),
-                vol.Optional("mobile_notify_service", default=task.get("mobile_notify_service") or ""): str,
+                vol.Optional("mobile_notify_service", default=task.get("mobile_notify_service") or ""): selector.SelectSelector(
+                    selector.SelectSelectorConfig(
+                        options=_notify_service_options(self.hass),
+                        mode=selector.SelectSelectorMode.DROPDOWN,
+                        custom_value=True,
+                    )
+                ),
                 vol.Optional("allow_snooze", default=task.get("allow_snooze", True)): bool,
                 vol.Optional("max_snooze_days", default=task.get("max_snooze_days", 30)): int,
                 vol.Optional("advanced_setup", default=False): bool,
@@ -451,6 +536,8 @@ class OptionsFlowHandler(config_entries.OptionsFlowWithReload):
     async def async_step_task_advanced(self, user_input=None):
         task = self._task_in_progress or {}
         if user_input is not None:
+            if user_input.get("navigation") == "back":
+                return await self.async_step_task_notifications()
             task.update({
                 "nfc_tags": _csv_to_list(user_input.get("nfc_tags")),
                 "nfc_action": user_input.get("nfc_action", "confirm"),
@@ -461,6 +548,14 @@ class OptionsFlowHandler(config_entries.OptionsFlowWithReload):
         return self.async_show_form(
             step_id="task_advanced",
             data_schema=vol.Schema({
+                vol.Optional("navigation", default="continue"): selector.SelectSelector(
+                    selector.SelectSelectorConfig(
+                        options=[
+                            {"value": "continue", "label": "Continue"},
+                            {"value": "back", "label": "Back to notifications"},
+                        ], mode=selector.SelectSelectorMode.DROPDOWN,
+                    )
+                ),
                 vol.Optional("nfc_tags", default=_list_to_csv(task.get("nfc_tags"))): str,
                 vol.Required("nfc_action", default=task.get("nfc_action", "confirm")): selector.SelectSelector(
                     selector.SelectSelectorConfig(
@@ -481,6 +576,8 @@ class OptionsFlowHandler(config_entries.OptionsFlowWithReload):
         errors: dict[str, str] = {}
         task = self._task_in_progress or {}
         if user_input is not None:
+            if user_input.get("navigation") == "back":
+                return await self.async_step_task_advanced()
             try:
                 checklist = _json_loads(user_input.get("checklist_json"), [])
                 parts = _json_loads(user_input.get("parts_json"), [])
@@ -500,6 +597,14 @@ class OptionsFlowHandler(config_entries.OptionsFlowWithReload):
         return self.async_show_form(
             step_id="task_details",
             data_schema=vol.Schema({
+                vol.Optional("navigation", default="continue"): selector.SelectSelector(
+                    selector.SelectSelectorConfig(
+                        options=[
+                            {"value": "continue", "label": "Continue"},
+                            {"value": "back", "label": "Back to advanced options"},
+                        ], mode=selector.SelectSelectorMode.DROPDOWN,
+                    )
+                ),
                 vol.Optional("instructions", default=task.get("instructions", "")): selector.TextSelector(selector.TextSelectorConfig(multiline=True)),
                 vol.Optional("checklist_json", default=_json_dumps(task.get("checklist") or [])): selector.TextSelector(selector.TextSelectorConfig(multiline=True)),
                 vol.Optional("parts_json", default=_json_dumps(task.get("parts") or [])): selector.TextSelector(selector.TextSelectorConfig(multiline=True)),
@@ -513,6 +618,8 @@ class OptionsFlowHandler(config_entries.OptionsFlowWithReload):
         errors: dict[str, str] = {}
         task = self._task_in_progress or {}
         if user_input is not None:
+            if user_input.get("navigation") == "back":
+                return await self.async_step_task_details()
             try:
                 rules = _json_loads(user_input.get("rules_json"), task.get("rules", []))
                 if not isinstance(rules, list):
@@ -529,6 +636,14 @@ class OptionsFlowHandler(config_entries.OptionsFlowWithReload):
         return self.async_show_form(
             step_id="task_rules_advanced",
             data_schema=vol.Schema({
+                vol.Optional("navigation", default="continue"): selector.SelectSelector(
+                    selector.SelectSelectorConfig(
+                        options=[
+                            {"value": "continue", "label": "Save task"},
+                            {"value": "back", "label": "Back to details"},
+                        ], mode=selector.SelectSelectorMode.DROPDOWN,
+                    )
+                ),
                 vol.Required("rule_logic", default=task.get("rule_logic", "any")): selector.SelectSelector(
                     selector.SelectSelectorConfig(
                         options=[
