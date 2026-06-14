@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 from typing import Any
+from pathlib import Path
 
 import voluptuous as vol
 from homeassistant.config_entries import ConfigEntry
@@ -9,6 +10,13 @@ from homeassistant.const import CONF_NAME
 from homeassistant.core import HomeAssistant
 import homeassistant.helpers.config_validation as cv
 from homeassistant.helpers import selector
+from homeassistant.components import websocket_api
+try:
+    from homeassistant.components.frontend import async_register_built_in_panel
+    from homeassistant.components.http import StaticPathConfig
+except Exception:  # pragma: no cover - older HA fallback
+    async_register_built_in_panel = None
+    StaticPathConfig = None
 
 from .const import DOMAIN, PLATFORMS, CONF_TASKS, SERVICE_MARK_COMPLETE, SERVICE_SNOOZE, SERVICE_ADD_LOG, SERVICE_RESET_RUNTIME, SERVICE_UPSERT_TASK, SERVICE_DELETE_TASK
 from .coordinator import MaintenanceCoordinator
@@ -50,8 +58,79 @@ CONFIG_SCHEMA = vol.Schema({
     })
 }, extra=vol.ALLOW_EXTRA)
 
+
+
+def _coordinator_for_entry(hass: HomeAssistant, entry_id: str | None = None) -> MaintenanceCoordinator | None:
+    data = hass.data.get(DOMAIN, {})
+    if entry_id and entry_id in data:
+        return data[entry_id]
+    for value in data.values():
+        if isinstance(value, MaintenanceCoordinator):
+            return value
+    return None
+
+
+def _serialize_tasks(coordinator: MaintenanceCoordinator | None) -> list[dict[str, Any]]:
+    if coordinator is None:
+        return []
+    return [task.as_dict() | {"status": task.status(coordinator.hass), "summary": task.summary_attributes(coordinator.hass)} for task in coordinator.tasks.values()]
+
+
+@websocket_api.websocket_command({vol.Required("type"): f"{DOMAIN}/get_tasks"})
+@websocket_api.async_response
+async def websocket_get_tasks(hass: HomeAssistant, connection, msg) -> None:
+    """Return task data for the custom frontend panel."""
+    coordinator = _coordinator_for_entry(hass)
+    connection.send_result(msg["id"], {"tasks": _serialize_tasks(coordinator)})
+
+
+@websocket_api.websocket_command({vol.Required("type"): f"{DOMAIN}/get_metadata"})
+@websocket_api.async_response
+async def websocket_get_metadata(hass: HomeAssistant, connection, msg) -> None:
+    """Return friendly lookup lists for the custom frontend panel."""
+    from homeassistant.helpers import area_registry as ar, device_registry as dr, entity_registry as er
+
+    area_registry = ar.async_get(hass)
+    device_registry = dr.async_get(hass)
+    entity_registry = er.async_get(hass)
+    notify_services = []
+    for service in sorted(hass.services.async_services().get("notify", {})):
+        full = f"notify.{service}"
+        label = service.replace("mobile_app_", "Mobile app - ").replace("_", " ").strip().title()
+        notify_services.append({"value": full, "label": label})
+    connection.send_result(msg["id"], {
+        "areas": [{"id": area.id, "name": area.name} for area in area_registry.async_list_areas()],
+        "devices": [{"id": device.id, "name": device.name_by_user or device.name or device.model or device.id, "area_id": device.area_id} for device in device_registry.devices.values()],
+        "entities": [{"entity_id": entity.entity_id, "name": entity.name or entity.original_name or entity.entity_id, "device_id": entity.device_id, "area_id": entity.area_id} for entity in entity_registry.entities.values()],
+        "notify_services": notify_services,
+    })
+
+
+async def _async_register_panel(hass: HomeAssistant) -> None:
+    """Register the Home Maintenance Manager sidebar panel."""
+    if async_register_built_in_panel is None or StaticPathConfig is None:
+        _LOGGER.warning("Home Maintenance Manager panel was not registered because this Home Assistant version does not expose the expected frontend helpers")
+        return
+    panel_dir = Path(__file__).parent / "frontend"
+    await hass.http.async_register_static_paths([
+        StaticPathConfig(f"/{DOMAIN}_frontend", str(panel_dir), True)
+    ])
+    async_register_built_in_panel(
+        hass,
+        component_name="home-maintenance-manager-panel",
+        sidebar_title="Maintenance",
+        sidebar_icon="mdi:home-wrench",
+        frontend_url_path="home-maintenance-manager",
+        module_url=f"/{DOMAIN}_frontend/home-maintenance-manager-panel.js",
+        require_admin=False,
+        config={"domain": DOMAIN},
+    )
+
 async def async_setup(hass: HomeAssistant, config: dict[str, Any]) -> bool:
     hass.data.setdefault(DOMAIN, {})
+    websocket_api.async_register_command(hass, websocket_get_tasks)
+    websocket_api.async_register_command(hass, websocket_get_metadata)
+    await _async_register_panel(hass)
     yaml_tasks = config.get(DOMAIN, {}).get(CONF_TASKS, [])
     hass.data[DOMAIN]["yaml_tasks"] = yaml_tasks
     return True
@@ -82,10 +161,18 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         await coordinator.async_reset_runtime(call.data["task_id"])
 
     async def handle_upsert_task(call):
-        await coordinator.async_upsert_task(call.data["task"])
+        task = call.data["task"]
+        tasks = list(entry.options.get(CONF_TASKS, []))
+        tasks = [item for item in tasks if item.get("id") != task["id"]]
+        tasks.append(task)
+        hass.config_entries.async_update_entry(entry, options={**entry.options, CONF_TASKS: tasks})
+        await coordinator.async_upsert_task(task)
 
     async def handle_delete_task(call):
-        await coordinator.async_delete_task(call.data["task_id"])
+        task_id = call.data["task_id"]
+        tasks = [item for item in entry.options.get(CONF_TASKS, []) if item.get("id") != task_id]
+        hass.config_entries.async_update_entry(entry, options={**entry.options, CONF_TASKS: tasks})
+        await coordinator.async_delete_task(task_id)
 
     hass.services.async_register(DOMAIN, SERVICE_MARK_COMPLETE, handle_mark_complete, schema=vol.Schema({vol.Required("task_id"): cv.string, vol.Optional("method", default="service"): cv.string, vol.Optional("notes"): cv.string}))
     hass.services.async_register(DOMAIN, SERVICE_SNOOZE, handle_snooze, schema=vol.Schema({vol.Required("task_id"): cv.string, vol.Optional("days", default=7): vol.Coerce(int)}))
