@@ -115,15 +115,26 @@ async def _async_register_panel(hass: HomeAssistant) -> None:
     await hass.http.async_register_static_paths([
         StaticPathConfig(f"/{DOMAIN}_frontend", str(panel_dir), True)
     ])
+    panel_url = "home-maintenance-manager"
+    if panel_url in hass.data.get("frontend_panels", {}):
+        return
+
     async_register_built_in_panel(
         hass,
-        component_name="home-maintenance-manager-panel",
+        component_name="custom",
         sidebar_title="Maintenance",
         sidebar_icon="mdi:home-wrench",
-        frontend_url_path="home-maintenance-manager",
-        js_url=f"/{DOMAIN}_frontend/home-maintenance-manager-panel.js",
+        frontend_url_path=panel_url,
         require_admin=False,
-        config={"domain": DOMAIN},
+        config={
+            "domain": DOMAIN,
+            "_panel_custom": {
+                "name": "home-maintenance-manager-panel",
+                "module_url": f"/{DOMAIN}_frontend/home-maintenance-manager-panel.js",
+                "embed_iframe": False,
+                "trust_external": False,
+            },
+        },
     )
 
 async def async_setup(hass: HomeAssistant, config: dict[str, Any]) -> bool:
