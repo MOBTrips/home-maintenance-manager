@@ -81,6 +81,11 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
       .empty { text-align:center; padding:40px 16px; }
       .history-item { border-left:4px solid var(--primary-color); padding-left:12px; }
       .tag-row { display:flex; justify-content:space-between; gap:12px; align-items:center; border-bottom:1px solid var(--divider-color); padding:10px 0; }
+      .form-section { border:1px solid var(--divider-color); border-radius:18px; padding:16px; margin:16px 0; background: var(--secondary-background-color); }
+      .form-section h3 { margin:0 0 4px; font-size:18px; }
+      .section-note { color: var(--secondary-text-color); font-size:13px; margin:0 0 12px; }
+      .field-label { display:flex; align-items:center; gap:6px; }
+      .tip { display:inline-flex; align-items:center; justify-content:center; width:18px; height:18px; border-radius:50%; background: var(--primary-color); color: var(--text-primary-color); font-size:12px; font-weight:700; cursor:help; }
     `;
   }
 
@@ -166,30 +171,76 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     return `<div class="grid"><div class="card"><h2>Settings</h2><p>This panel is the beginner-friendly Home Maintenance Manager experience. Advanced editing is still available from Settings → Devices & Services → Home Maintenance Manager → Configure.</p><button class="btn" data-action="refresh">Refresh data</button></div><div class="card"><h2>Lookups</h2><p>Areas: ${this.metadata.areas.length}</p><p>Devices: ${this.metadata.devices.length}</p><p>Entities: ${this.metadata.entities.length}</p><p>Notify services: ${this.metadata.notify_services.length}</p><p>NFC tags: ${this.tags.length}</p></div></div>`;
   }
 
+  label(text, tip) {
+    return `<span class="field-label"><span>${text}</span><span class="tip" title="${this.escape(tip)}">?</span></span>`;
+  }
+
+  escape(value) {
+    return String(value ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]));
+  }
+
   renderModal() {
     if (!this.modal) return "";
     const t = this.modal.task || {};
     const isEdit = !!t.id;
-    const areaOptions = [`<option value="">Choose an area...</option>`, ...this.metadata.areas.map(a=>`<option value="${a.id}" ${t.area===a.id?'selected':''}>${a.name}</option>`)].join("");
-    const deviceOptions = [`<option value="">No specific device</option>`, ...this.metadata.devices.sort((a,b)=>(a.name||'').localeCompare(b.name||'')).map(d=>`<option value="${d.id}" ${t.linked_device_id===d.id?'selected':''}>${d.name}</option>`)].join("");
-    const entityOptions = this.metadata.entities.slice().sort((a,b)=>a.entity_id.localeCompare(b.entity_id)).map(e=>`<option value="${e.entity_id}" ${(t.linked_entities||[]).includes(e.entity_id)?'selected':''}>${e.entity_id}${e.name ? ' - '+e.name : ''}</option>`).join("");
-    const notifyOptions = [`<option value="automation_only">Automation only</option>`,`<option value="none">No built-in notifications</option>`,`<option value="persistent">Home Assistant notification</option>`,`<option value="mobile">Mobile app</option>`,`<option value="both">Home Assistant + mobile app</option>`].map(o=>o.replace(`value="${t.notification_mode||'automation_only'}"`,`value="${t.notification_mode||'automation_only'}" selected`)).join("");
-    const mobileOptions = [`<option value="">Choose a mobile notify target...</option>`, ...this.metadata.notify_services.map(s=>`<option value="${s.value}" ${t.mobile_notify_service===s.value?'selected':''}>${s.label}</option>`)].join("");
-    const tagOptions = [`<option value="">No NFC tag</option>`, ...this.tags.map(tag=>`<option value="${tag.tag_id || tag.id}" ${(t.nfc_tags||[])[0]===(tag.tag_id||tag.id)?'selected':''}>${tag.name || tag.tag_id || tag.id}</option>`)].join("");
+    const areaOptions = [`<option value="">No area / choose later</option>`, ...this.metadata.areas.map(a=>`<option value="${this.escape(a.id)}" ${t.area===a.id?'selected':''}>${this.escape(a.name)}</option>`)].join("");
+    const deviceOptions = [`<option value="">No specific device</option>`, ...this.metadata.devices.sort((a,b)=>(a.name||'').localeCompare(b.name||'')).map(d=>`<option value="${this.escape(d.id)}" ${t.linked_device_id===d.id?'selected':''}>${this.escape(d.name || d.id)}</option>`)].join("");
+    const entityOptions = this.metadata.entities.slice().sort((a,b)=>a.entity_id.localeCompare(b.entity_id)).map(e=>`<option value="${this.escape(e.entity_id)}" ${(t.linked_entities||[]).includes(e.entity_id)?'selected':''}>${this.escape(e.entity_id)}${e.name ? ' - '+this.escape(e.name) : ''}</option>`).join("");
+    const notifyOptions = [`<option value="automation_only">Automation only</option>`,`<option value="none">No built-in notifications</option>`,`<option value="persistent">Home Assistant persistent notification</option>`,`<option value="mobile">Mobile app notification</option>`,`<option value="both">Home Assistant + mobile app</option>`].map(o=>o.replace(`value="${t.notification_mode||'automation_only'}"`,`value="${t.notification_mode||'automation_only'}" selected`)).join("");
+    const mobileOptions = [`<option value="">No mobile target selected</option>`, ...this.metadata.notify_services.map(s=>`<option value="${this.escape(s.value)}" ${t.mobile_notify_service===s.value?'selected':''}>${this.escape(s.label)}</option>`)].join("");
+    const tagOptions = [`<option value="">No NFC tag</option>`, ...this.tags.map(tag=>`<option value="${this.escape(tag.tag_id || tag.id)}" ${(t.nfc_tags||[])[0]===(tag.tag_id||tag.id)?'selected':''}>${this.escape(tag.name || tag.tag_id || tag.id)}</option>`)].join("");
     const runtimeRule = (t.rules||[]).find(r=>r.type==='runtime') || {};
     const timeRule = (t.rules||[]).find(r=>r.type==='time') || {days:90};
+    const scheduleValue = t.rule_logic === 'all' && runtimeRule.entity ? 'time_and_usage' : (runtimeRule.entity && timeRule.days ? 'time_or_usage' : runtimeRule.entity ? 'usage' : 'time');
     return `<div class="modal-scrim"><div class="modal">
-      <div class="modal-head"><div><h2>${isEdit ? 'Edit maintenance task' : 'Add maintenance task'}</h2><div class="muted">Use plain language. You can always come back and change this later.</div></div><button class="btn" data-action="close-modal">Close</button></div>
-      <div class="two"><div><label>Task name</label><div class="help">Example: HVAC filter replacement</div><input id="task-name" value="${t.name || ''}"></div><div><label>Category</label><select id="task-category">${['General','HVAC','Pool','Hot Tub','Appliance','Plumbing','Electrical','Yard','Vehicle','3D Printer','Seasonal','Safety','Other'].map(c=>`<option ${t.category===c?'selected':''}>${c}</option>`).join('')}</select></div></div>
-      <label>Description</label><textarea id="task-description">${t.description || ''}</textarea>
-      <div class="two"><div><label>Area</label><select id="task-area">${areaOptions}</select></div><div><label>Device</label><select id="task-device">${deviceOptions}</select></div></div>
-      <label>Linked entities</label><div class="help">Pick one or more entities related to this maintenance item.</div><select id="task-entities" multiple size="6">${entityOptions}</select>
-      <div class="two"><div><label>Maintenance schedule</label><select id="task-schedule"><option value="time">Time based</option><option value="usage">Usage based</option><option value="time_or_usage">Time or usage, whichever comes first</option><option value="time_and_usage">Time and usage</option></select></div><div><label>Every how many days?</label><input id="task-days" type="number" min="1" value="${Math.round(timeRule.days || 90)}"></div></div>
-      <div class="two"><div><label>Runtime entity</label><select id="task-runtime-entity"><option value="">Choose an entity...</option>${this.metadata.entities.map(e=>`<option value="${e.entity_id}" ${runtimeRule.entity===e.entity_id?'selected':''}>${e.entity_id}</option>`).join('')}</select></div><div><label>Runtime hours</label><input id="task-runtime-hours" type="number" min="0.1" step="0.1" value="${runtimeRule.hours || 100}"></div></div>
-      <div class="two"><div><label>When was it last done?</label><select id="task-baseline"><option value="today">Today</option><option value="unknown">Unknown / start today</option></select></div><div><label>NFC tag</label><select id="task-nfc">${tagOptions}</select></div></div>
-      <div class="two"><div><label>Notifications</label><select id="task-notify">${notifyOptions}</select></div><div><label>Mobile notification target</label><select id="task-mobile">${mobileOptions}</select></div></div>
-      <label>Instructions</label><textarea id="task-instructions">${t.instructions || ''}</textarea>
-      <div class="task-actions"><button class="btn primary" data-action="save-task" data-task-id="${t.id || ''}">${isEdit ? 'Save changes' : 'Create task'}</button>${isEdit ? `<button class="btn danger" data-delete="${t.id}">Delete</button>` : ''}</div>
+      <div class="modal-head"><div><h2>${isEdit ? 'Edit maintenance task' : 'Add maintenance task'}</h2><div class="muted">This one-page setup is grouped into sections. Start simple; advanced fields can be left blank.</div></div><button class="btn" data-action="close-modal">Close</button></div>
+
+      <div class="form-section">
+        <h3>1. Task basics</h3><p class="section-note">Name the maintenance item in plain language.</p>
+        <div class="two">
+          <div><label>${this.label('Task name','The friendly name shown on dashboards and in notifications. Example: HVAC Filter Replacement.')}</label><div class="help">Example: HVAC filter replacement</div><input id="task-name" value="${this.escape(t.name || '')}"></div>
+          <div><label>${this.label('Category','Used to group and filter tasks. It does not change the due calculation.')}</label><select id="task-category">${['General','HVAC','Pool','Hot Tub','Appliance','Plumbing','Electrical','Yard','Vehicle','3D Printer','Seasonal','Safety','Other'].map(c=>`<option ${t.category===c?'selected':''}>${c}</option>`).join('')}</select></div>
+        </div>
+        <label>${this.label('Description','Optional short description for the task card and future reference.')}</label><textarea id="task-description" placeholder="Optional: what this task covers and why it matters.">${this.escape(t.description || '')}</textarea>
+      </div>
+
+      <div class="form-section">
+        <h3>2. What is being maintained?</h3><p class="section-note">Link the task to an area, device, or entities in Home Assistant.</p>
+        <div class="two">
+          <div><label>${this.label('Area','Choose the Home Assistant area where the maintenance happens, such as Garage or Pool House.')}</label><select id="task-area">${areaOptions}</select></div>
+          <div><label>${this.label('Device','Optionally link this task to the real device being maintained. This helps organize tasks by equipment.')}</label><select id="task-device">${deviceOptions}</select></div>
+        </div>
+        <label>${this.label('Linked entities','Optional related entities. For usage-based tasks, select the runtime source below too.')}</label><div class="help">Hold Ctrl/Cmd to select more than one entity.</div><select id="task-entities" multiple size="6">${entityOptions}</select>
+      </div>
+
+      <div class="form-section">
+        <h3>3. Maintenance schedule</h3><p class="section-note">Choose when the task becomes due. Time based is easiest; usage based tracks runtime from an entity.</p>
+        <div class="two">
+          <div><label>${this.label('Schedule type','Time based uses days. Usage based tracks runtime hours. Time or usage means whichever comes first.')}</label><select id="task-schedule"><option value="time" ${scheduleValue==='time'?'selected':''}>Time based</option><option value="usage" ${scheduleValue==='usage'?'selected':''}>Usage based</option><option value="time_or_usage" ${scheduleValue==='time_or_usage'?'selected':''}>Time or usage, whichever comes first</option><option value="time_and_usage" ${scheduleValue==='time_and_usage'?'selected':''}>Time and usage</option></select></div>
+          <div><label>${this.label('Every how many days?','For time-based rules, the task becomes due this many days after the last completed date.')}</label><input id="task-days" type="number" min="1" value="${Math.round(timeRule.days || 90)}"></div>
+        </div>
+        <div class="two">
+          <div><label>${this.label('Runtime entity','For usage-based rules, choose the entity whose ON/running time should be counted.')}</label><select id="task-runtime-entity"><option value="">No runtime entity</option>${this.metadata.entities.map(e=>`<option value="${this.escape(e.entity_id)}" ${runtimeRule.entity===e.entity_id?'selected':''}>${this.escape(e.entity_id)}</option>`).join('')}</select></div>
+          <div><label>${this.label('Runtime hours','The task becomes due after this many runtime hours since the last completion.')}</label><input id="task-runtime-hours" type="number" min="0.1" step="0.1" value="${runtimeRule.hours || 100}"></div>
+        </div>
+        <label>${this.label('When was it last done?','Sets the starting point for the first due date. Today is safest for a new task.')}</label><select id="task-baseline"><option value="today">Today</option><option value="unknown">Unknown / start today</option></select>
+      </div>
+
+      <div class="form-section">
+        <h3>4. Reminders and NFC</h3><p class="section-note">Choose whether Home Assistant should notify you and optionally connect an NFC tag.</p>
+        <div class="two">
+          <div><label>${this.label('Notification style','Automation only exposes entities for your own automations. Built-in options create Home Assistant notifications.')}</label><select id="task-notify">${notifyOptions}</select></div>
+          <div><label>${this.label('Mobile notification target','Choose a notify service from Home Assistant, usually notify.mobile_app_phone_name.')}</label><select id="task-mobile">${mobileOptions}</select></div>
+        </div>
+        <label>${this.label('NFC tag','Choose a registered Home Assistant NFC tag. Scanning it can be used to confirm or log this task.')}</label><select id="task-nfc">${tagOptions}</select>
+      </div>
+
+      <div class="form-section">
+        <h3>5. Instructions</h3><p class="section-note">Optional homeowner-friendly notes. Add the steps someone should follow when doing the task.</p>
+        <label>${this.label('Instructions','Optional markdown-style instructions or checklist notes. Example: Turn off power, remove filter, clean, reinstall.')}</label><textarea id="task-instructions" placeholder="1. Turn off equipment\n2. Perform maintenance\n3. Mark complete">${this.escape(t.instructions || '')}</textarea>
+      </div>
+
+      <div class="task-actions"><button class="btn primary" data-action="save-task" data-task-id="${this.escape(t.id || '')}">${isEdit ? 'Save changes' : 'Create task'}</button>${isEdit ? `<button class="btn danger" data-delete="${this.escape(t.id)}">Delete</button>` : ''}</div>
     </div></div>`;
   }
 

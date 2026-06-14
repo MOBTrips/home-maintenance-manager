@@ -2,7 +2,7 @@
 
 A HACS-ready Home Assistant custom integration for tracking home maintenance tasks by time, runtime, NFC tags, history, and notifications.
 
-## v0.4.0 highlights
+## v0.4.3 highlights
 
 - Adds a custom Home Assistant sidebar panel: **Maintenance**
 - Beginner-friendly dashboard with health score, next-up tasks, task cards, and history
@@ -20,3 +20,10 @@ After restart, you should see a new sidebar item named **Maintenance**.
 ## Notes
 
 The custom panel is an early UI-centric preview. If the NFC tag list does not populate, the panel will still allow tasks without NFC tags and the advanced Options Flow can still accept manual tag IDs.
+
+
+## v0.4.3
+
+- Reworked the panel task editor into clear one-page sections.
+- Added field help/tooltips for the add/edit maintenance task screen.
+- Improved friendly labels and placeholder guidance for beginner users.
