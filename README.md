@@ -1,55 +1,12 @@
-# Home Maintenance Manager
+# Home Maintenance Manager v0.4.9
 
-A HACS-ready Home Assistant custom integration for tracking home maintenance tasks by time, runtime, NFC tags, history, and notifications.
+Patch release after v0.4.8.
 
-## v0.4.3 highlights
+## Fixed
 
-- Adds a custom Home Assistant sidebar panel: **Maintenance**
-- Beginner-friendly dashboard with health score, next-up tasks, task cards, and history
-- In-panel add/edit/delete task workflow
-- Area, device, entity, mobile notify service, and NFC tag lookups
-- Uses Home Assistant websocket/service APIs from the panel
-- Keeps the existing Options Flow editor for advanced configuration
+- Creating or editing tasks from the Maintenance sidebar now reloads the config entry so Home Assistant creates/updates the corresponding task device and entities.
+- Deleting tasks now reloads the config entry so removed task entities/devices are cleaned up.
 
-## Install
+## Why
 
-Copy `custom_components/home_maintenance_manager` into your Home Assistant `custom_components` folder, restart Home Assistant, then add the integration from **Settings → Devices & Services**.
-
-After restart, you should see a new sidebar item named **Maintenance**.
-
-## Notes
-
-The custom panel is an early UI-centric preview. If the NFC tag list does not populate, the panel will still allow tasks without NFC tags and the advanced Options Flow can still accept manual tag IDs.
-
-
-## v0.4.3
-
-- Reworked the panel task editor into clear one-page sections.
-- Added field help/tooltips for the add/edit maintenance task screen.
-- Improved friendly labels and placeholder guidance for beginner users.
-
-
-## v0.4.5
-- Renamed Device/Linked Entities in the panel to homeowner-friendly equipment/data-source language.
-- Added Equipment Name for tasks with no Home Assistant device or entity, like RO water filters.
-- Added conditional show/hide for time, usage, and mobile notification fields based on parent selections.
-
-## v0.4.6
-
-- Added category-focused dashboard polish.
-- Dashboard now shows category cards with per-category health scores, due counts, and upcoming counts.
-- Tasks view now includes category/status filters and sorting.
-- Tasks are grouped by category for easier homeowner navigation.
-- Task cards now show maintenance category directly.
-- History entries now include category context.
-- Category field tooltip now explains where category is used.
-- Added stronger save validation for task name, time interval, runtime source, runtime hours, and mobile notification target.
-
-
-## v0.4.8
-
-- Added Metered Usage schedules separate from Runtime Hours.
-- Runtime Hours continues to count elapsed hours while an entity is on/running/above threshold.
-- Metered Usage uses a numeric sensor value and its unit, such as gallons, kWh, miles, grams, pages, or cycles.
-- Added metered usage source picker, usage amount, unit display, and usage used/remaining sensors.
-- Mark Complete now resets metered usage baselines to the current source value.
+The custom sidebar panel was saving tasks to storage, but Home Assistant entity platforms do not automatically create new entities after setup unless the config entry is reloaded or entities are dynamically added. This patch uses a config entry reload after task save/delete.

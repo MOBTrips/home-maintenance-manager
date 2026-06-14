@@ -172,19 +172,34 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     async def handle_reset_runtime(call):
         await coordinator.async_reset_runtime(call.data["task_id"])
 
+    async def _async_reload_entry_after_options_change() -> None:
+        """Reload the config entry so HA creates/removes task entities and devices.
+
+        Maintenance tasks are represented as Home Assistant entities/devices.
+        Updating the coordinator store alone updates the sidebar panel, but it does
+        not cause the sensor/binary_sensor/button platforms to add new entities.
+        A config entry reload is the safest current approach for this custom panel
+        flow because the platform setup code rebuilds entities from stored tasks.
+        """
+        await hass.config_entries.async_reload(entry.entry_id)
+
     async def handle_upsert_task(call):
         task = call.data["task"]
         tasks = list(entry.options.get(CONF_TASKS, []))
         tasks = [item for item in tasks if item.get("id") != task["id"]]
         tasks.append(task)
         hass.config_entries.async_update_entry(entry, options={**entry.options, CONF_TASKS: tasks})
+        # Update storage immediately so the panel can refresh, then reload the
+        # entry to create/update the real HA device and entities.
         await coordinator.async_upsert_task(task)
+        hass.async_create_task(_async_reload_entry_after_options_change())
 
     async def handle_delete_task(call):
         task_id = call.data["task_id"]
         tasks = [item for item in entry.options.get(CONF_TASKS, []) if item.get("id") != task_id]
         hass.config_entries.async_update_entry(entry, options={**entry.options, CONF_TASKS: tasks})
         await coordinator.async_delete_task(task_id)
+        hass.async_create_task(_async_reload_entry_after_options_change())
 
     hass.services.async_register(DOMAIN, SERVICE_MARK_COMPLETE, handle_mark_complete, schema=vol.Schema({vol.Required("task_id"): cv.string, vol.Optional("method", default="service"): cv.string, vol.Optional("notes"): cv.string}))
     hass.services.async_register(DOMAIN, SERVICE_SNOOZE, handle_snooze, schema=vol.Schema({vol.Required("task_id"): cv.string, vol.Optional("days", default=7): vol.Coerce(int)}))
