@@ -33,3 +33,14 @@ The custom panel is an early UI-centric preview. If the NFC tag list does not po
 - Renamed Device/Linked Entities in the panel to homeowner-friendly equipment/data-source language.
 - Added Equipment Name for tasks with no Home Assistant device or entity, like RO water filters.
 - Added conditional show/hide for time, usage, and mobile notification fields based on parent selections.
+
+## v0.4.6
+
+- Added category-focused dashboard polish.
+- Dashboard now shows category cards with per-category health scores, due counts, and upcoming counts.
+- Tasks view now includes category/status filters and sorting.
+- Tasks are grouped by category for easier homeowner navigation.
+- Task cards now show maintenance category directly.
+- History entries now include category context.
+- Category field tooltip now explains where category is used.
+- Added stronger save validation for task name, time interval, runtime source, runtime hours, and mobile notification target.
