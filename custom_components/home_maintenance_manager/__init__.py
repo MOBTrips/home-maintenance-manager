@@ -121,7 +121,7 @@ async def _async_register_panel(hass: HomeAssistant) -> None:
         sidebar_title="Maintenance",
         sidebar_icon="mdi:home-wrench",
         frontend_url_path="home-maintenance-manager",
-        module_url=f"/{DOMAIN}_frontend/home-maintenance-manager-panel.js",
+        js_url=f"/{DOMAIN}_frontend/home-maintenance-manager-panel.js",
         require_admin=False,
         config={"domain": DOMAIN},
     )
