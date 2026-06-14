@@ -36,6 +36,7 @@ class MaintenanceTask:
     area: str | None = None
     linked_entities: list[str] = field(default_factory=list)
     linked_device_id: str | None = None
+    equipment_name: str = ""
     rules: list[dict[str, Any]] = field(default_factory=list)
     rule_logic: str = LOGIC_ANY
     primary_rule_id: str | None = None

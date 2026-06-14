@@ -86,6 +86,8 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
       .section-note { color: var(--secondary-text-color); font-size:13px; margin:0 0 12px; }
       .field-label { display:flex; align-items:center; gap:6px; }
       .tip { display:inline-flex; align-items:center; justify-content:center; width:18px; height:18px; border-radius:50%; background: var(--primary-color); color: var(--text-primary-color); font-size:12px; font-weight:700; cursor:help; }
+      .hidden { display:none !important; }
+      .info-box { border-left:4px solid var(--primary-color); background: var(--card-background-color); padding:10px 12px; border-radius:10px; margin:10px 0; color: var(--secondary-text-color); }
     `;
   }
 
@@ -140,6 +142,7 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     const status = this.taskStatus(t);
     return `<div class="card">
       <div class="task-title">${t.name || t.id}</div>
+      ${t.equipment_name ? `<div class="muted">Equipment: ${this.escape(t.equipment_name)}</div>` : ""}
       <span class="pill ${status}">${status}</span>
       <div class="progress"><div class="bar" style="width:${this.percent(t)}%"></div></div>
       <div><b>${this.percent(t)}%</b> used</div>
@@ -205,23 +208,23 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
       </div>
 
       <div class="form-section">
-        <h3>2. What is being maintained?</h3><p class="section-note">Link the task to an area, device, or entities in Home Assistant.</p>
+        <h3>2. What is being maintained?</h3><p class="section-note">Choose where this work happens. A Home Assistant device is optional; use the equipment name field for offline items like RO filters, smoke detectors, or appliances that are not connected to Home Assistant.</p>
         <div class="two">
           <div><label>${this.label('Area','Choose the Home Assistant area where the maintenance happens, such as Garage or Pool House.')}</label><select id="task-area">${areaOptions}</select></div>
-          <div><label>${this.label('Device','Optionally link this task to the real device being maintained. This helps organize tasks by equipment.')}</label><select id="task-device">${deviceOptions}</select></div>
+          <div><label>${this.label('Equipment in Home Assistant (optional)','Select a Home Assistant device only if one exists. Leave this blank for offline equipment like an RO water filter.')}</label><select id="task-device">${deviceOptions}</select></div>
         </div>
-        <label>${this.label('Linked entities','Optional related entities. For usage-based tasks, select the runtime source below too.')}</label><div class="help">Hold Ctrl/Cmd to select more than one entity.</div><select id="task-entities" multiple size="6">${entityOptions}</select>
+        <label>${this.label('Equipment name','Use this for real-world equipment even when there is no Home Assistant device, such as RO Water Filter or Garage Door Springs.')}</label><input id="task-equipment-name" placeholder="Example: RO water filter" value="${this.escape(t.equipment_name || '')}"><div class="info-box">You do not need a Home Assistant device or entity for simple time-based maintenance. For example, an RO filter can be tracked every 6 months with only a name and schedule.</div><div class="conditional usage-fields"><label>${this.label('Data sources (optional)','Home Assistant entities related to this task. For usage-based tasks, these can be sensors, switches, or binary sensors used to track runtime or context.')}</label><div class="help">Hold Ctrl/Cmd to select more than one entity.</div><select id="task-entities" multiple size="6">${entityOptions}</select></div>
       </div>
 
       <div class="form-section">
         <h3>3. Maintenance schedule</h3><p class="section-note">Choose when the task becomes due. Time based is easiest; usage based tracks runtime from an entity.</p>
         <div class="two">
           <div><label>${this.label('Schedule type','Time based uses days. Usage based tracks runtime hours. Time or usage means whichever comes first.')}</label><select id="task-schedule"><option value="time" ${scheduleValue==='time'?'selected':''}>Time based</option><option value="usage" ${scheduleValue==='usage'?'selected':''}>Usage based</option><option value="time_or_usage" ${scheduleValue==='time_or_usage'?'selected':''}>Time or usage, whichever comes first</option><option value="time_and_usage" ${scheduleValue==='time_and_usage'?'selected':''}>Time and usage</option></select></div>
-          <div><label>${this.label('Every how many days?','For time-based rules, the task becomes due this many days after the last completed date.')}</label><input id="task-days" type="number" min="1" value="${Math.round(timeRule.days || 90)}"></div>
+          <div class="conditional time-fields"><label>${this.label('Every how many days?','For time-based rules, the task becomes due this many days after the last completed date.')}</label><input id="task-days" type="number" min="1" value="${Math.round(timeRule.days || 90)}"></div>
         </div>
         <div class="two">
-          <div><label>${this.label('Runtime entity','For usage-based rules, choose the entity whose ON/running time should be counted.')}</label><select id="task-runtime-entity"><option value="">No runtime entity</option>${this.metadata.entities.map(e=>`<option value="${this.escape(e.entity_id)}" ${runtimeRule.entity===e.entity_id?'selected':''}>${this.escape(e.entity_id)}</option>`).join('')}</select></div>
-          <div><label>${this.label('Runtime hours','The task becomes due after this many runtime hours since the last completion.')}</label><input id="task-runtime-hours" type="number" min="0.1" step="0.1" value="${runtimeRule.hours || 100}"></div>
+          <div class="conditional usage-fields"><label>${this.label('Runtime source','For usage-based rules, choose the entity whose ON/running time should be counted. This field is hidden for time-only tasks.')}</label><select id="task-runtime-entity"><option value="">No runtime source selected</option>${this.metadata.entities.map(e=>`<option value="${this.escape(e.entity_id)}" ${runtimeRule.entity===e.entity_id?'selected':''}>${this.escape(e.entity_id)}</option>`).join('')}</select></div>
+          <div class="conditional usage-fields"><label>${this.label('Runtime hours','The task becomes due after this many runtime hours since the last completion. This field is hidden for time-only tasks.')}</label><input id="task-runtime-hours" type="number" min="0.1" step="0.1" value="${runtimeRule.hours || 100}"></div>
         </div>
         <label>${this.label('When was it last done?','Sets the starting point for the first due date. Today is safest for a new task.')}</label><select id="task-baseline"><option value="today">Today</option><option value="unknown">Unknown / start today</option></select>
       </div>
@@ -230,7 +233,7 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
         <h3>4. Reminders and NFC</h3><p class="section-note">Choose whether Home Assistant should notify you and optionally connect an NFC tag.</p>
         <div class="two">
           <div><label>${this.label('Notification style','Automation only exposes entities for your own automations. Built-in options create Home Assistant notifications.')}</label><select id="task-notify">${notifyOptions}</select></div>
-          <div><label>${this.label('Mobile notification target','Choose a notify service from Home Assistant, usually notify.mobile_app_phone_name.')}</label><select id="task-mobile">${mobileOptions}</select></div>
+          <div class="conditional mobile-fields"><label>${this.label('Mobile notification target','Choose a notify service from Home Assistant, usually notify.mobile_app_phone_name. This appears only when mobile notifications are selected.')}</label><select id="task-mobile">${mobileOptions}</select></div>
         </div>
         <label>${this.label('NFC tag','Choose a registered Home Assistant NFC tag. Scanning it can be used to confirm or log this task.')}</label><select id="task-nfc">${tagOptions}</select>
       </div>
@@ -281,6 +284,7 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
       category: q('task-category').value,
       area: q('task-area').value || null,
       linked_device_id: q('task-device').value || null,
+      equipment_name: q('task-equipment-name').value.trim(),
       linked_entities: selectedEntities,
       rules,
       rule_logic: schedule === 'time_and_usage' ? 'all' : 'any',

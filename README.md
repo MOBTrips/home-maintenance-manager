@@ -27,3 +27,9 @@ The custom panel is an early UI-centric preview. If the NFC tag list does not po
 - Reworked the panel task editor into clear one-page sections.
 - Added field help/tooltips for the add/edit maintenance task screen.
 - Improved friendly labels and placeholder guidance for beginner users.
+
+
+## v0.4.4
+- Renamed Device/Linked Entities in the panel to homeowner-friendly equipment/data-source language.
+- Added Equipment Name for tasks with no Home Assistant device or entity, like RO water filters.
+- Added conditional show/hide for time, usage, and mobile notification fields based on parent selections.
