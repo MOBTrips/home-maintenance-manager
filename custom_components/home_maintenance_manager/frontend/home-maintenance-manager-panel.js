@@ -74,6 +74,7 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
       label { display:block; font-weight:600; margin:12px 0 6px; }
       .help { font-size:13px; color: var(--secondary-text-color); margin-bottom:6px; }
       input, select, textarea { box-sizing:border-box; width:100%; padding:12px; border-radius:10px; border:1px solid var(--divider-color); background: var(--card-background-color); color: var(--primary-text-color); }
+      ha-entity-picker, ha-selector { display:block; width:100%; --mdc-theme-surface: var(--card-background-color); --mdc-theme-on-surface: var(--primary-text-color); }
       textarea { min-height:80px; }
       .modal-scrim { position:fixed; inset:0; background:rgba(0,0,0,.45); display:flex; align-items:flex-start; justify-content:center; padding:40px 16px; z-index:10; overflow:auto; }
       .modal { width:min(900px, 100%); background:var(--card-background-color); border-radius:22px; padding:22px; box-shadow:0 16px 50px rgba(0,0,0,.35); }
@@ -188,7 +189,6 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     const isEdit = !!t.id;
     const areaOptions = [`<option value="">No area / choose later</option>`, ...this.metadata.areas.map(a=>`<option value="${this.escape(a.id)}" ${t.area===a.id?'selected':''}>${this.escape(a.name)}</option>`)].join("");
     const deviceOptions = [`<option value="">No specific device</option>`, ...this.metadata.devices.sort((a,b)=>(a.name||'').localeCompare(b.name||'')).map(d=>`<option value="${this.escape(d.id)}" ${t.linked_device_id===d.id?'selected':''}>${this.escape(d.name || d.id)}</option>`)].join("");
-    const entityOptions = this.metadata.entities.slice().sort((a,b)=>a.entity_id.localeCompare(b.entity_id)).map(e=>`<option value="${this.escape(e.entity_id)}" ${(t.linked_entities||[]).includes(e.entity_id)?'selected':''}>${this.escape(e.entity_id)}${e.name ? ' - '+this.escape(e.name) : ''}</option>`).join("");
     const notifyOptions = [`<option value="automation_only">Automation only</option>`,`<option value="none">No built-in notifications</option>`,`<option value="persistent">Home Assistant persistent notification</option>`,`<option value="mobile">Mobile app notification</option>`,`<option value="both">Home Assistant + mobile app</option>`].map(o=>o.replace(`value="${t.notification_mode||'automation_only'}"`,`value="${t.notification_mode||'automation_only'}" selected`)).join("");
     const mobileOptions = [`<option value="">No mobile target selected</option>`, ...this.metadata.notify_services.map(s=>`<option value="${this.escape(s.value)}" ${t.mobile_notify_service===s.value?'selected':''}>${this.escape(s.label)}</option>`)].join("");
     const tagOptions = [`<option value="">No NFC tag</option>`, ...this.tags.map(tag=>`<option value="${this.escape(tag.tag_id || tag.id)}" ${(t.nfc_tags||[])[0]===(tag.tag_id||tag.id)?'selected':''}>${this.escape(tag.name || tag.tag_id || tag.id)}</option>`)].join("");
@@ -213,7 +213,7 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
           <div><label>${this.label('Area','Choose the Home Assistant area where the maintenance happens, such as Garage or Pool House.')}</label><select id="task-area">${areaOptions}</select></div>
           <div><label>${this.label('Equipment in Home Assistant (optional)','Select a Home Assistant device only if one exists. Leave this blank for offline equipment like an RO water filter.')}</label><select id="task-device">${deviceOptions}</select></div>
         </div>
-        <label>${this.label('Equipment name','Use this for real-world equipment even when there is no Home Assistant device, such as RO Water Filter or Garage Door Springs.')}</label><input id="task-equipment-name" placeholder="Example: RO water filter" value="${this.escape(t.equipment_name || '')}"><div class="info-box">You do not need a Home Assistant device or entity for simple time-based maintenance. For example, an RO filter can be tracked every 6 months with only a name and schedule.</div><div class="conditional usage-fields"><label>${this.label('Data sources (optional)','Home Assistant entities related to this task. For usage-based tasks, these can be sensors, switches, or binary sensors used to track runtime or context.')}</label><div class="help">Hold Ctrl/Cmd to select more than one entity.</div><select id="task-entities" multiple size="6">${entityOptions}</select></div>
+        <label>${this.label('Equipment name','Use this for real-world equipment even when there is no Home Assistant device, such as RO Water Filter or Garage Door Springs.')}</label><input id="task-equipment-name" placeholder="Example: RO water filter" value="${this.escape(t.equipment_name || '')}"><div class="info-box">You do not need a Home Assistant device or entity for simple time-based maintenance. For example, an RO filter can be tracked every 6 months with only a name and schedule.</div><div class="conditional usage-fields"><label>${this.label('Data sources (optional)','Home Assistant entities related to this task. For usage-based tasks, these can be sensors, switches, or binary sensors used to track runtime or context.')}</label><div class="help">Use the searchable Home Assistant entity picker. You can select multiple entities.</div><ha-selector id="task-entities"></ha-selector></div>
       </div>
 
       <div class="form-section">
@@ -223,7 +223,7 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
           <div class="conditional time-fields"><label>${this.label('Every how many days?','For time-based rules, the task becomes due this many days after the last completed date.')}</label><input id="task-days" type="number" min="1" value="${Math.round(timeRule.days || 90)}"></div>
         </div>
         <div class="two">
-          <div class="conditional usage-fields"><label>${this.label('Runtime source','For usage-based rules, choose the entity whose ON/running time should be counted. This field is hidden for time-only tasks.')}</label><select id="task-runtime-entity"><option value="">No runtime source selected</option>${this.metadata.entities.map(e=>`<option value="${this.escape(e.entity_id)}" ${runtimeRule.entity===e.entity_id?'selected':''}>${this.escape(e.entity_id)}</option>`).join('')}</select></div>
+          <div class="conditional usage-fields"><label>${this.label('Runtime source','For usage-based rules, choose the entity whose ON/running time should be counted. This field is hidden for time-only tasks.')}</label><div class="help">Search by friendly name, entity ID, or entity type. Good choices are switches, binary sensors, fans, sensors, or power sensors.</div><ha-entity-picker id="task-runtime-entity" allow-custom-entity></ha-entity-picker></div>
           <div class="conditional usage-fields"><label>${this.label('Runtime hours','The task becomes due after this many runtime hours since the last completion. This field is hidden for time-only tasks.')}</label><input id="task-runtime-hours" type="number" min="0.1" step="0.1" value="${runtimeRule.hours || 100}"></div>
         </div>
         <label>${this.label('When was it last done?','Sets the starting point for the first due date. Today is safest for a new task.')}</label><select id="task-baseline"><option value="today">Today</option><option value="unknown">Unknown / start today</option></select>
@@ -258,6 +258,20 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     this.shadowRoot.querySelectorAll('[data-delete]').forEach(el=>el.onclick=()=>{ if(confirm('Delete this maintenance task?')) this.callService('delete_task',{task_id:el.dataset.delete}); });
     const save = this.shadowRoot.querySelector('[data-action="save-task"]');
     if (save) save.onclick=()=>this.saveTask(save.dataset.taskId);
+
+    const task = this.modal?.task || {};
+    const runtimeRule = (task.rules || []).find(r => r.type === 'runtime') || {};
+    const entityPicker = this.shadowRoot.getElementById('task-runtime-entity');
+    if (entityPicker) {
+      entityPicker.hass = this._hass;
+      entityPicker.value = runtimeRule.entity || '';
+    }
+    const dataSourcePicker = this.shadowRoot.getElementById('task-entities');
+    if (dataSourcePicker) {
+      dataSourcePicker.hass = this._hass;
+      dataSourcePicker.selector = { entity: { multiple: true } };
+      dataSourcePicker.value = task.linked_entities || [];
+    }
   }
 
   async callService(service, data) {
@@ -275,7 +289,8 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     if (["time","time_or_usage","time_and_usage"].includes(schedule)) rules.push({id:'time_1', type:'time', name:`Every ${q('task-days').value} days`, days:Number(q('task-days').value || 90)});
     if (["usage","time_or_usage","time_and_usage"].includes(schedule) && q('task-runtime-entity').value) rules.push({id:'runtime_1', type:'runtime', name:`Every ${q('task-runtime-hours').value} runtime hours`, entity:q('task-runtime-entity').value, hours:Number(q('task-runtime-hours').value || 100)});
     if (!rules.length) { alert('Please choose a valid time or usage schedule.'); return; }
-    const selectedEntities = Array.from(q('task-entities').selectedOptions).map(o=>o.value);
+    const entityValue = q('task-entities')?.value;
+    const selectedEntities = Array.isArray(entityValue) ? entityValue : (entityValue ? [entityValue] : []);
     const nfc = q('task-nfc').value;
     const task = {
       id: existingId || this.slug(name),
