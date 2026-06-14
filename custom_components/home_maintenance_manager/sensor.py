@@ -16,6 +16,8 @@ SENSOR_TYPES = {
     "days_remaining": ("Days Remaining", UnitOfTime.DAYS, None),
     # Unit intentionally omitted so time-only tasks can show N/A instead of Unknown.
     "runtime_remaining": ("Runtime Remaining", None, None),
+    "usage_used": ("Metered Usage Used", None, None),
+    "usage_remaining": ("Metered Usage Remaining", None, None),
     "next_due": ("Next Due", None, SensorDeviceClass.TIMESTAMP),
     "last_completed": ("Last Completed", None, SensorDeviceClass.TIMESTAMP),
     "completion_count": ("Completion Count", None, None),
@@ -154,6 +156,16 @@ class MaintenanceSensor(SensorEntity):
                 return "N/A"
             value = task.runtime_remaining(self.hass)
             return round(value, 1) if value is not None else None
+        if self.sensor_type == "usage_used":
+            if not task.has_counter_rule():
+                return "N/A"
+            value = task.counter_used(self.hass)
+            return round(value, 1) if value is not None else None
+        if self.sensor_type == "usage_remaining":
+            if not task.has_counter_rule():
+                return "N/A"
+            value = task.counter_remaining(self.hass)
+            return round(value, 1) if value is not None else None
         if self.sensor_type == "next_due":
             return task.next_due_datetime(self.hass)
         if self.sensor_type == "last_completed":
@@ -163,6 +175,12 @@ class MaintenanceSensor(SensorEntity):
         if self.sensor_type == "late_count":
             return task.late_count
         return None
+
+    @property
+    def native_unit_of_measurement(self):
+        if self.sensor_type in ("usage_used", "usage_remaining"):
+            return self.task.counter_unit(self.hass)
+        return self._attr_native_unit_of_measurement
 
     @property
     def extra_state_attributes(self):

@@ -273,8 +273,17 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     const mobileOptions = [`<option value="">No mobile target selected</option>`, ...this.metadata.notify_services.map(s=>`<option value="${this.escape(s.value)}" ${t.mobile_notify_service===s.value?'selected':''}>${this.escape(s.label)}</option>`)].join("");
     const tagOptions = [`<option value="">No NFC tag</option>`, ...this.tags.map(tag=>`<option value="${this.escape(tag.tag_id || tag.id)}" ${(t.nfc_tags||[])[0]===(tag.tag_id||tag.id)?'selected':''}>${this.escape(tag.name || tag.tag_id || tag.id)}</option>`)].join("");
     const runtimeRule = (t.rules||[]).find(r=>r.type==='runtime') || {};
+    const counterRule = (t.rules||[]).find(r=>r.type==='counter') || {};
     const timeRule = (t.rules||[]).find(r=>r.type==='time') || {days:90};
-    const scheduleValue = t.rule_logic === 'all' && runtimeRule.entity ? 'time_and_usage' : (runtimeRule.entity && timeRule.days ? 'time_or_usage' : runtimeRule.entity ? 'usage' : 'time');
+    const hasTimeRule = !!timeRule.days;
+    const hasRuntimeRule = !!runtimeRule.entity;
+    const hasCounterRule = !!counterRule.entity;
+    let scheduleValue = 'time';
+    if (hasTimeRule && hasRuntimeRule) scheduleValue = t.rule_logic === 'all' ? 'time_and_runtime' : 'time_or_runtime';
+    else if (hasTimeRule && hasCounterRule) scheduleValue = t.rule_logic === 'all' ? 'time_and_meter' : 'time_or_meter';
+    else if (hasRuntimeRule) scheduleValue = 'runtime';
+    else if (hasCounterRule) scheduleValue = 'meter';
+    const counterUnit = counterRule.unit || (counterRule.entity && this._hass?.states?.[counterRule.entity]?.attributes?.unit_of_measurement) || 'units';
     const categoryOptions = this.categories().map(c=>`<option value="${this.escape(c)}" ${this.category(t)===c?'selected':''}>${this.escape(c)}</option>`).join('');
     return `<div class="modal-scrim"><div class="modal">
       <div class="modal-head"><div><h2>${isEdit ? 'Edit maintenance task' : 'Add maintenance task'}</h2><div class="muted">This one-page setup is grouped into sections. Start simple; advanced fields can be left blank.</div></div><button class="btn" data-action="close-modal">Close</button></div>
@@ -300,14 +309,26 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
       </div>
 
       <div class="form-section">
-        <h3>3. Maintenance schedule</h3><p class="section-note">Choose when the task becomes due. Time based is easiest; usage based tracks runtime from an entity.</p>
+        <h3>3. Maintenance schedule</h3><p class="section-note">Choose when the task becomes due. Runtime counts hours while something is running. Metered usage counts a sensor value like gallons, kWh, miles, grams, or cycles.</p>
         <div class="two">
-          <div><label>${this.label('Schedule type','Time based uses days. Usage based tracks runtime hours. Time or usage means whichever comes first.')}</label><select id="task-schedule"><option value="time" ${scheduleValue==='time'?'selected':''}>Time based</option><option value="usage" ${scheduleValue==='usage'?'selected':''}>Usage based</option><option value="time_or_usage" ${scheduleValue==='time_or_usage'?'selected':''}>Time or usage, whichever comes first</option><option value="time_and_usage" ${scheduleValue==='time_and_usage'?'selected':''}>Time and usage</option></select></div>
+          <div><label>${this.label('Schedule type','Choose time, runtime hours, metered usage, or a combination. Runtime is duration. Metered usage uses the source entity unit.')}</label><select id="task-schedule">
+            <option value="time" ${scheduleValue==='time'?'selected':''}>Time based</option>
+            <option value="runtime" ${scheduleValue==='runtime'?'selected':''}>Runtime hours</option>
+            <option value="meter" ${scheduleValue==='meter'?'selected':''}>Metered usage</option>
+            <option value="time_or_runtime" ${scheduleValue==='time_or_runtime'?'selected':''}>Time or runtime, whichever comes first</option>
+            <option value="time_and_runtime" ${scheduleValue==='time_and_runtime'?'selected':''}>Time and runtime</option>
+            <option value="time_or_meter" ${scheduleValue==='time_or_meter'?'selected':''}>Time or metered usage, whichever comes first</option>
+            <option value="time_and_meter" ${scheduleValue==='time_and_meter'?'selected':''}>Time and metered usage</option>
+          </select></div>
           <div class="conditional time-fields"><label>${this.label('Every how many days?','For time-based rules, the task becomes due this many days after the last completed date.')}</label><input id="task-days" type="number" min="1" value="${Math.round(timeRule.days || 90)}"><div id="err-days" class="field-error">Enter a valid number of days.</div></div>
         </div>
         <div class="two">
-          <div class="conditional usage-fields"><label>${this.label('Runtime source','For usage-based rules, choose the entity whose ON/running time should be counted. This field is hidden for time-only tasks.')}</label><div class="help">Search by friendly name, entity ID, or entity type. Good choices are switches, binary sensors, fans, sensors, or power sensors.</div><ha-entity-picker id="task-runtime-entity" allow-custom-entity></ha-entity-picker><div id="err-runtime-entity" class="field-error">Choose a runtime source for usage-based tasks.</div></div>
-          <div class="conditional usage-fields"><label>${this.label('Runtime hours','The task becomes due after this many runtime hours since the last completion. This field is hidden for time-only tasks.')}</label><input id="task-runtime-hours" type="number" min="0.1" step="0.1" value="${runtimeRule.hours || 100}"><div id="err-runtime-hours" class="field-error">Enter valid runtime hours.</div></div>
+          <div class="conditional runtime-fields"><label>${this.label('Runtime tracking source','Choose the entity whose ON/running time should be counted. Use this for pumps, fans, compressors, printers, and similar equipment.')}</label><div class="help">Runtime always stores hours. Good choices are switches, binary sensors, fans, status sensors, or power sensors above a threshold.</div><ha-entity-picker id="task-runtime-entity" allow-custom-entity></ha-entity-picker><div id="err-runtime-entity" class="field-error">Choose a runtime source for runtime-based tasks.</div></div>
+          <div class="conditional runtime-fields"><label>${this.label('Runtime hours','The task becomes due after this many runtime hours since the last completion.')}</label><input id="task-runtime-hours" type="number" min="0.1" step="0.1" value="${runtimeRule.hours || 100}"><div id="err-runtime-hours" class="field-error">Enter valid runtime hours.</div></div>
+        </div>
+        <div class="two">
+          <div class="conditional meter-fields"><label>${this.label('Metered usage source','Choose a numeric sensor that increases over time, such as gallons, kWh, miles, grams, pages, or cycles.')}</label><div class="help">The unit is read from the selected entity automatically when available.</div><ha-entity-picker id="task-meter-entity" allow-custom-entity></ha-entity-picker><div id="err-meter-entity" class="field-error">Choose a metered usage source.</div></div>
+          <div class="conditional meter-fields"><label>${this.label('Usage amount','The task becomes due after the selected sensor increases by this amount since the last completion.')}</label><input id="task-meter-amount" type="number" min="0.1" step="0.1" value="${counterRule.amount || 1000}"><div class="help">Current unit: <span id="task-meter-unit">${this.escape(counterUnit)}</span></div><div id="err-meter-amount" class="field-error">Enter a valid usage amount.</div></div>
         </div>
         <label>${this.label('When was it last done?','Sets the starting point for the first due date. Today is safest for a new task.')}</label><select id="task-baseline"><option value="today">Today</option><option value="unknown">Unknown / start today</option></select>
       </div>
@@ -351,10 +372,18 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
 
     const task = this.modal?.task || {};
     const runtimeRule = (task.rules || []).find(r => r.type === 'runtime') || {};
+    const counterRule = (task.rules || []).find(r => r.type === 'counter') || {};
     const entityPicker = this.shadowRoot.getElementById('task-runtime-entity');
     if (entityPicker) {
       entityPicker.hass = this._hass;
       entityPicker.value = runtimeRule.entity || '';
+    }
+    const meterPicker = this.shadowRoot.getElementById('task-meter-entity');
+    if (meterPicker) {
+      meterPicker.hass = this._hass;
+      meterPicker.value = counterRule.entity || '';
+      meterPicker.addEventListener('value-changed', () => this.updateMeterUnit());
+      meterPicker.addEventListener('change', () => this.updateMeterUnit());
     }
     const dataSourcePicker = this.shadowRoot.getElementById('task-entities');
     if (dataSourcePicker) {
@@ -367,17 +396,31 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     if (schedule) schedule.onchange = () => this.syncConditionalFields();
     if (notify) notify.onchange = () => this.syncConditionalFields();
     this.syncConditionalFields();
+    this.updateMeterUnit();
+  }
+
+  updateMeterUnit() {
+    const meterEntity = this.shadowRoot.getElementById('task-meter-entity')?.value || '';
+    const state = meterEntity ? this._hass?.states?.[meterEntity] : null;
+    const unit = state?.attributes?.unit_of_measurement || 'units';
+    const el = this.shadowRoot.getElementById('task-meter-unit');
+    if (el) el.textContent = unit;
   }
 
   syncConditionalFields() {
     const schedule = this.shadowRoot.getElementById('task-schedule')?.value || 'time';
     const notify = this.shadowRoot.getElementById('task-notify')?.value || 'automation_only';
-    const showTime = ["time","time_or_usage","time_and_usage"].includes(schedule);
-    const showUsage = ["usage","time_or_usage","time_and_usage"].includes(schedule);
+    const showTime = ["time","time_or_runtime","time_and_runtime","time_or_meter","time_and_meter"].includes(schedule);
+    const showRuntime = ["runtime","time_or_runtime","time_and_runtime"].includes(schedule);
+    const showMeter = ["meter","time_or_meter","time_and_meter"].includes(schedule);
+    const showUsage = showRuntime || showMeter;
     const showMobile = ["mobile","both"].includes(notify);
     this.shadowRoot.querySelectorAll('.time-fields').forEach(el => el.classList.toggle('hidden', !showTime));
+    this.shadowRoot.querySelectorAll('.runtime-fields').forEach(el => el.classList.toggle('hidden', !showRuntime));
+    this.shadowRoot.querySelectorAll('.meter-fields').forEach(el => el.classList.toggle('hidden', !showMeter));
     this.shadowRoot.querySelectorAll('.usage-fields').forEach(el => el.classList.toggle('hidden', !showUsage));
     this.shadowRoot.querySelectorAll('.mobile-fields').forEach(el => el.classList.toggle('hidden', !showMobile));
+    this.updateMeterUnit();
   }
 
   async callService(service, data) {
@@ -395,23 +438,40 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     const q = id => this.shadowRoot.getElementById(id);
     const name = q('task-name').value.trim();
     const schedule = q('task-schedule').value;
-    const needsTime = ["time","time_or_usage","time_and_usage"].includes(schedule);
-    const needsUsage = ["usage","time_or_usage","time_and_usage"].includes(schedule);
+    const needsTime = ["time","time_or_runtime","time_and_runtime","time_or_meter","time_and_meter"].includes(schedule);
+    const needsRuntime = ["runtime","time_or_runtime","time_and_runtime"].includes(schedule);
+    const needsMeter = ["meter","time_or_meter","time_and_meter"].includes(schedule);
     const days = Number(q('task-days')?.value || 0);
     const runtimeEntity = q('task-runtime-entity')?.value || '';
     const runtimeHours = Number(q('task-runtime-hours')?.value || 0);
+    const meterEntity = q('task-meter-entity')?.value || '';
+    const meterAmount = Number(q('task-meter-amount')?.value || 0);
     const notify = q('task-notify').value;
     const mobile = q('task-mobile')?.value || '';
     let hasError = false;
     this.setError('err-name', !name); hasError = hasError || !name;
     this.setError('err-days', needsTime && (!days || days < 1)); hasError = hasError || (needsTime && (!days || days < 1));
-    this.setError('err-runtime-entity', needsUsage && !runtimeEntity); hasError = hasError || (needsUsage && !runtimeEntity);
-    this.setError('err-runtime-hours', needsUsage && (!runtimeHours || runtimeHours <= 0)); hasError = hasError || (needsUsage && (!runtimeHours || runtimeHours <= 0));
+    this.setError('err-runtime-entity', needsRuntime && !runtimeEntity); hasError = hasError || (needsRuntime && !runtimeEntity);
+    this.setError('err-runtime-hours', needsRuntime && (!runtimeHours || runtimeHours <= 0)); hasError = hasError || (needsRuntime && (!runtimeHours || runtimeHours <= 0));
+    this.setError('err-meter-entity', needsMeter && !meterEntity); hasError = hasError || (needsMeter && !meterEntity);
+    this.setError('err-meter-amount', needsMeter && (!meterAmount || meterAmount <= 0)); hasError = hasError || (needsMeter && (!meterAmount || meterAmount <= 0));
     this.setError('err-mobile', ["mobile","both"].includes(notify) && !mobile); hasError = hasError || (["mobile","both"].includes(notify) && !mobile);
     if (hasError) return;
     const rules = [];
     if (needsTime) rules.push({id:'time_1', type:'time', name:`Every ${days} days`, days});
-    if (needsUsage) rules.push({id:'runtime_1', type:'runtime', name:`Every ${runtimeHours} runtime hours`, entity:runtimeEntity, hours:runtimeHours});
+    if (needsRuntime) rules.push({id:'runtime_1', type:'runtime', name:`Every ${runtimeHours} runtime hours`, entity:runtimeEntity, hours:runtimeHours});
+    if (needsMeter) {
+      const state = this._hass?.states?.[meterEntity];
+      const existingCounter = existing?.rules?.find(r => r.type === 'counter' && r.entity === meterEntity);
+      let baseline = existingCounter?.baseline;
+      if (baseline === undefined || baseline === null || baseline === '') {
+        const raw = state?.state;
+        const parsed = Number(raw);
+        baseline = Number.isFinite(parsed) ? parsed : 0;
+      }
+      const unit = state?.attributes?.unit_of_measurement || existingCounter?.unit || '';
+      rules.push({id:'counter_1', type:'counter', name:`Every ${meterAmount} ${unit || 'units'}`, entity:meterEntity, amount:meterAmount, baseline, unit});
+    }
     const entityValue = q('task-entities')?.value;
     const selectedEntities = Array.isArray(entityValue) ? entityValue : (entityValue ? [entityValue] : []);
     const nfc = q('task-nfc').value;
@@ -426,7 +486,7 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
       equipment_name: q('task-equipment-name').value.trim(),
       linked_entities: selectedEntities,
       rules,
-      rule_logic: schedule === 'time_and_usage' ? 'all' : 'any',
+      rule_logic: ["time_and_runtime","time_and_meter"].includes(schedule) ? 'all' : 'any',
       primary_rule_id: null,
       nfc_tags: nfc ? [nfc] : [],
       nfc_action: nfc ? 'confirm' : 'disabled',

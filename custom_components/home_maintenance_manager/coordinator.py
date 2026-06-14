@@ -81,7 +81,7 @@ class MaintenanceCoordinator:
         entity_ids = set()
         for task in self.tasks.values():
             for rule in task.rules:
-                if rule.get("type") == "runtime" and rule.get("entity"):
+                if rule.get("type") in ("runtime", "counter") and rule.get("entity"):
                     entity_ids.add(rule["entity"])
         for entity_id in entity_ids:
             self._unsub.append(async_track_state_change_event(self.hass, entity_id, self._state_changed))
@@ -134,6 +134,19 @@ class MaintenanceCoordinator:
         task.last_completed_by = user
         task.last_completion_method = method
         task.runtime_seconds = {}
+        # Reset metered-usage baselines to the current source values so usage-based
+        # rules start counting from the completed maintenance event.
+        for rule in task.rules:
+            if rule.get("type") == "counter" and rule.get("entity"):
+                state = self.hass.states.get(rule["entity"])
+                try:
+                    rule["baseline"] = float(state.state) if state else float(rule.get("baseline") or 0)
+                except (TypeError, ValueError):
+                    rule["baseline"] = float(rule.get("baseline") or 0)
+                if state and not rule.get("unit"):
+                    unit = state.attributes.get("unit_of_measurement")
+                    if unit:
+                        rule["unit"] = unit
         entry = {"at": now, "method": method, "user": user, "notes": notes}
         task.completion_history.append(entry)
         task.activity_history.append({"type": "completed", **entry})

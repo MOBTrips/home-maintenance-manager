@@ -186,9 +186,41 @@ class MaintenanceTask:
         values = [p.remaining for p in self.rule_progress(hass) if p.rule_type == RULE_RUNTIME and p.remaining is not None]
         return min(values) if values else None
 
-
     def has_runtime_rule(self) -> bool:
         return any(rule.get("type") == RULE_RUNTIME for rule in self.rules)
+
+    def has_counter_rule(self) -> bool:
+        return any(rule.get("type") == RULE_COUNTER for rule in self.rules)
+
+    def counter_remaining(self, hass: HomeAssistant) -> float | None:
+        values = [p.remaining for p in self.rule_progress(hass) if p.rule_type == RULE_COUNTER and p.remaining is not None]
+        return min(values) if values else None
+
+    def counter_used(self, hass: HomeAssistant) -> float | None:
+        values: list[float] = []
+        for rule in self.rules:
+            if rule.get("type") != RULE_COUNTER:
+                continue
+            entity_id = rule.get("entity")
+            baseline = float(rule.get("baseline") or 0)
+            state = hass.states.get(entity_id) if entity_id else None
+            try:
+                current = float(state.state) if state else baseline
+            except (TypeError, ValueError):
+                current = baseline
+            values.append(max(current - baseline, 0))
+        return max(values) if values else None
+
+    def counter_unit(self, hass: HomeAssistant) -> str | None:
+        for rule in self.rules:
+            if rule.get("type") == RULE_COUNTER:
+                if rule.get("unit"):
+                    return str(rule.get("unit"))
+                entity_id = rule.get("entity")
+                state = hass.states.get(entity_id) if entity_id else None
+                if state:
+                    return state.attributes.get("unit_of_measurement")
+        return None
 
     def next_due_datetime(self, hass: HomeAssistant) -> datetime | None:
         last = self._last_completed_dt()
@@ -217,6 +249,9 @@ class MaintenanceTask:
             "percent_used": self.percent_used(hass),
             "days_remaining": self.days_remaining(hass),
             "runtime_remaining": self.runtime_remaining(hass) if self.has_runtime_rule() else "N/A",
+            "usage_used": self.counter_used(hass) if self.has_counter_rule() else "N/A",
+            "usage_remaining": self.counter_remaining(hass) if self.has_counter_rule() else "N/A",
+            "usage_unit": self.counter_unit(hass),
             "next_due": next_due.isoformat() if next_due else None,
             "last_completed": self.last_completed,
             "completion_count": len(self.completion_history),

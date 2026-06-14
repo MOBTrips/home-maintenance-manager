@@ -44,3 +44,12 @@ The custom panel is an early UI-centric preview. If the NFC tag list does not po
 - History entries now include category context.
 - Category field tooltip now explains where category is used.
 - Added stronger save validation for task name, time interval, runtime source, runtime hours, and mobile notification target.
+
+
+## v0.4.8
+
+- Added Metered Usage schedules separate from Runtime Hours.
+- Runtime Hours continues to count elapsed hours while an entity is on/running/above threshold.
+- Metered Usage uses a numeric sensor value and its unit, such as gallons, kWh, miles, grams, pages, or cycles.
+- Added metered usage source picker, usage amount, unit display, and usage used/remaining sensors.
+- Mark Complete now resets metered usage baselines to the current source value.
