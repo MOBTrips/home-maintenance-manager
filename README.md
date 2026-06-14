@@ -1,12 +1,21 @@
-# Home Maintenance Manager v0.4.9
+# Home Maintenance Manager v0.5.0
 
-Patch release after v0.4.8.
+Runtime setup polish release.
 
-## Fixed
+## Added
 
-- Creating or editing tasks from the Maintenance sidebar now reloads the config entry so Home Assistant creates/updates the corresponding task device and entities.
-- Deleting tasks now reloads the config entry so removed task entities/devices are cleaned up.
+- Runtime source method selection:
+  - Entity is ON
+  - Numeric value is above threshold
+  - Entity is in specific state(s)
+- Dynamic runtime help based on selected entity domain and unit of measurement.
+- Threshold helper for numeric runtime sources.
+- Source history analysis from Home Assistant history API.
+- Recommended starting threshold.
+- Visual histogram of recent source values.
+- Estimated runtime simulation from analyzed history.
+- One-click **Use recommended threshold**.
 
-## Why
+## Notes
 
-The custom sidebar panel was saving tasks to storage, but Home Assistant entity platforms do not automatically create new entities after setup unless the config entry is reloaded or entities are dynamically added. This patch uses a config entry reload after task save/delete.
+Use **Runtime hours** for sensors like W/RPM/% when you want to count hours above a threshold. Use **Metered usage** for cumulative sensors like kWh, gallons, miles, grams, pages, or cycles.

@@ -13,6 +13,8 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     this.categoryFilter = "All";
     this.statusFilter = "All";
     this.sortMode = "urgent";
+    this.runtimeAnalysis = null;
+    this.runtimeAnalysisLoading = false;
   }
 
   set hass(hass) {
@@ -105,6 +107,10 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
       .status-dot { width:10px; height:10px; border-radius:50%; background: var(--primary-color); display:inline-block; margin-right:6px; }
       .field-error { color:#b00020; font-size:13px; margin-top:4px; display:none; }
       .field-error.active { display:block; }
+      .analysis-box { border:1px dashed var(--divider-color); border-radius:14px; padding:12px; margin-top:10px; background: var(--card-background-color); }
+      .histogram { display:flex; align-items:flex-end; gap:3px; height:92px; margin:10px 0; border-bottom:1px solid var(--divider-color); }
+      .histobar { flex:1; min-width:4px; background: var(--primary-color); border-radius:4px 4px 0 0; opacity:.75; }
+      .recommendation { font-size:18px; font-weight:700; margin:8px 0; }
     `;
   }
 
@@ -115,6 +121,24 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
   slug(value) { return (value || "maintenance_task").toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "") || "maintenance_task"; }
   escape(value) { return String(value ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c])); }
   label(text, tip) { return `<span class="field-label"><span>${text}</span><span class="tip" title="${this.escape(tip)}">?</span></span>`; }
+
+  entityState(entityId) { return entityId ? this._hass?.states?.[entityId] : null; }
+  entityUnit(entityId) { return this.entityState(entityId)?.attributes?.unit_of_measurement || ''; }
+  entityDomain(entityId) { return (entityId || '').split('.')[0] || ''; }
+  runtimeUnitLabel(entityId) {
+    const domain = this.entityDomain(entityId);
+    const unit = this.entityUnit(entityId);
+    if (['switch','binary_sensor','fan','light','input_boolean'].includes(domain)) return 'hours while ON';
+    if (unit) return `hours while ${unit} condition is true`;
+    return 'runtime hours';
+  }
+  runtimeMethodLabel(entityId) {
+    const domain = this.entityDomain(entityId);
+    const unit = this.entityUnit(entityId);
+    if (['switch','binary_sensor','fan','light','input_boolean'].includes(domain)) return 'Entity is ON';
+    if (unit) return 'Above threshold';
+    return 'Specific running state';
+  }
 
   categories() {
     const builtIn = ["General","HVAC","Pool","Hot Tub","Water Filtration","Appliance","Plumbing","Electrical","Yard","Vehicle","3D Printer","Seasonal","Safety","Other"];
@@ -273,6 +297,8 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     const mobileOptions = [`<option value="">No mobile target selected</option>`, ...this.metadata.notify_services.map(s=>`<option value="${this.escape(s.value)}" ${t.mobile_notify_service===s.value?'selected':''}>${this.escape(s.label)}</option>`)].join("");
     const tagOptions = [`<option value="">No NFC tag</option>`, ...this.tags.map(tag=>`<option value="${this.escape(tag.tag_id || tag.id)}" ${(t.nfc_tags||[])[0]===(tag.tag_id||tag.id)?'selected':''}>${this.escape(tag.name || tag.tag_id || tag.id)}</option>`)].join("");
     const runtimeRule = (t.rules||[]).find(r=>r.type==='runtime') || {};
+    const runtimeMethod = runtimeRule.above !== undefined ? 'above_threshold' : runtimeRule.states ? 'specific_state' : 'entity_on';
+    const runtimeStateText = Array.isArray(runtimeRule.states) ? runtimeRule.states.join(', ') : 'running,on,heating,cooling';
     const counterRule = (t.rules||[]).find(r=>r.type==='counter') || {};
     const timeRule = (t.rules||[]).find(r=>r.type==='time') || {days:90};
     const hasTimeRule = !!timeRule.days;
@@ -323,8 +349,19 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
           <div class="conditional time-fields"><label>${this.label('Every how many days?','For time-based rules, the task becomes due this many days after the last completed date.')}</label><input id="task-days" type="number" min="1" value="${Math.round(timeRule.days || 90)}"><div id="err-days" class="field-error">Enter a valid number of days.</div></div>
         </div>
         <div class="two">
-          <div class="conditional runtime-fields"><label>${this.label('Runtime tracking source','Choose the entity whose ON/running time should be counted. Use this for pumps, fans, compressors, printers, and similar equipment.')}</label><div class="help">Runtime always stores hours. Good choices are switches, binary sensors, fans, status sensors, or power sensors above a threshold.</div><ha-entity-picker id="task-runtime-entity" allow-custom-entity></ha-entity-picker><div id="err-runtime-entity" class="field-error">Choose a runtime source for runtime-based tasks.</div></div>
-          <div class="conditional runtime-fields"><label>${this.label('Runtime hours','The task becomes due after this many runtime hours since the last completion.')}</label><input id="task-runtime-hours" type="number" min="0.1" step="0.1" value="${runtimeRule.hours || 100}"><div id="err-runtime-hours" class="field-error">Enter valid runtime hours.</div></div>
+          <div class="conditional runtime-fields"><label>${this.label('Runtime tracking source','Choose the entity used to decide when equipment is running. Switches and binary sensors are easiest. Numeric sensors like W or RPM can use a threshold.')}</label><div class="help">Runtime always counts time. A watts sensor usually means “hours above X watts,” not “watts used.”</div><ha-entity-picker id="task-runtime-entity" allow-custom-entity></ha-entity-picker><div id="runtime-source-hint" class="help"></div><div id="err-runtime-entity" class="field-error">Choose a runtime source for runtime-based tasks.</div></div>
+          <div class="conditional runtime-fields"><label>${this.label('Counts as running when','Choose how Home Maintenance Manager should interpret the selected source entity.')}</label><select id="task-runtime-method"><option value="entity_on" ${runtimeMethod==='entity_on'?'selected':''}>Entity is ON</option><option value="above_threshold" ${runtimeMethod==='above_threshold'?'selected':''}>Numeric value is above threshold</option><option value="specific_state" ${runtimeMethod==='specific_state'?'selected':''}>Entity is in specific state(s)</option></select><div id="runtime-method-hint" class="help"></div></div>
+        </div>
+        <div class="two conditional runtime-fields">
+          <div><label>${this.label('Runtime limit','The task becomes due after this many runtime hours since the last completion.')}</label><input id="task-runtime-hours" type="number" min="0.1" step="0.1" value="${runtimeRule.hours || 100}"><div class="help">Unit: <span id="task-runtime-unit">runtime hours</span></div><div id="err-runtime-hours" class="field-error">Enter valid runtime hours.</div></div>
+          <div class="conditional threshold-fields"><label>${this.label('Running threshold','For numeric sensors, count runtime while the value is above this threshold. Example: power > 25 W means equipment is running.')}</label><input id="task-runtime-threshold" type="number" step="0.1" value="${runtimeRule.above ?? ''}" placeholder="Example: 25"><div id="err-runtime-threshold" class="field-error">Enter a valid threshold.</div></div>
+          <div class="conditional state-fields"><label>${this.label('Running states','Comma-separated states that mean the equipment is running. Example: running, heating, cooling.')}</label><input id="task-runtime-states" value="${this.escape(runtimeStateText)}"><div class="help">State matching is exact and case-sensitive to Home Assistant state values.</div></div>
+        </div>
+        <div class="conditional runtime-fields analysis-box">
+          <div><b>Threshold helper</b></div>
+          <div class="help">For numeric sensors, analyze recent history to estimate OFF and RUNNING ranges and recommend a starting threshold.</div>
+          <div class="task-actions"><button class="btn small" type="button" data-action="analyze-runtime">Analyze source</button><button class="btn small" type="button" data-action="use-threshold">Use recommended threshold</button></div>
+          <div id="runtime-analysis">${this.renderRuntimeAnalysis()}</div>
         </div>
         <div class="two">
           <div class="conditional meter-fields"><label>${this.label('Metered usage source','Choose a numeric sensor that increases over time, such as gallons, kWh, miles, grams, pages, or cycles.')}</label><div class="help">The unit is read from the selected entity automatically when available.</div><ha-entity-picker id="task-meter-entity" allow-custom-entity></ha-entity-picker><div id="err-meter-entity" class="field-error">Choose a metered usage source.</div></div>
@@ -377,6 +414,8 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     if (entityPicker) {
       entityPicker.hass = this._hass;
       entityPicker.value = runtimeRule.entity || '';
+      entityPicker.addEventListener('value-changed', () => { this.updateRuntimeHints(); this.runtimeAnalysis = null; this.renderRuntimeAnalysisIntoPanel(); });
+      entityPicker.addEventListener('change', () => { this.updateRuntimeHints(); this.runtimeAnalysis = null; this.renderRuntimeAnalysisIntoPanel(); });
     }
     const meterPicker = this.shadowRoot.getElementById('task-meter-entity');
     if (meterPicker) {
@@ -394,9 +433,98 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     const schedule = this.shadowRoot.getElementById('task-schedule');
     const notify = this.shadowRoot.getElementById('task-notify');
     if (schedule) schedule.onchange = () => this.syncConditionalFields();
+    const runtimeMethodEl = this.shadowRoot.getElementById('task-runtime-method');
+    if (runtimeMethodEl) runtimeMethodEl.onchange = () => this.syncConditionalFields();
+    this.shadowRoot.querySelectorAll('[data-action="analyze-runtime"]').forEach(el=>el.onclick=()=>this.analyzeRuntimeSource());
+    this.shadowRoot.querySelectorAll('[data-action="use-threshold"]').forEach(el=>el.onclick=()=>this.useRecommendedThreshold());
     if (notify) notify.onchange = () => this.syncConditionalFields();
     this.syncConditionalFields();
     this.updateMeterUnit();
+  }
+
+  renderRuntimeAnalysis() {
+    if (this.runtimeAnalysisLoading) return `<div class="muted">Analyzing history…</div>`;
+    const a = this.runtimeAnalysis;
+    if (!a) return `<div class="muted">Select a numeric runtime source, then click Analyze source.</div>`;
+    if (a.error) return `<div class="muted">${this.escape(a.error)}</div>`;
+    const bars = (a.histogram || []).map(b => `<div class="histobar" title="${this.escape(b.label)}: ${b.count}" style="height:${Math.max(4, b.height)}%"></div>`).join('');
+    return `<div class="recommendation">Recommended threshold: ${this.escape(a.recommended)} ${this.escape(a.unit || '')}</div><div class="muted">Range: ${this.escape(a.min)} to ${this.escape(a.max)} ${this.escape(a.unit || '')}. Estimated runtime with this threshold: ${this.escape(a.estimatedHours)} hours over analyzed history.</div><div class="histogram">${bars}</div><div class="help">Reason: ${this.escape(a.reason)}</div>`;
+  }
+
+  renderRuntimeAnalysisIntoPanel() {
+    const el = this.shadowRoot.getElementById('runtime-analysis');
+    if (el) el.innerHTML = this.renderRuntimeAnalysis();
+  }
+
+  updateRuntimeHints() {
+    const entityId = this.shadowRoot.getElementById('task-runtime-entity')?.value || '';
+    const state = this.entityState(entityId);
+    const unit = this.entityUnit(entityId);
+    const domain = this.entityDomain(entityId);
+    const sourceHint = this.shadowRoot.getElementById('runtime-source-hint');
+    const methodHint = this.shadowRoot.getElementById('runtime-method-hint');
+    const unitEl = this.shadowRoot.getElementById('task-runtime-unit');
+    const methodEl = this.shadowRoot.getElementById('task-runtime-method');
+    if (sourceHint) {
+      sourceHint.textContent = entityId ? `Current value: ${state?.state ?? 'unknown'}${unit ? ' ' + unit : ''}. Suggested method: ${this.runtimeMethodLabel(entityId)}.` : '';
+    }
+    if (unitEl) unitEl.textContent = this.runtimeUnitLabel(entityId);
+    if (methodEl && entityId && !methodEl.dataset.userTouched) {
+      if (['switch','binary_sensor','fan','light','input_boolean'].includes(domain)) methodEl.value = 'entity_on';
+      else if (unit) methodEl.value = 'above_threshold';
+      else methodEl.value = 'specific_state';
+    }
+    if (methodHint && methodEl) {
+      methodHint.textContent = methodEl.value === 'above_threshold' ? 'Best for power, RPM, fan speed, current, or other numeric sensors.' : methodEl.value === 'specific_state' ? 'Best for status sensors such as printer status = running.' : 'Best for switches, binary sensors, fans, lights, and helpers.';
+    }
+  }
+
+  async analyzeRuntimeSource() {
+    const entityId = this.shadowRoot.getElementById('task-runtime-entity')?.value || '';
+    const unit = this.entityUnit(entityId);
+    if (!entityId) { this.runtimeAnalysis = {error:'Choose a runtime source first.'}; this.renderRuntimeAnalysisIntoPanel(); return; }
+    this.runtimeAnalysisLoading = true; this.renderRuntimeAnalysisIntoPanel();
+    try {
+      const start = new Date(Date.now() - 7*24*60*60*1000).toISOString();
+      const data = await this._hass.callApi('GET', `history/period/${encodeURIComponent(start)}?filter_entity_id=${encodeURIComponent(entityId)}&minimal_response`);
+      const rows = Array.isArray(data) && Array.isArray(data[0]) ? data[0] : [];
+      const values = rows.map(r => Number(r.state)).filter(v => Number.isFinite(v));
+      if (values.length < 3) throw new Error('Not enough numeric history was found. Try again after this sensor has recorded more data.');
+      values.sort((a,b)=>a-b);
+      const min = values[0], max = values[values.length-1];
+      const p10 = values[Math.floor(values.length*.10)], p50 = values[Math.floor(values.length*.50)], p90 = values[Math.floor(values.length*.90)];
+      let recommended = 0;
+      let reason = 'Using a conservative threshold above the low/off cluster.';
+      if (min <= 1 && p50 > 5) recommended = Math.max(1, Math.round((min + p10 + 1) * 10) / 10);
+      else if (min <= 5 && max > 50) recommended = Math.round((min + Math.max(10, (p10-min)*1.5)) * 10) / 10;
+      else recommended = Math.round(((min + p50) / 2) * 10) / 10;
+      if (unit === 'W' || unit === 'kW') reason = 'Power sensors commonly show a low/off cluster and higher running values. The recommendation is just above the likely off range.';
+      if (unit === 'RPM') reason = 'RPM sensors usually show stopped near 0 and running above that. The recommendation is above the stopped range.';
+      const bins = 20; const span = max-min || 1; const counts = Array(bins).fill(0);
+      for (const v of values) counts[Math.min(bins-1, Math.floor(((v-min)/span)*bins))]++;
+      const maxCount = Math.max(...counts,1);
+      const histogram = counts.map((count,i)=>({count, height: count/maxCount*100, label:`${(min+span*i/bins).toFixed(1)}-${(min+span*(i+1)/bins).toFixed(1)}`}));
+      // Approximate elapsed time by summing time between history points when previous value was above threshold.
+      let seconds = 0;
+      for (let i=1;i<rows.length;i++) {
+        const prev = Number(rows[i-1].state);
+        const a = new Date(rows[i-1].last_changed || rows[i-1].last_updated).getTime();
+        const b = new Date(rows[i].last_changed || rows[i].last_updated).getTime();
+        if (Number.isFinite(prev) && prev > recommended && Number.isFinite(a) && Number.isFinite(b)) seconds += Math.max(0, b-a)/1000;
+      }
+      this.runtimeAnalysis = {min:min.toFixed(1), max:max.toFixed(1), p10:p10.toFixed(1), p50:p50.toFixed(1), p90:p90.toFixed(1), recommended, unit, estimatedHours:(seconds/3600).toFixed(1), histogram, reason};
+    } catch (err) {
+      this.runtimeAnalysis = {error: err?.message || String(err)};
+    } finally {
+      this.runtimeAnalysisLoading = false; this.renderRuntimeAnalysisIntoPanel();
+    }
+  }
+
+  useRecommendedThreshold() {
+    const threshold = this.runtimeAnalysis?.recommended;
+    const input = this.shadowRoot.getElementById('task-runtime-threshold');
+    const method = this.shadowRoot.getElementById('task-runtime-method');
+    if (threshold !== undefined && input) { input.value = threshold; if (method) method.value = 'above_threshold'; this.syncConditionalFields(); }
   }
 
   updateMeterUnit() {
@@ -415,11 +543,15 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     const showMeter = ["meter","time_or_meter","time_and_meter"].includes(schedule);
     const showUsage = showRuntime || showMeter;
     const showMobile = ["mobile","both"].includes(notify);
+    const runtimeMethod = this.shadowRoot.getElementById('task-runtime-method')?.value || 'entity_on';
     this.shadowRoot.querySelectorAll('.time-fields').forEach(el => el.classList.toggle('hidden', !showTime));
     this.shadowRoot.querySelectorAll('.runtime-fields').forEach(el => el.classList.toggle('hidden', !showRuntime));
     this.shadowRoot.querySelectorAll('.meter-fields').forEach(el => el.classList.toggle('hidden', !showMeter));
     this.shadowRoot.querySelectorAll('.usage-fields').forEach(el => el.classList.toggle('hidden', !showUsage));
     this.shadowRoot.querySelectorAll('.mobile-fields').forEach(el => el.classList.toggle('hidden', !showMobile));
+    this.shadowRoot.querySelectorAll('.threshold-fields').forEach(el => el.classList.toggle('hidden', !(showRuntime && runtimeMethod === 'above_threshold')));
+    this.shadowRoot.querySelectorAll('.state-fields').forEach(el => el.classList.toggle('hidden', !(showRuntime && runtimeMethod === 'specific_state')));
+    this.updateRuntimeHints();
     this.updateMeterUnit();
   }
 
@@ -448,18 +580,28 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     const meterAmount = Number(q('task-meter-amount')?.value || 0);
     const notify = q('task-notify').value;
     const mobile = q('task-mobile')?.value || '';
+    const runtimeMethod = q('task-runtime-method')?.value || 'entity_on';
+    const runtimeThreshold = Number(q('task-runtime-threshold')?.value || 0);
+    const runtimeStates = (q('task-runtime-states')?.value || '').split(',').map(s=>s.trim()).filter(Boolean);
+    const existing = existingId ? this.tasks.find(t=>t.id===existingId) : null;
     let hasError = false;
     this.setError('err-name', !name); hasError = hasError || !name;
     this.setError('err-days', needsTime && (!days || days < 1)); hasError = hasError || (needsTime && (!days || days < 1));
     this.setError('err-runtime-entity', needsRuntime && !runtimeEntity); hasError = hasError || (needsRuntime && !runtimeEntity);
     this.setError('err-runtime-hours', needsRuntime && (!runtimeHours || runtimeHours <= 0)); hasError = hasError || (needsRuntime && (!runtimeHours || runtimeHours <= 0));
+    this.setError('err-runtime-threshold', needsRuntime && runtimeMethod === 'above_threshold' && !Number.isFinite(runtimeThreshold)); hasError = hasError || (needsRuntime && runtimeMethod === 'above_threshold' && !Number.isFinite(runtimeThreshold));
     this.setError('err-meter-entity', needsMeter && !meterEntity); hasError = hasError || (needsMeter && !meterEntity);
     this.setError('err-meter-amount', needsMeter && (!meterAmount || meterAmount <= 0)); hasError = hasError || (needsMeter && (!meterAmount || meterAmount <= 0));
     this.setError('err-mobile', ["mobile","both"].includes(notify) && !mobile); hasError = hasError || (["mobile","both"].includes(notify) && !mobile);
     if (hasError) return;
     const rules = [];
     if (needsTime) rules.push({id:'time_1', type:'time', name:`Every ${days} days`, days});
-    if (needsRuntime) rules.push({id:'runtime_1', type:'runtime', name:`Every ${runtimeHours} runtime hours`, entity:runtimeEntity, hours:runtimeHours});
+    if (needsRuntime) {
+      const runtimeRule = {id:'runtime_1', type:'runtime', name:`Every ${runtimeHours} runtime hours`, entity:runtimeEntity, hours:runtimeHours};
+      if (runtimeMethod === 'above_threshold') runtimeRule.above = runtimeThreshold;
+      if (runtimeMethod === 'specific_state') runtimeRule.states = runtimeStates.length ? runtimeStates : ['running'];
+      rules.push(runtimeRule);
+    }
     if (needsMeter) {
       const state = this._hass?.states?.[meterEntity];
       const existingCounter = existing?.rules?.find(r => r.type === 'counter' && r.entity === meterEntity);
@@ -475,7 +617,6 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     const entityValue = q('task-entities')?.value;
     const selectedEntities = Array.isArray(entityValue) ? entityValue : (entityValue ? [entityValue] : []);
     const nfc = q('task-nfc').value;
-    const existing = existingId ? this.tasks.find(t=>t.id===existingId) : null;
     const task = {
       id: existingId || this.slug(name),
       name,
