@@ -15,6 +15,7 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     this.sortMode = "urgent";
     this.runtimeAnalysis = null;
     this.runtimeAnalysisLoading = false;
+    this.analysisDays = 30;
   }
 
   set hass(hass) {
@@ -108,9 +109,21 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
       .field-error { color:#b00020; font-size:13px; margin-top:4px; display:none; }
       .field-error.active { display:block; }
       .analysis-box { border:1px dashed var(--divider-color); border-radius:14px; padding:12px; margin-top:10px; background: var(--card-background-color); }
-      .histogram { display:flex; align-items:flex-end; gap:3px; height:92px; margin:10px 0; border-bottom:1px solid var(--divider-color); }
-      .histobar { flex:1; min-width:4px; background: var(--primary-color); border-radius:4px 4px 0 0; opacity:.75; }
+      .analysis-controls { display:grid; grid-template-columns: 220px 1fr; gap:12px; align-items:end; margin:10px 0; }
+      .histogram-wrap { position:relative; margin:12px 0 8px; padding-top:8px; }
+      .histogram { display:flex; align-items:flex-end; gap:3px; height:132px; margin:6px 0; border-left:1px solid var(--divider-color); border-bottom:1px solid var(--divider-color); padding-left:6px; }
+      .histobar { flex:1; min-width:4px; background: var(--primary-color); border-radius:4px 4px 0 0; opacity:.75; cursor:crosshair; }
+      .histobar:hover { opacity:1; filter:brightness(1.1); }
+      .threshold-marker { position:absolute; top:0; bottom:22px; width:2px; background: var(--accent-color, #03a9f4); box-shadow:0 0 0 2px rgba(3,169,244,.2); pointer-events:none; }
+      .threshold-marker.recommended { background:#2e7d32; box-shadow:0 0 0 2px rgba(46,125,50,.2); }
+      .axis-row { display:flex; justify-content:space-between; gap:8px; font-size:12px; color: var(--secondary-text-color); }
       .recommendation { font-size:18px; font-weight:700; margin:8px 0; }
+      .simulation-grid { display:grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap:8px; margin:10px 0; }
+      .sim-tile { border:1px solid var(--divider-color); border-radius:12px; padding:10px; background: var(--secondary-background-color); }
+      .sim-value { font-size:20px; font-weight:700; }
+      .threshold-slider { width:100%; }
+      @media(max-width: 800px){ .analysis-controls { grid-template-columns: 1fr; } }
+      .tooltip-note { font-size:12px; color: var(--secondary-text-color); }
     `;
   }
 
@@ -360,7 +373,10 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
         <div class="conditional runtime-fields analysis-box">
           <div><b>Threshold helper</b></div>
           <div class="help">For numeric sensors, analyze recent history to estimate OFF and RUNNING ranges and recommend a starting threshold.</div>
-          <div class="task-actions"><button class="btn small" type="button" data-action="analyze-runtime">Analyze source</button><button class="btn small" type="button" data-action="use-threshold">Use recommended threshold</button></div>
+          <div class="analysis-controls">
+            <div><label>${this.label('How far back to analyze','Longer periods are better for equipment that runs on schedules. Last 30 days is a good default.')}</label><select id="analysis-days"><option value="1">Last 24 hours</option><option value="7">Last 7 days</option><option value="30" selected>Last 30 days</option><option value="90">Last 90 days</option><option value="365">Last year</option></select></div>
+            <div class="task-actions"><button class="btn small" type="button" data-action="analyze-runtime">Analyze source</button><button class="btn small" type="button" data-action="use-threshold">Use recommended threshold</button></div>
+          </div>
           <div id="runtime-analysis">${this.renderRuntimeAnalysis()}</div>
         </div>
         <div class="two">
@@ -414,8 +430,8 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     if (entityPicker) {
       entityPicker.hass = this._hass;
       entityPicker.value = runtimeRule.entity || '';
-      entityPicker.addEventListener('value-changed', () => { this.updateRuntimeHints(); this.runtimeAnalysis = null; this.renderRuntimeAnalysisIntoPanel(); });
-      entityPicker.addEventListener('change', () => { this.updateRuntimeHints(); this.runtimeAnalysis = null; this.renderRuntimeAnalysisIntoPanel(); });
+      entityPicker.addEventListener('value-changed', () => { this.runtimeAnalysis = null; this.syncConditionalFields(); this.renderRuntimeAnalysisIntoPanel(); });
+      entityPicker.addEventListener('change', () => { this.runtimeAnalysis = null; this.syncConditionalFields(); this.renderRuntimeAnalysisIntoPanel(); });
     }
     const meterPicker = this.shadowRoot.getElementById('task-meter-entity');
     if (meterPicker) {
@@ -434,9 +450,12 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     const notify = this.shadowRoot.getElementById('task-notify');
     if (schedule) schedule.onchange = () => this.syncConditionalFields();
     const runtimeMethodEl = this.shadowRoot.getElementById('task-runtime-method');
-    if (runtimeMethodEl) runtimeMethodEl.onchange = () => this.syncConditionalFields();
+    if (runtimeMethodEl) runtimeMethodEl.onchange = () => { runtimeMethodEl.dataset.userTouched = '1'; this.syncConditionalFields(); };
     this.shadowRoot.querySelectorAll('[data-action="analyze-runtime"]').forEach(el=>el.onclick=()=>this.analyzeRuntimeSource());
     this.shadowRoot.querySelectorAll('[data-action="use-threshold"]').forEach(el=>el.onclick=()=>this.useRecommendedThreshold());
+    const analysisDays = this.shadowRoot.getElementById('analysis-days');
+    if (analysisDays) { analysisDays.value = String(this.analysisDays || 30); analysisDays.onchange = () => { this.analysisDays = Number(analysisDays.value || 30); this.runtimeAnalysis = null; this.renderRuntimeAnalysisIntoPanel(); }; }
+    this.bindRuntimeAnalysisControls();
     if (notify) notify.onchange = () => this.syncConditionalFields();
     this.syncConditionalFields();
     this.updateMeterUnit();
@@ -445,15 +464,91 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
   renderRuntimeAnalysis() {
     if (this.runtimeAnalysisLoading) return `<div class="muted">Analyzing history…</div>`;
     const a = this.runtimeAnalysis;
-    if (!a) return `<div class="muted">Select a numeric runtime source, then click Analyze source.</div>`;
+    if (!a) return `<div class="muted">Select a numeric runtime source, choose how far back to analyze, then click Analyze source.</div>`;
     if (a.error) return `<div class="muted">${this.escape(a.error)}</div>`;
-    const bars = (a.histogram || []).map(b => `<div class="histobar" title="${this.escape(b.label)}: ${b.count}" style="height:${Math.max(4, b.height)}%"></div>`).join('');
-    return `<div class="recommendation">Recommended threshold: ${this.escape(a.recommended)} ${this.escape(a.unit || '')}</div><div class="muted">Range: ${this.escape(a.min)} to ${this.escape(a.max)} ${this.escape(a.unit || '')}. Estimated runtime with this threshold: ${this.escape(a.estimatedHours)} hours over analyzed history.</div><div class="histogram">${bars}</div><div class="help">Reason: ${this.escape(a.reason)}</div>`;
+    const unit = a.unit || 'units';
+    const min = Number(a.min), max = Number(a.max);
+    const threshold = Number(a.userThreshold ?? a.recommended);
+    const rec = Number(a.recommended);
+    const span = (max - min) || 1;
+    const thresholdPct = Math.max(0, Math.min(100, ((threshold - min) / span) * 100));
+    const recPct = Math.max(0, Math.min(100, ((rec - min) / span) * 100));
+    const bars = (a.histogram || []).map(b => {
+      const pct = b.percent ?? 0;
+      const label = `${b.label} ${unit}: ${b.count} samples (${pct.toFixed ? pct.toFixed(1) : pct}%)`;
+      return `<div class="histobar" data-bin-label="${this.escape(label)}" title="${this.escape(label)}" style="height:${Math.max(4, b.height)}%"></div>`;
+    }).join('');
+    return `<div class="recommendation">Recommended threshold: ${this.escape(a.recommended)} ${this.escape(unit)}</div>
+      <div class="muted">Source unit: ${this.escape(unit)} • Analysis period: last ${this.escape(a.periodDays)} day${Number(a.periodDays) === 1 ? '' : 's'} • Range: ${this.escape(a.min)} to ${this.escape(a.max)} ${this.escape(unit)}</div>
+      <div class="histogram-wrap">
+        <div class="threshold-marker recommended" title="Recommended threshold" style="left:calc(${recPct}% + 6px)"></div>
+        <div id="user-threshold-marker" class="threshold-marker" title="Your threshold" style="left:calc(${thresholdPct}% + 6px)"></div>
+        <div class="histogram">${bars}</div>
+        <div class="axis-row"><span>${this.escape(a.min)} ${this.escape(unit)}</span><span>${this.escape(a.max)} ${this.escape(unit)}</span></div>
+      </div>
+      <div class="tooltip-note">Hover over bars to see value ranges, sample counts, and percentages. Move the threshold slider to simulate runtime.</div>
+      <label>Your running threshold: <span id="threshold-display">${threshold}</span> ${this.escape(unit)}</label>
+      <input id="threshold-slider" class="threshold-slider" type="range" min="${this.escape(a.min)}" max="${this.escape(a.max)}" step="${this.escape(a.step || 0.1)}" value="${threshold}">
+      <div class="simulation-grid">
+        <div class="sim-tile"><div class="muted">Estimated runtime</div><div id="sim-hours" class="sim-value">${this.escape(a.estimatedHours)}</div><div class="muted">hours in period</div></div>
+        <div class="sim-tile"><div class="muted">Average per day</div><div id="sim-daily" class="sim-value">${this.escape(a.avgDailyHours)}</div><div class="muted">hours/day</div></div>
+        <div class="sim-tile"><div class="muted">Maintenance interval</div><div id="sim-interval" class="sim-value">${this.escape(a.maintenanceIntervalDays || '—')}</div><div class="muted">days, based on limit</div></div>
+      </div>
+      <div class="help">Reason: ${this.escape(a.reason)}</div>`;
   }
 
   renderRuntimeAnalysisIntoPanel() {
     const el = this.shadowRoot.getElementById('runtime-analysis');
     if (el) el.innerHTML = this.renderRuntimeAnalysis();
+    this.bindRuntimeAnalysisControls();
+  }
+
+
+  calculateRuntimeStats(threshold) {
+    const a = this.runtimeAnalysis;
+    const rows = a?.rows || [];
+    if (!rows.length) return { hours: 0, daily: 0, intervalDays: '—' };
+    let seconds = 0;
+    for (let i = 1; i < rows.length; i++) {
+      const prev = Number(rows[i - 1].value);
+      const ta = Number(rows[i - 1].time);
+      const tb = Number(rows[i].time);
+      if (Number.isFinite(prev) && prev > threshold && Number.isFinite(ta) && Number.isFinite(tb)) seconds += Math.max(0, tb - ta) / 1000;
+    }
+    const hours = seconds / 3600;
+    const days = Number(a.periodDays || this.analysisDays || 30);
+    const daily = days ? hours / days : 0;
+    const limit = Number(this.shadowRoot.getElementById('task-runtime-hours')?.value || 0);
+    const intervalDays = daily > 0 && limit > 0 ? (limit / daily).toFixed(1) : '—';
+    return { hours: hours.toFixed(1), daily: daily.toFixed(1), intervalDays };
+  }
+
+  bindRuntimeAnalysisControls() {
+    const slider = this.shadowRoot.getElementById('threshold-slider');
+    if (!slider || !this.runtimeAnalysis) return;
+    slider.oninput = () => {
+      const threshold = Number(slider.value);
+      this.runtimeAnalysis.userThreshold = threshold;
+      const unit = this.runtimeAnalysis.unit || '';
+      const input = this.shadowRoot.getElementById('task-runtime-threshold');
+      const method = this.shadowRoot.getElementById('task-runtime-method');
+      if (input) input.value = threshold;
+      if (method) method.value = 'above_threshold';
+      const display = this.shadowRoot.getElementById('threshold-display');
+      if (display) display.textContent = String(threshold);
+      const marker = this.shadowRoot.getElementById('user-threshold-marker');
+      const min = Number(this.runtimeAnalysis.min), max = Number(this.runtimeAnalysis.max);
+      const pct = Math.max(0, Math.min(100, ((threshold - min) / ((max - min) || 1)) * 100));
+      if (marker) marker.style.left = `calc(${pct}% + 6px)`;
+      const stats = this.calculateRuntimeStats(threshold);
+      const h = this.shadowRoot.getElementById('sim-hours');
+      const d = this.shadowRoot.getElementById('sim-daily');
+      const interval = this.shadowRoot.getElementById('sim-interval');
+      if (h) h.textContent = stats.hours;
+      if (d) d.textContent = stats.daily;
+      if (interval) interval.textContent = stats.intervalDays;
+      this.syncConditionalFields();
+    };
   }
 
   updateRuntimeHints() {
@@ -483,13 +578,15 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     const entityId = this.shadowRoot.getElementById('task-runtime-entity')?.value || '';
     const unit = this.entityUnit(entityId);
     if (!entityId) { this.runtimeAnalysis = {error:'Choose a runtime source first.'}; this.renderRuntimeAnalysisIntoPanel(); return; }
+    this.analysisDays = Number(this.shadowRoot.getElementById('analysis-days')?.value || this.analysisDays || 30);
     this.runtimeAnalysisLoading = true; this.renderRuntimeAnalysisIntoPanel();
     try {
-      const start = new Date(Date.now() - 7*24*60*60*1000).toISOString();
+      const start = new Date(Date.now() - this.analysisDays*24*60*60*1000).toISOString();
       const data = await this._hass.callApi('GET', `history/period/${encodeURIComponent(start)}?filter_entity_id=${encodeURIComponent(entityId)}&minimal_response`);
-      const rows = Array.isArray(data) && Array.isArray(data[0]) ? data[0] : [];
-      const values = rows.map(r => Number(r.state)).filter(v => Number.isFinite(v));
-      if (values.length < 3) throw new Error('Not enough numeric history was found. Try again after this sensor has recorded more data.');
+      const rowsRaw = Array.isArray(data) && Array.isArray(data[0]) ? data[0] : [];
+      const rows = rowsRaw.map(r => ({ value: Number(r.state), time: new Date(r.last_changed || r.last_updated).getTime() })).filter(r => Number.isFinite(r.value) && Number.isFinite(r.time));
+      const values = rows.map(r => r.value);
+      if (values.length < 3) throw new Error('Not enough numeric history was found. Try a longer analysis period or wait for this sensor to record more data.');
       values.sort((a,b)=>a-b);
       const min = values[0], max = values[values.length-1];
       const p10 = values[Math.floor(values.length*.10)], p50 = values[Math.floor(values.length*.50)], p90 = values[Math.floor(values.length*.90)];
@@ -500,19 +597,25 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
       else recommended = Math.round(((min + p50) / 2) * 10) / 10;
       if (unit === 'W' || unit === 'kW') reason = 'Power sensors commonly show a low/off cluster and higher running values. The recommendation is just above the likely off range.';
       if (unit === 'RPM') reason = 'RPM sensors usually show stopped near 0 and running above that. The recommendation is above the stopped range.';
-      const bins = 20; const span = max-min || 1; const counts = Array(bins).fill(0);
+      const bins = 24; const span = max-min || 1; const counts = Array(bins).fill(0);
       for (const v of values) counts[Math.min(bins-1, Math.floor(((v-min)/span)*bins))]++;
       const maxCount = Math.max(...counts,1);
-      const histogram = counts.map((count,i)=>({count, height: count/maxCount*100, label:`${(min+span*i/bins).toFixed(1)}-${(min+span*(i+1)/bins).toFixed(1)}`}));
-      // Approximate elapsed time by summing time between history points when previous value was above threshold.
-      let seconds = 0;
-      for (let i=1;i<rows.length;i++) {
-        const prev = Number(rows[i-1].state);
-        const a = new Date(rows[i-1].last_changed || rows[i-1].last_updated).getTime();
-        const b = new Date(rows[i].last_changed || rows[i].last_updated).getTime();
-        if (Number.isFinite(prev) && prev > recommended && Number.isFinite(a) && Number.isFinite(b)) seconds += Math.max(0, b-a)/1000;
-      }
-      this.runtimeAnalysis = {min:min.toFixed(1), max:max.toFixed(1), p10:p10.toFixed(1), p50:p50.toFixed(1), p90:p90.toFixed(1), recommended, unit, estimatedHours:(seconds/3600).toFixed(1), histogram, reason};
+      const histogram = counts.map((count,i)=>{
+        const low = min+span*i/bins;
+        const high = min+span*(i+1)/bins;
+        return {count, percent: count/values.length*100, height: count/maxCount*100, label:`${low.toFixed(1)}-${high.toFixed(1)}`};
+      });
+      const step = span > 1000 ? 1 : span > 100 ? 0.5 : 0.1;
+      const existingThreshold = Number(this.shadowRoot.getElementById('task-runtime-threshold')?.value);
+      const userThreshold = Number.isFinite(existingThreshold) && existingThreshold > 0 ? existingThreshold : recommended;
+      this.runtimeAnalysis = {min:min.toFixed(1), max:max.toFixed(1), p10:p10.toFixed(1), p50:p50.toFixed(1), p90:p90.toFixed(1), recommended, userThreshold, unit, histogram, reason, rows, periodDays:this.analysisDays, step};
+      const stats = this.calculateRuntimeStats(userThreshold);
+      this.runtimeAnalysis.estimatedHours = stats.hours;
+      this.runtimeAnalysis.avgDailyHours = stats.daily;
+      this.runtimeAnalysis.maintenanceIntervalDays = stats.intervalDays;
+      const method = this.shadowRoot.getElementById('task-runtime-method');
+      if (method) method.value = 'above_threshold';
+      this.syncConditionalFields();
     } catch (err) {
       this.runtimeAnalysis = {error: err?.message || String(err)};
     } finally {
@@ -524,7 +627,7 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     const threshold = this.runtimeAnalysis?.recommended;
     const input = this.shadowRoot.getElementById('task-runtime-threshold');
     const method = this.shadowRoot.getElementById('task-runtime-method');
-    if (threshold !== undefined && input) { input.value = threshold; if (method) method.value = 'above_threshold'; this.syncConditionalFields(); }
+    if (threshold !== undefined && input) { input.value = threshold; if (this.runtimeAnalysis) this.runtimeAnalysis.userThreshold = Number(threshold); if (method) method.value = 'above_threshold'; this.syncConditionalFields(); this.renderRuntimeAnalysisIntoPanel(); }
   }
 
   updateMeterUnit() {
@@ -581,7 +684,8 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     const notify = q('task-notify').value;
     const mobile = q('task-mobile')?.value || '';
     const runtimeMethod = q('task-runtime-method')?.value || 'entity_on';
-    const runtimeThreshold = Number(q('task-runtime-threshold')?.value || 0);
+    const runtimeThresholdRaw = q('task-runtime-threshold')?.value;
+    const runtimeThreshold = Number(runtimeThresholdRaw);
     const runtimeStates = (q('task-runtime-states')?.value || '').split(',').map(s=>s.trim()).filter(Boolean);
     const existing = existingId ? this.tasks.find(t=>t.id===existingId) : null;
     let hasError = false;
@@ -589,7 +693,7 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     this.setError('err-days', needsTime && (!days || days < 1)); hasError = hasError || (needsTime && (!days || days < 1));
     this.setError('err-runtime-entity', needsRuntime && !runtimeEntity); hasError = hasError || (needsRuntime && !runtimeEntity);
     this.setError('err-runtime-hours', needsRuntime && (!runtimeHours || runtimeHours <= 0)); hasError = hasError || (needsRuntime && (!runtimeHours || runtimeHours <= 0));
-    this.setError('err-runtime-threshold', needsRuntime && runtimeMethod === 'above_threshold' && !Number.isFinite(runtimeThreshold)); hasError = hasError || (needsRuntime && runtimeMethod === 'above_threshold' && !Number.isFinite(runtimeThreshold));
+    this.setError('err-runtime-threshold', needsRuntime && runtimeMethod === 'above_threshold' && (runtimeThresholdRaw === '' || !Number.isFinite(runtimeThreshold))); hasError = hasError || (needsRuntime && runtimeMethod === 'above_threshold' && (runtimeThresholdRaw === '' || !Number.isFinite(runtimeThreshold)));
     this.setError('err-meter-entity', needsMeter && !meterEntity); hasError = hasError || (needsMeter && !meterEntity);
     this.setError('err-meter-amount', needsMeter && (!meterAmount || meterAmount <= 0)); hasError = hasError || (needsMeter && (!meterAmount || meterAmount <= 0));
     this.setError('err-mobile', ["mobile","both"].includes(notify) && !mobile); hasError = hasError || (["mobile","both"].includes(notify) && !mobile);

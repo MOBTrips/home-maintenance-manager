@@ -1,21 +1,16 @@
-# Home Maintenance Manager v0.5.0
+# Home Maintenance Manager v0.5.1
 
-Runtime setup polish release.
+Adds threshold analysis polish for runtime sources.
 
 ## Added
 
-- Runtime source method selection:
-  - Entity is ON
-  - Numeric value is above threshold
-  - Entity is in specific state(s)
-- Dynamic runtime help based on selected entity domain and unit of measurement.
-- Threshold helper for numeric runtime sources.
-- Source history analysis from Home Assistant history API.
-- Recommended starting threshold.
-- Visual histogram of recent source values.
-- Estimated runtime simulation from analyzed history.
-- One-click **Use recommended threshold**.
+- Analysis period selector: 24 hours, 7 days, 30 days, 90 days, or 1 year.
+- Unit-aware chart labels and threshold labels.
+- Histogram hover tooltips with range, sample count, and percent.
+- Recommended threshold marker and user threshold marker.
+- Draggable threshold slider.
+- Live runtime simulation when moving the threshold.
+- Estimated average runtime per day.
+- Estimated maintenance interval based on the runtime limit.
+- Runtime threshold field now appears automatically when numeric entities are selected/analyzed.
 
-## Notes
-
-Use **Runtime hours** for sensors like W/RPM/% when you want to count hours above a threshold. Use **Metered usage** for cumulative sensors like kWh, gallons, miles, grams, pages, or cycles.
