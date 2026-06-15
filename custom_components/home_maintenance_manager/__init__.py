@@ -42,7 +42,7 @@ TASK_SCHEMA = vol.Schema({
     vol.Optional("checklist", default=[]): vol.All(cv.ensure_list, [cv.string]),
     vol.Optional("parts", default=[]): list,
     vol.Optional("tools", default=[]): vol.All(cv.ensure_list, [cv.string]),
-    vol.Optional("notification_mode", default="automation_only"): vol.In(["none", "persistent", "mobile", "both", "automation_only"]),
+    vol.Optional("notification_mode", default="global"): vol.In(["global", "disabled", "custom", "none", "persistent", "mobile", "both", "automation_only"]),
     vol.Optional("mobile_notify_service", default=""): vol.Any(cv.string, None),
     vol.Optional("allow_snooze", default=True): cv.boolean,
     vol.Optional("max_snooze_count", default=0): vol.Coerce(int),
@@ -77,6 +77,32 @@ def _serialize_tasks(coordinator: MaintenanceCoordinator | None) -> list[dict[st
     return [task.as_dict() | {"status": task.status(coordinator.hass), "summary": task.summary_attributes(coordinator.hass)} for task in coordinator.tasks.values()]
 
 
+def _default_notification_settings() -> dict[str, Any]:
+    return {
+        "enabled": True,
+        "default_mode": "automation_only",
+        "mobile_notify_services": [],
+        "notify_upcoming": True,
+        "notify_due": True,
+        "notify_overdue": True,
+        "notify_completed": False,
+        "notify_snoozed": False,
+        "repeat_mode": "once",
+        "repeat_days": 1,
+        "quiet_start": "",
+        "quiet_end": "",
+        "title_template": "[{category}] {task_name}",
+        "body_template": "{task_name} is {status}.",
+    }
+
+def _notification_settings_for_entry(hass: HomeAssistant) -> dict[str, Any]:
+    entries = hass.config_entries.async_entries(DOMAIN)
+    settings = _default_notification_settings()
+    if entries:
+        settings.update(entries[0].options.get("notification_settings", {}) or {})
+    return settings
+
+
 @websocket_api.websocket_command({vol.Required("type"): f"{DOMAIN}/get_tasks"})
 @websocket_api.async_response
 async def websocket_get_tasks(hass: HomeAssistant, connection, msg) -> None:
@@ -104,8 +130,27 @@ async def websocket_get_metadata(hass: HomeAssistant, connection, msg) -> None:
         "devices": [{"id": device.id, "name": device.name_by_user or device.name or device.model or device.id, "area_id": device.area_id} for device in device_registry.devices.values()],
         "entities": [{"entity_id": entity.entity_id, "name": entity.name or entity.original_name or entity.entity_id, "device_id": entity.device_id, "area_id": entity.area_id} for entity in entity_registry.entities.values()],
         "notify_services": notify_services,
+        "notification_settings": _notification_settings_for_entry(hass),
     })
 
+
+
+@websocket_api.websocket_command({
+    vol.Required("type"): f"{DOMAIN}/update_notification_settings",
+    vol.Required("settings"): dict,
+})
+@websocket_api.async_response
+async def websocket_update_notification_settings(hass: HomeAssistant, connection, msg) -> None:
+    """Update global Home Maintenance Manager notification settings."""
+    entries = hass.config_entries.async_entries(DOMAIN)
+    if not entries:
+        connection.send_error(msg["id"], "not_found", "Home Maintenance Manager config entry was not found")
+        return
+    entry = entries[0]
+    settings = _default_notification_settings()
+    settings.update(msg.get("settings") or {})
+    hass.config_entries.async_update_entry(entry, options={**entry.options, "notification_settings": settings})
+    connection.send_result(msg["id"], {"settings": settings})
 
 async def _async_register_panel(hass: HomeAssistant) -> None:
     """Register the Home Maintenance Manager sidebar panel."""
@@ -142,6 +187,7 @@ async def async_setup(hass: HomeAssistant, config: dict[str, Any]) -> bool:
     hass.data.setdefault(DOMAIN, {})
     websocket_api.async_register_command(hass, websocket_get_tasks)
     websocket_api.async_register_command(hass, websocket_get_metadata)
+    websocket_api.async_register_command(hass, websocket_update_notification_settings)
     await _async_register_panel(hass)
     yaml_tasks = config.get(DOMAIN, {}).get(CONF_TASKS, [])
     hass.data[DOMAIN]["yaml_tasks"] = yaml_tasks

@@ -4,7 +4,8 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     this.attachShadow({ mode: "open" });
     this._hass = null;
     this.tasks = [];
-    this.metadata = { areas: [], devices: [], entities: [], notify_services: [] };
+    this.metadata = { areas: [], devices: [], entities: [], notify_services: [], notification_settings: null };
+    this.notificationSettings = { enabled: true, default_mode: "automation_only", mobile_notify_services: [], notify_upcoming: true, notify_due: true, notify_overdue: true, notify_completed: false, notify_snoozed: false, repeat_mode: "once", repeat_days: 1, quiet_start: "", quiet_end: "", title_template: "[{category}] {task_name}", body_template: "{task_name} is {status}." };
     this.tags = [];
     this.tab = "dashboard";
     this.modal = null;
@@ -37,6 +38,7 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
       ]);
       this.tasks = taskData.tasks || [];
       this.metadata = meta || this.metadata;
+      if (meta?.notification_settings) this.notificationSettings = {...this.notificationSettings, ...meta.notification_settings};
       try {
         const tagResult = await this._hass.callWS({ type: "tag/list" });
         this.tags = Array.isArray(tagResult) ? tagResult : (tagResult.tags || []);
@@ -309,7 +311,36 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
   }
 
   renderSettings() {
-    return `<div class="grid"><div class="card"><h2>Settings</h2><p>This panel is the beginner-friendly Home Maintenance Manager experience. Advanced editing is still available from Settings -> Devices & Services -> Home Maintenance Manager -> Configure.</p><button class="btn" data-action="refresh">Refresh data</button></div><div class="card"><h2>Lookups</h2><p>Areas: ${this.metadata.areas.length}</p><p>Devices: ${this.metadata.devices.length}</p><p>Entities: ${this.metadata.entities.length}</p><p>Notify services: ${this.metadata.notify_services.length}</p><p>NFC tags: ${this.tags.length}</p><p>Categories: ${this.categories().length}</p></div></div>`;
+    const n = this.notificationSettings || {};
+    const modeOptions = [["none","No built-in notifications"],["persistent","Home Assistant persistent notifications"],["mobile","Mobile app notifications"],["both","Persistent + mobile"],["automation_only","Automation only"]].map(([v,l])=>`<option value="${v}" ${n.default_mode===v?'selected':''}>${l}</option>`).join("");
+    const repeatOptions = [["once","Notify once"],["daily","Daily while overdue"],["custom","Every X days while overdue"]].map(([v,l])=>`<option value="${v}" ${n.repeat_mode===v?'selected':''}>${l}</option>`).join("");
+    const mobileOptions = this.metadata.notify_services.map(s=>`<option value="${this.escape(s.value)}" ${(n.mobile_notify_services||[]).includes(s.value)?'selected':''}>${this.escape(s.label)}</option>`).join("");
+    return `<div class="grid"><div class="card"><h2>Notification settings</h2><p class="muted">Configure household defaults once. Individual tasks can use these defaults, disable notifications, or override them only when needed.</p>
+      <label><input id="notify-enabled" type="checkbox" ${n.enabled!==false?'checked':''} style="width:auto"> Enable built-in notifications</label>
+      <div class="two">
+        <div><label>${this.label('Default notification method','Used by tasks set to Use global default.')}</label><select id="global-notify-mode">${modeOptions}</select></div>
+        <div><label>${this.label('Mobile notification targets','Select one or more mobile notify services. Hold Ctrl/Cmd to select multiple if your browser requires it.')}</label><select id="global-mobile-targets" multiple size="5">${mobileOptions}</select><div class="help">Discovered from Home Assistant notify services.</div></div>
+      </div>
+      <h3>Notify when</h3>
+      <div class="two">
+        <label><input id="notify-upcoming" type="checkbox" ${n.notify_upcoming!==false?'checked':''} style="width:auto"> Upcoming</label>
+        <label><input id="notify-due" type="checkbox" ${n.notify_due!==false?'checked':''} style="width:auto"> Due</label>
+        <label><input id="notify-overdue" type="checkbox" ${n.notify_overdue!==false?'checked':''} style="width:auto"> Overdue</label>
+        <label><input id="notify-completed" type="checkbox" ${n.notify_completed?'checked':''} style="width:auto"> Completed</label>
+        <label><input id="notify-snoozed" type="checkbox" ${n.notify_snoozed?'checked':''} style="width:auto"> Snoozed</label>
+      </div>
+      <div class="two">
+        <div><label>${this.label('Repeat overdue reminders','Controls repeated reminders after a task becomes overdue.')}</label><select id="global-repeat-mode">${repeatOptions}</select></div>
+        <div><label>${this.label('Repeat every X days','Used when repeat mode is Every X days.')}</label><input id="global-repeat-days" type="number" min="1" value="${Number(n.repeat_days||1)}"></div>
+      </div>
+      <div class="two">
+        <div><label>${this.label('Quiet hours start','Optional local time. Leave blank to disable quiet hours.')}</label><input id="quiet-start" type="time" value="${this.escape(n.quiet_start || '')}"></div>
+        <div><label>${this.label('Quiet hours end','Optional local time. Notifications are held during quiet hours in a future notification engine update.')}</label><input id="quiet-end" type="time" value="${this.escape(n.quiet_end || '')}"></div>
+      </div>
+      <label>${this.label('Notification title template','Available placeholders: {category}, {task_name}, {status}.')}</label><input id="notify-title-template" value="${this.escape(n.title_template || '[{category}] {task_name}')}">
+      <label>${this.label('Notification body template','Available placeholders: {category}, {task_name}, {status}, {days_remaining}.')}</label><textarea id="notify-body-template">${this.escape(n.body_template || '{task_name} is {status}.')}</textarea>
+      <div class="task-actions"><button class="btn primary" data-action="save-notification-settings">Save notification settings</button><button class="btn" data-action="refresh">Refresh data</button></div>
+    </div><div class="card"><h2>Lookups</h2><p>Areas: ${this.metadata.areas.length}</p><p>Devices: ${this.metadata.devices.length}</p><p>Entities: ${this.metadata.entities.length}</p><p>Notify services: ${this.metadata.notify_services.length}</p><p>NFC tags: ${this.tags.length}</p><p>Categories: ${this.categories().length}</p></div></div>`;
   }
 
   renderModal() {
@@ -318,9 +349,12 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     const isEdit = !!t.id;
     const areaOptions = [`<option value="">No area / choose later</option>`, ...this.metadata.areas.map(a=>`<option value="${this.escape(a.id)}" ${t.area===a.id?'selected':''}>${this.escape(a.name)}</option>`)].join("");
     const deviceOptions = [`<option value="">No specific device</option>`, ...this.metadata.devices.sort((a,b)=>(a.name||'').localeCompare(b.name||'')).map(d=>`<option value="${this.escape(d.id)}" ${t.linked_device_id===d.id?'selected':''}>${this.escape(d.name || d.id)}</option>`)].join("");
-    const selectedNotify = t.notification_mode || 'automation_only';
-    const notifyOptions = [["automation_only","Automation only"],["none","No built-in notifications"],["persistent","Home Assistant persistent notification"],["mobile","Mobile app notification"],["both","Home Assistant + mobile app"]].map(([v,l])=>`<option value="${v}" ${selectedNotify===v?'selected':''}>${l}</option>`).join("");
-    const mobileOptions = [`<option value="">No mobile target selected</option>`, ...this.metadata.notify_services.map(s=>`<option value="${this.escape(s.value)}" ${t.mobile_notify_service===s.value?'selected':''}>${this.escape(s.label)}</option>`)].join("");
+    const selectedNotify = t.notification_mode || 'global';
+    const notifyBehavior = ["global","disabled","custom"].includes(selectedNotify) ? selectedNotify : (selectedNotify === "none" ? "disabled" : "custom");
+    const customNotifyMode = ["persistent","mobile","both","automation_only"].includes(selectedNotify) ? selectedNotify : "persistent";
+    const notifyBehaviorOptions = [["global","Use global notification settings"],["disabled","Disable notifications for this task"],["custom","Override for this task"]].map(([v,l])=>`<option value="${v}" ${notifyBehavior===v?'selected':''}>${l}</option>`).join("");
+    const notifyOptions = [["persistent","Home Assistant persistent notification"],["mobile","Mobile app notification"],["both","Home Assistant + mobile app"],["automation_only","Automation only"]].map(([v,l])=>`<option value="${v}" ${customNotifyMode===v?'selected':''}>${l}</option>`).join("");
+    const mobileOptions = [`<option value="">Use global mobile target(s)</option>`, ...this.metadata.notify_services.map(s=>`<option value="${this.escape(s.value)}" ${t.mobile_notify_service===s.value?'selected':''}>${this.escape(s.label)}</option>`)].join("");
     const tagOptions = [`<option value="">No NFC tag</option>`, ...this.tags.map(tag=>`<option value="${this.escape(tag.tag_id || tag.id)}" ${(t.nfc_tags||[])[0]===(tag.tag_id||tag.id)?'selected':''}>${this.escape(tag.name || tag.tag_id || tag.id)}</option>`)].join("");
     const runtimeRule = (t.rules||[]).find(r=>r.type==='runtime') || {};
     const runtimeMethod = runtimeRule.above !== undefined ? 'above_threshold' : runtimeRule.states ? 'specific_state' : 'entity_on';
@@ -400,10 +434,11 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
       </div>
 
       <div class="form-section">
-        <h3>4. Reminders and NFC</h3><p class="section-note">Choose whether Home Assistant should notify you and optionally connect an NFC tag.</p>
+        <h3>4. Reminders and NFC</h3><p class="section-note">Notifications are managed globally in Settings. Most tasks should use the global default. Override only for critical or low-priority tasks.</p>
         <div class="two">
-          <div><label>${this.label('Notification style','Automation only exposes entities for your own automations. Built-in options create Home Assistant notifications. Category is included as context, such as [Pool] Filter Cleaning.')}</label><select id="task-notify">${notifyOptions}</select></div>
-          <div class="conditional mobile-fields"><label>${this.label('Mobile notification target','Choose a notify service from Home Assistant, usually notify.mobile_app_phone_name. This appears only when mobile notifications are selected.')}</label><select id="task-mobile">${mobileOptions}</select><div id="err-mobile" class="field-error">Choose a mobile notification target.</div></div>
+          <div><label>${this.label('Notification behavior','Use global settings for normal tasks. Disable for low-priority tasks. Override for special tasks that need different notification behavior.')}</label><select id="task-notify-behavior">${notifyBehaviorOptions}</select></div>
+          <div class="conditional custom-notify-fields"><label>${this.label('Task override method','Only shown when Override for this task is selected.')}</label><select id="task-notify">${notifyOptions}</select></div>
+          <div class="conditional custom-notify-fields mobile-fields"><label>${this.label('Task mobile target override','Optional. Leave blank to use the global mobile target(s).')}</label><select id="task-mobile">${mobileOptions}</select></div>
         </div>
         <label>${this.label('NFC tag','Choose a registered Home Assistant NFC tag. Scanning it can be used to confirm or log this task.')}</label><select id="task-nfc">${tagOptions}</select>
       </div>
@@ -420,6 +455,7 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
   bind() {
     this.shadowRoot.querySelectorAll('[data-tab]').forEach(el=>el.onclick=()=>{ this.tab=el.dataset.tab; this.render(); });
     this.shadowRoot.querySelectorAll('[data-action="refresh"]').forEach(el=>el.onclick=()=>this.loadData());
+    this.shadowRoot.querySelectorAll('[data-action="save-notification-settings"]').forEach(el=>el.onclick=()=>this.saveNotificationSettings());
     this.shadowRoot.querySelectorAll('[data-action="new-task"]').forEach(el=>el.onclick=()=>{ this.modal={task:{}}; this.render(); });
     this.shadowRoot.querySelectorAll('[data-action="close-modal"]').forEach(el=>el.onclick=()=>{ this.modal=null; this.render(); });
     this.shadowRoot.querySelectorAll('[data-complete]').forEach(el=>el.onclick=()=>this.callService('mark_complete',{task_id:el.dataset.complete, method:'panel'}));
@@ -461,8 +497,11 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     }
     const schedule = this.shadowRoot.getElementById('task-schedule');
     const notify = this.shadowRoot.getElementById('task-notify');
+    const notifyBehaviorEl = this.shadowRoot.getElementById('task-notify-behavior');
     if (schedule) schedule.onchange = () => this.syncConditionalFields();
     const runtimeMethodEl = this.shadowRoot.getElementById('task-runtime-method');
+    if (notify) notify.onchange = () => this.syncConditionalFields();
+    if (notifyBehaviorEl) notifyBehaviorEl.onchange = () => this.syncConditionalFields();
     if (runtimeMethodEl) runtimeMethodEl.onchange = () => { runtimeMethodEl.dataset.userTouched = '1'; this.syncConditionalFields(); };
     this.shadowRoot.querySelectorAll('[data-action="analyze-runtime"]').forEach(el=>el.onclick=()=>this.analyzeRuntimeSource());
     this.shadowRoot.querySelectorAll('[data-action="use-threshold"]').forEach(el=>el.onclick=()=>this.useRecommendedThreshold());
@@ -750,17 +789,20 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
 
   syncConditionalFields() {
     const schedule = this.shadowRoot.getElementById('task-schedule')?.value || 'time';
-    const notify = this.shadowRoot.getElementById('task-notify')?.value || 'automation_only';
+    const notifyBehavior = this.shadowRoot.getElementById('task-notify-behavior')?.value || 'global';
+    const notify = this.shadowRoot.getElementById('task-notify')?.value || 'persistent';
     const showTime = ["time","time_or_runtime","time_and_runtime","time_or_meter","time_and_meter"].includes(schedule);
     const showRuntime = ["runtime","time_or_runtime","time_and_runtime"].includes(schedule);
     const showMeter = ["meter","time_or_meter","time_and_meter"].includes(schedule);
     const showUsage = showRuntime || showMeter;
-    const showMobile = ["mobile","both"].includes(notify);
+    const showCustomNotify = notifyBehavior === 'custom';
+    const showMobile = showCustomNotify && ["mobile","both"].includes(notify);
     const runtimeMethod = this.shadowRoot.getElementById('task-runtime-method')?.value || 'entity_on';
     this.shadowRoot.querySelectorAll('.time-fields').forEach(el => el.classList.toggle('hidden', !showTime));
     this.shadowRoot.querySelectorAll('.runtime-fields').forEach(el => el.classList.toggle('hidden', !showRuntime));
     this.shadowRoot.querySelectorAll('.meter-fields').forEach(el => el.classList.toggle('hidden', !showMeter));
     this.shadowRoot.querySelectorAll('.usage-fields').forEach(el => el.classList.toggle('hidden', !showUsage));
+    this.shadowRoot.querySelectorAll('.custom-notify-fields').forEach(el => el.classList.toggle('hidden', !showCustomNotify));
     this.shadowRoot.querySelectorAll('.mobile-fields').forEach(el => el.classList.toggle('hidden', !showMobile));
     this.shadowRoot.querySelectorAll('.threshold-fields').forEach(el => el.classList.toggle('hidden', !(showRuntime && runtimeMethod === 'above_threshold')));
     this.shadowRoot.querySelectorAll('.state-fields').forEach(el => el.classList.toggle('hidden', !(showRuntime && runtimeMethod === 'specific_state')));
@@ -791,7 +833,8 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     const runtimeHours = Number(q('task-runtime-hours')?.value || 0);
     const meterEntity = q('task-meter-entity')?.value || '';
     const meterAmount = Number(q('task-meter-amount')?.value || 0);
-    const notify = q('task-notify').value;
+    const notifyBehavior = q('task-notify-behavior')?.value || 'global';
+    const notify = notifyBehavior === 'custom' ? (q('task-notify')?.value || 'persistent') : notifyBehavior;
     const mobile = q('task-mobile')?.value || '';
     const runtimeMethod = q('task-runtime-method')?.value || 'entity_on';
     const runtimeThresholdRaw = q('task-runtime-threshold')?.value;
@@ -806,8 +849,7 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     this.setError('err-runtime-threshold', needsRuntime && runtimeMethod === 'above_threshold' && (runtimeThresholdRaw === '' || !Number.isFinite(runtimeThreshold))); hasError = hasError || (needsRuntime && runtimeMethod === 'above_threshold' && (runtimeThresholdRaw === '' || !Number.isFinite(runtimeThreshold)));
     this.setError('err-meter-entity', needsMeter && !meterEntity); hasError = hasError || (needsMeter && !meterEntity);
     this.setError('err-meter-amount', needsMeter && (!meterAmount || meterAmount <= 0)); hasError = hasError || (needsMeter && (!meterAmount || meterAmount <= 0));
-    this.setError('err-mobile', ["mobile","both"].includes(notify) && !mobile); hasError = hasError || (["mobile","both"].includes(notify) && !mobile);
-    if (hasError) return;
+        if (hasError) return;
     const rules = [];
     if (needsTime) rules.push({id:'time_1', type:'time', name:`Every ${days} days`, days});
     if (needsRuntime) {
@@ -859,6 +901,32 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     };
     await this.callService('upsert_task', { task });
   }
+
+  async saveNotificationSettings() {
+    const q = id => this.shadowRoot.getElementById(id);
+    const mobileSelect = q('global-mobile-targets');
+    const mobileTargets = mobileSelect ? Array.from(mobileSelect.selectedOptions).map(o => o.value).filter(Boolean) : [];
+    const settings = {
+      enabled: !!q('notify-enabled')?.checked,
+      default_mode: q('global-notify-mode')?.value || 'automation_only',
+      mobile_notify_services: mobileTargets,
+      notify_upcoming: !!q('notify-upcoming')?.checked,
+      notify_due: !!q('notify-due')?.checked,
+      notify_overdue: !!q('notify-overdue')?.checked,
+      notify_completed: !!q('notify-completed')?.checked,
+      notify_snoozed: !!q('notify-snoozed')?.checked,
+      repeat_mode: q('global-repeat-mode')?.value || 'once',
+      repeat_days: Math.max(1, Number(q('global-repeat-days')?.value || 1)),
+      quiet_start: q('quiet-start')?.value || '',
+      quiet_end: q('quiet-end')?.value || '',
+      title_template: q('notify-title-template')?.value || '[{category}] {task_name}',
+      body_template: q('notify-body-template')?.value || '{task_name} is {status}.',
+    };
+    await this._hass.callWS({ type: 'home_maintenance_manager/update_notification_settings', settings });
+    this.notificationSettings = settings;
+    await this.loadData();
+  }
+
 }
 
 customElements.define('home-maintenance-manager-panel', HomeMaintenanceManagerPanel);

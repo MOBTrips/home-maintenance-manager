@@ -1,24 +1,24 @@
-# Home Maintenance Manager v0.5.3
+# Home Maintenance Manager v0.5.4
 
-Adds threshold analysis polish for runtime sources.
+Revamps notification configuration so household defaults live in the Maintenance sidebar Settings page instead of every task editor.
 
 ## Added
 
-- Analysis period selector: 24 hours, 7 days, 30 days, 90 days, or 1 year.
-- Unit-aware chart labels and threshold labels.
-- Histogram hover tooltips with range, sample count, and percent.
-- Recommended threshold marker and user threshold marker.
-- Draggable threshold slider.
-- Live runtime simulation when moving the threshold.
-- Estimated average runtime per day.
-- Estimated maintenance interval based on the runtime limit.
-- Runtime threshold field now appears automatically when numeric entities are selected/analyzed.
+- Global notification settings under **Maintenance → Settings**.
+- Global enable/disable for built-in notifications.
+- Default notification method: none, persistent, mobile, persistent + mobile, or automation-only.
+- Global mobile notify target picker from Home Assistant notify services.
+- Event toggles for upcoming, due, overdue, completed, and snoozed.
+- Overdue reminder cadence settings.
+- Quiet hours fields for future notification scheduling.
+- Notification title/body templates.
+- Task-level notification behavior: use global default, disable, or override.
 
+## Changed
 
+- The Add/Edit Task screen no longer asks every task for full notification settings by default.
+- Most tasks now default to **Use global notification settings** for a cleaner homeowner-friendly workflow.
 
-## v0.5.3
+## Notes
 
-- Changed threshold control to a right-side vertical slider.
-- Threshold now moves as a horizontal line on the analysis graph.
-- Added user threshold label and manual numeric threshold entry.
-- Recommended threshold remains visible as a separate horizontal marker.
+This release adds the configuration model and UI foundation for centralized notifications. Existing task-level notification values are preserved and treated as task overrides where possible.
