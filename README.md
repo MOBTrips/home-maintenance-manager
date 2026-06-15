@@ -1,4 +1,4 @@
-# Home Maintenance Manager v0.5.2
+# Home Maintenance Manager v0.5.3
 
 Adds threshold analysis polish for runtime sources.
 
@@ -16,7 +16,7 @@ Adds threshold analysis polish for runtime sources.
 
 
 
-## v0.5.2
+## v0.5.3
 
 - Changed threshold control to a right-side vertical slider.
 - Threshold now moves as a horizontal line on the analysis graph.
