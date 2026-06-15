@@ -1,4 +1,4 @@
-# Home Maintenance Manager v0.5.1
+# Home Maintenance Manager v0.5.2
 
 Adds threshold analysis polish for runtime sources.
 
@@ -14,3 +14,11 @@ Adds threshold analysis polish for runtime sources.
 - Estimated maintenance interval based on the runtime limit.
 - Runtime threshold field now appears automatically when numeric entities are selected/analyzed.
 
+
+
+## v0.5.2
+
+- Changed threshold control to a right-side vertical slider.
+- Threshold now moves as a horizontal line on the analysis graph.
+- Added user threshold label and manual numeric threshold entry.
+- Recommended threshold remains visible as a separate horizontal marker.

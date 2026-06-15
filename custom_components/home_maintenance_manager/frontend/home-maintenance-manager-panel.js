@@ -110,18 +110,27 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
       .field-error.active { display:block; }
       .analysis-box { border:1px dashed var(--divider-color); border-radius:14px; padding:12px; margin-top:10px; background: var(--card-background-color); }
       .analysis-controls { display:grid; grid-template-columns: 220px 1fr; gap:12px; align-items:end; margin:10px 0; }
-      .histogram-wrap { position:relative; margin:12px 0 8px; padding-top:8px; }
-      .histogram { display:flex; align-items:flex-end; gap:3px; height:132px; margin:6px 0; border-left:1px solid var(--divider-color); border-bottom:1px solid var(--divider-color); padding-left:6px; }
+      .histogram-workbench { display:grid; grid-template-columns: 1fr 54px; gap:12px; align-items:stretch; margin:12px 0 8px; }
+      .histogram-wrap { position:relative; margin:0; padding-top:8px; min-height:178px; }
+      .histogram { display:flex; align-items:flex-end; gap:3px; height:156px; margin:6px 0; border-left:1px solid var(--divider-color); border-bottom:1px solid var(--divider-color); padding-left:6px; }
       .histobar { flex:1; min-width:4px; background: var(--primary-color); border-radius:4px 4px 0 0; opacity:.75; cursor:crosshair; }
       .histobar:hover { opacity:1; filter:brightness(1.1); }
-      .threshold-marker { position:absolute; top:0; bottom:22px; width:2px; background: var(--accent-color, #03a9f4); box-shadow:0 0 0 2px rgba(3,169,244,.2); pointer-events:none; }
+      .threshold-marker { position:absolute; left:6px; right:0; height:2px; background: var(--accent-color, #03a9f4); box-shadow:0 0 0 2px rgba(3,169,244,.2); pointer-events:none; }
       .threshold-marker.recommended { background:#2e7d32; box-shadow:0 0 0 2px rgba(46,125,50,.2); }
+      .threshold-label { position:absolute; right:4px; transform:translateY(-120%); font-size:12px; background:var(--card-background-color); color:var(--primary-text-color); padding:2px 6px; border:1px solid var(--divider-color); border-radius:999px; pointer-events:none; }
+      .threshold-label.recommended { color:#2e7d32; }
+      .vertical-slider-wrap { display:flex; flex-direction:column; align-items:center; justify-content:center; gap:6px; min-width:48px; }
+      .threshold-slider.vertical { writing-mode: bt-lr; -webkit-appearance: slider-vertical; appearance: slider-vertical; width:34px; height:156px; padding:0; margin:0; }
+      .slider-caption { writing-mode:vertical-rl; transform:rotate(180deg); font-size:12px; color:var(--secondary-text-color); }
       .axis-row { display:flex; justify-content:space-between; gap:8px; font-size:12px; color: var(--secondary-text-color); }
+      .value-axis { display:flex; justify-content:space-between; font-size:12px; color: var(--secondary-text-color); margin-left:6px; }
       .recommendation { font-size:18px; font-weight:700; margin:8px 0; }
       .simulation-grid { display:grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap:8px; margin:10px 0; }
       .sim-tile { border:1px solid var(--divider-color); border-radius:12px; padding:10px; background: var(--secondary-background-color); }
       .sim-value { font-size:20px; font-weight:700; }
       .threshold-slider { width:100%; }
+      .manual-threshold-row { display:grid; grid-template-columns: 1fr 170px; gap:12px; align-items:end; }
+      @media(max-width: 800px){ .manual-threshold-row { grid-template-columns: 1fr; } }
       @media(max-width: 800px){ .analysis-controls { grid-template-columns: 1fr; } }
       .tooltip-note { font-size:12px; color: var(--secondary-text-color); }
     `;
@@ -480,15 +489,25 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     }).join('');
     return `<div class="recommendation">Recommended threshold: ${this.escape(a.recommended)} ${this.escape(unit)}</div>
       <div class="muted">Source unit: ${this.escape(unit)} • Analysis period: last ${this.escape(a.periodDays)} day${Number(a.periodDays) === 1 ? '' : 's'} • Range: ${this.escape(a.min)} to ${this.escape(a.max)} ${this.escape(unit)}</div>
-      <div class="histogram-wrap">
-        <div class="threshold-marker recommended" title="Recommended threshold" style="left:calc(${recPct}% + 6px)"></div>
-        <div id="user-threshold-marker" class="threshold-marker" title="Your threshold" style="left:calc(${thresholdPct}% + 6px)"></div>
-        <div class="histogram">${bars}</div>
-        <div class="axis-row"><span>${this.escape(a.min)} ${this.escape(unit)}</span><span>${this.escape(a.max)} ${this.escape(unit)}</span></div>
+      <div class="histogram-workbench">
+        <div>
+          <div class="value-axis"><span>${this.escape(a.max)} ${this.escape(unit)}</span><span>${this.escape(a.min)} ${this.escape(unit)}</span></div>
+          <div class="histogram-wrap">
+            <div class="threshold-marker recommended" title="Recommended threshold" style="top:${100-recPct}%"></div>
+            <div class="threshold-label recommended" style="top:${100-recPct}%">Recommended ${this.escape(rec)} ${this.escape(unit)}</div>
+            <div id="user-threshold-marker" class="threshold-marker" title="Your threshold" style="top:${100-thresholdPct}%"></div>
+            <div id="user-threshold-label" class="threshold-label" style="top:${100-thresholdPct}%">Your threshold ${this.escape(threshold)} ${this.escape(unit)}</div>
+            <div class="histogram">${bars}</div>
+            <div class="axis-row"><span>Low frequency</span><span>High frequency</span></div>
+          </div>
+        </div>
+        <div class="vertical-slider-wrap">
+          <input id="threshold-slider" class="threshold-slider vertical" type="range" min="${this.escape(a.min)}" max="${this.escape(a.max)}" step="${this.escape(a.step || 0.1)}" value="${threshold}">
+          <div class="slider-caption">Drag threshold up/down</div>
+        </div>
       </div>
-      <div class="tooltip-note">Hover over bars to see value ranges, sample counts, and percentages. Move the threshold slider to simulate runtime.</div>
-      <label>Your running threshold: <span id="threshold-display">${threshold}</span> ${this.escape(unit)}</label>
-      <input id="threshold-slider" class="threshold-slider" type="range" min="${this.escape(a.min)}" max="${this.escape(a.max)}" step="${this.escape(a.step || 0.1)}" value="${threshold}">
+      <div class="tooltip-note">Hover over bars to see value ranges, sample counts, and percentages. Drag the right-side threshold control up or down to simulate runtime.</div>
+      <div class="manual-threshold-row"><div><label>Your running threshold: <span id="threshold-display">${threshold}</span> ${this.escape(unit)}</label><div class="help">Anything above this line counts as running.</div></div><input id="threshold-manual-input" type="number" step="${this.escape(a.step || 0.1)}" value="${threshold}"></div>
       <div class="simulation-grid">
         <div class="sim-tile"><div class="muted">Estimated runtime</div><div id="sim-hours" class="sim-value">${this.escape(a.estimatedHours)}</div><div class="muted">hours in period</div></div>
         <div class="sim-tile"><div class="muted">Average per day</div><div id="sim-daily" class="sim-value">${this.escape(a.avgDailyHours)}</div><div class="muted">hours/day</div></div>
@@ -537,9 +556,13 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
       const display = this.shadowRoot.getElementById('threshold-display');
       if (display) display.textContent = String(threshold);
       const marker = this.shadowRoot.getElementById('user-threshold-marker');
+      const markerLabel = this.shadowRoot.getElementById('user-threshold-label');
+      const manualInput = this.shadowRoot.getElementById('threshold-manual-input');
       const min = Number(this.runtimeAnalysis.min), max = Number(this.runtimeAnalysis.max);
       const pct = Math.max(0, Math.min(100, ((threshold - min) / ((max - min) || 1)) * 100));
-      if (marker) marker.style.left = `calc(${pct}% + 6px)`;
+      if (marker) marker.style.top = `${100-pct}%`;
+      if (markerLabel) { markerLabel.style.top = `${100-pct}%`; markerLabel.textContent = `Your threshold ${threshold} ${unit}`; }
+      if (manualInput) manualInput.value = threshold;
       const stats = this.calculateRuntimeStats(threshold);
       const h = this.shadowRoot.getElementById('sim-hours');
       const d = this.shadowRoot.getElementById('sim-daily');
@@ -548,6 +571,15 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
       if (d) d.textContent = stats.daily;
       if (interval) interval.textContent = stats.intervalDays;
       this.syncConditionalFields();
+    };
+    const manualInput = this.shadowRoot.getElementById('threshold-manual-input');
+    if (manualInput) manualInput.oninput = () => {
+      const value = Number(manualInput.value);
+      const min = Number(this.runtimeAnalysis.min), max = Number(this.runtimeAnalysis.max);
+      if (!Number.isFinite(value)) return;
+      const clamped = Math.max(min, Math.min(max, value));
+      slider.value = String(clamped);
+      slider.dispatchEvent(new Event('input'));
     };
   }
 
