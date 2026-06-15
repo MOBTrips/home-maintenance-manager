@@ -1,4 +1,4 @@
-# Home Maintenance Manager v0.5.4
+# Home Maintenance Manager v0.5.9
 
 Revamps notification configuration so household defaults live in the Maintenance sidebar Settings page instead of every task editor.
 
@@ -23,6 +23,12 @@ Revamps notification configuration so household defaults live in the Maintenance
 
 This release adds the configuration model and UI foundation for centralized notifications. Existing task-level notification values are preserved and treated as task overrides where possible.
 
+
+## v0.5.9 - Notification tab and testing
+
+- Moved notification settings into a dedicated Notifications tab.
+- Added a Test notification button for persistent and mobile notification targets.
+- Added notification preview text for title/body templates.
 
 ## v0.5.8 - Metered usage totalizer
 

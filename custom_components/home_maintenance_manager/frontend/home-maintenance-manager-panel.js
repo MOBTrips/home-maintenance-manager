@@ -240,9 +240,9 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     return `
       <div class="hero"><div><h1>Home Maintenance Manager</h1><div class="subtitle">A simple place to see what needs attention around the house.</div></div><button class="btn primary" data-action="new-task">Add maintenance task</button></div>
       <div class="tabs">
-        ${[["dashboard","Dashboard"],["tasks","Tasks"],["history","History"],["nfc","NFC Tags"],["settings","Settings"]].map(([id,label]) => `<button class="tab ${this.tab===id?'active':''}" data-tab="${id}">${label}</button>`).join("")}
+        ${[["dashboard","Dashboard"],["tasks","Tasks"],["history","History"],["nfc","NFC Tags"],["notifications","Notifications"],["settings","Settings"]].map(([id,label]) => `<button class="tab ${this.tab===id?'active':''}" data-tab="${id}">${label}</button>`).join("")}
       </div>
-      ${this.tab === "dashboard" ? this.renderDashboard() : this.tab === "tasks" ? this.renderTasks() : this.tab === "history" ? this.renderHistory() : this.tab === "nfc" ? this.renderNfc() : this.renderSettings()}
+      ${this.tab === "dashboard" ? this.renderDashboard() : this.tab === "tasks" ? this.renderTasks() : this.tab === "history" ? this.renderHistory() : this.tab === "nfc" ? this.renderNfc() : this.tab === "notifications" ? this.renderNotifications() : this.renderSettings()}
     `;
   }
 
@@ -334,12 +334,12 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     return `<div class="card"><h2>NFC Tags</h2><p class="muted">These are tags currently registered in Home Assistant. Select one when creating or editing a task so scanning it can be tied to that maintenance item.</p>${this.tags.length ? this.tags.map(tag => `<div class="tag-row"><div><b>${this.escape(tag.name || tag.tag_id || tag.id)}</b><div class="muted">${this.escape(tag.tag_id || tag.id || '')}</div></div></div>`).join("") : `<p>No registered NFC tags were found, or this HA version does not expose the tag list to custom panels.</p>`}</div>`;
   }
 
-  renderSettings() {
+  renderNotifications() {
     const n = this.notificationSettings || {};
     const modeOptions = [["none","No built-in notifications"],["persistent","Home Assistant persistent notifications"],["mobile","Mobile app notifications"],["both","Persistent + mobile"],["automation_only","Automation only"]].map(([v,l])=>`<option value="${v}" ${n.default_mode===v?'selected':''}>${l}</option>`).join("");
     const repeatOptions = [["once","Notify once"],["daily","Daily while overdue"],["custom","Every X days while overdue"]].map(([v,l])=>`<option value="${v}" ${n.repeat_mode===v?'selected':''}>${l}</option>`).join("");
     const mobileOptions = this.metadata.notify_services.map(s=>`<option value="${this.escape(s.value)}" ${(n.mobile_notify_services||[]).includes(s.value)?'selected':''}>${this.escape(s.label)}</option>`).join("");
-    return `<div class="grid"><div class="card"><h2>Notification settings</h2><p class="muted">Configure household defaults once. Individual tasks can use these defaults, disable notifications, or override them only when needed.</p>
+    return `<div class="grid"><div class="card"><h2>Notifications</h2><p class="muted">Configure household defaults once. Individual tasks can use these defaults, disable notifications, or override them only when needed.</p>
       <label><input id="notify-enabled" type="checkbox" ${n.enabled!==false?'checked':''} style="width:auto"> Enable built-in notifications</label>
       <div class="two">
         <div><label>${this.label('Default notification method','Used by tasks set to Use global default.')}</label><select id="global-notify-mode">${modeOptions}</select></div>
@@ -361,11 +361,27 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
         <div><label>${this.label('Quiet hours start','Optional local time. Leave blank to disable quiet hours.')}</label><input id="quiet-start" type="time" value="${this.escape(n.quiet_start || '')}"></div>
         <div><label>${this.label('Quiet hours end','Optional local time. Notifications are held during quiet hours in a future notification engine update.')}</label><input id="quiet-end" type="time" value="${this.escape(n.quiet_end || '')}"></div>
       </div>
-      <label>${this.label('Notification title template','Available placeholders: {category}, {task_name}, {status}.')}</label><input id="notify-title-template" value="${this.escape(n.title_template || '[{category}] {task_name}')}">
-      <label>${this.label('Notification body template','Available placeholders: {category}, {task_name}, {status}, {days_remaining}.')}</label><textarea id="notify-body-template">${this.escape(n.body_template || '{task_name} is {status}.')}</textarea>
-      <div class="task-actions"><button class="btn primary" data-action="save-notification-settings">Save notification settings</button><button class="btn" data-action="refresh">Refresh data</button></div>
-    </div><div class="card"><h2>Lookups</h2><p>Areas: ${this.metadata.areas.length}</p><p>Devices: ${this.metadata.devices.length}</p><p>Entities: ${this.metadata.entities.length}</p><p>Notify services: ${this.metadata.notify_services.length}</p><p>NFC tags: ${this.tags.length}</p><p>Categories: ${this.categories().length}</p></div></div>`;
+      <label>${this.label('Notification title template','Available placeholders: {category}, {task_name}, {status}.')}</label><input id="notify-title-template" value="${this.escape(n.title_template || '[{category}] {task_name}')}" data-preview-title>
+      <label>${this.label('Notification body template','Available placeholders: {category}, {task_name}, {status}, {days_remaining}.')}</label><textarea id="notify-body-template" data-preview-body>${this.escape(n.body_template || '{task_name} is {status}.')}</textarea>
+      <div class="info-box"><b>Preview</b><br><span id="notification-preview-title">${this.escape(this.previewNotificationTitle())}</span><br><span class="muted" id="notification-preview-body">${this.escape(this.previewNotificationBody())}</span></div>
+      <div class="task-actions"><button class="btn primary" data-action="save-notification-settings">Save notification settings</button><button class="btn" data-action="test-notification">Test notification</button><button class="btn" data-action="refresh">Refresh data</button></div>
+    </div><div class="card"><h2>How notification testing works</h2><p>The test uses the settings currently shown on this page. Save first if you want these settings stored permanently.</p><p class="muted">Persistent notifications appear in Home Assistant. Mobile notifications use the selected notify services.</p><p><b>Notify services found:</b> ${this.metadata.notify_services.length}</p></div></div>`;
   }
+
+  renderSettings() {
+    return `<div class="grid"><div class="card"><h2>Settings</h2><p class="muted">General Home Maintenance Manager information and lookups.</p><p>Notification settings have moved to the <b>Notifications</b> tab.</p></div><div class="card"><h2>Lookups</h2><p>Areas: ${this.metadata.areas.length}</p><p>Devices: ${this.metadata.devices.length}</p><p>Entities: ${this.metadata.entities.length}</p><p>Notify services: ${this.metadata.notify_services.length}</p><p>NFC tags: ${this.tags.length}</p><p>Categories: ${this.categories().length}</p></div></div>`;
+  }
+
+  previewNotificationTitle() {
+    const template = this.shadowRoot?.getElementById('notify-title-template')?.value || this.notificationSettings?.title_template || '[{category}] {task_name}';
+    return template.replaceAll('{category}', 'Water Filtration').replaceAll('{task_name}', 'RO Filter Replacement').replaceAll('{status}', 'Due').replaceAll('{days_remaining}', '0');
+  }
+
+  previewNotificationBody() {
+    const template = this.shadowRoot?.getElementById('notify-body-template')?.value || this.notificationSettings?.body_template || '{task_name} is {status}.';
+    return template.replaceAll('{category}', 'Water Filtration').replaceAll('{task_name}', 'RO Filter Replacement').replaceAll('{status}', 'Due').replaceAll('{days_remaining}', '0');
+  }
+
 
   renderModal() {
     if (!this.modal) return "";
@@ -489,6 +505,8 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     this.shadowRoot.querySelectorAll('[data-tab]').forEach(el=>el.onclick=()=>{ this.tab=el.dataset.tab; this.render(); });
     this.shadowRoot.querySelectorAll('[data-action="refresh"]').forEach(el=>el.onclick=()=>this.loadData());
     this.shadowRoot.querySelectorAll('[data-action="save-notification-settings"]').forEach(el=>el.onclick=()=>this.saveNotificationSettings());
+    this.shadowRoot.querySelectorAll('[data-action="test-notification"]').forEach(el=>el.onclick=()=>this.testNotification());
+    this.shadowRoot.querySelectorAll('[data-preview-title],[data-preview-body]').forEach(el=>el.oninput=()=>this.updateNotificationPreview());
     this.shadowRoot.querySelectorAll('[data-action="new-task"]').forEach(el=>el.onclick=()=>{ this._modalSnapshot=null; this.modal={task:{}}; this.render(); });
     this.shadowRoot.querySelectorAll('[data-action="close-modal"]').forEach(el=>el.onclick=()=>this.requestCloseModal());
     this.shadowRoot.querySelectorAll('[data-action="modal-scrim"]').forEach(el=>el.onclick=(ev)=>{ if (ev.target === el) this.requestCloseModal(); });
@@ -1031,10 +1049,18 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
   }
 
   async saveNotificationSettings() {
+    const settings = this.currentNotificationSettingsFromForm();
+    await this._hass.callWS({ type: 'home_maintenance_manager/update_notification_settings', settings });
+    this.notificationSettings = settings;
+    await this.loadData();
+  }
+
+
+  currentNotificationSettingsFromForm() {
     const q = id => this.shadowRoot.getElementById(id);
     const mobileSelect = q('global-mobile-targets');
     const mobileTargets = mobileSelect ? Array.from(mobileSelect.selectedOptions).map(o => o.value).filter(Boolean) : [];
-    const settings = {
+    return {
       enabled: !!q('notify-enabled')?.checked,
       default_mode: q('global-notify-mode')?.value || 'automation_only',
       mobile_notify_services: mobileTargets,
@@ -1050,9 +1076,23 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
       title_template: q('notify-title-template')?.value || '[{category}] {task_name}',
       body_template: q('notify-body-template')?.value || '{task_name} is {status}.',
     };
-    await this._hass.callWS({ type: 'home_maintenance_manager/update_notification_settings', settings });
-    this.notificationSettings = settings;
-    await this.loadData();
+  }
+
+  updateNotificationPreview() {
+    const title = this.shadowRoot.getElementById('notification-preview-title');
+    const body = this.shadowRoot.getElementById('notification-preview-body');
+    if (title) title.textContent = this.previewNotificationTitle();
+    if (body) body.textContent = this.previewNotificationBody();
+  }
+
+  async testNotification() {
+    const settings = this.currentNotificationSettingsFromForm();
+    try {
+      const result = await this._hass.callWS({ type: 'home_maintenance_manager/test_notification', settings });
+      alert(result?.message || 'Test notification sent.');
+    } catch (err) {
+      alert(`Test notification failed: ${err?.message || err}`);
+    }
   }
 
 }

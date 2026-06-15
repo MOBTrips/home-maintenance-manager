@@ -152,6 +152,63 @@ async def websocket_update_notification_settings(hass: HomeAssistant, connection
     hass.config_entries.async_update_entry(entry, options={**entry.options, "notification_settings": settings})
     connection.send_result(msg["id"], {"settings": settings})
 
+
+
+@websocket_api.websocket_command({
+    vol.Required("type"): f"{DOMAIN}/test_notification",
+    vol.Optional("settings", default=None): vol.Any(dict, None),
+})
+@websocket_api.async_response
+async def websocket_test_notification(hass: HomeAssistant, connection, msg) -> None:
+    """Send a test notification using Home Maintenance Manager settings."""
+    settings = _notification_settings_for_entry(hass)
+    if msg.get("settings"):
+        settings.update(msg.get("settings") or {})
+
+    mode = settings.get("default_mode", "automation_only")
+    title = "Home Maintenance Manager Test"
+    message = "This is a test notification from Home Maintenance Manager."
+    sent: list[str] = []
+
+    if mode in ("persistent", "both"):
+        await hass.services.async_call(
+            "persistent_notification",
+            "create",
+            {
+                "title": title,
+                "message": message,
+                "notification_id": "home_maintenance_manager_test",
+            },
+            blocking=True,
+        )
+        sent.append("persistent_notification.create")
+
+    if mode in ("mobile", "both"):
+        targets = settings.get("mobile_notify_services") or []
+        for target in targets:
+            if not isinstance(target, str) or not target.startswith("notify."):
+                continue
+            service = target.split(".", 1)[1]
+            if not hass.services.has_service("notify", service):
+                continue
+            await hass.services.async_call(
+                "notify",
+                service,
+                {"title": title, "message": message},
+                blocking=True,
+            )
+            sent.append(target)
+
+    if mode in ("none", "automation_only"):
+        connection.send_result(msg["id"], {"sent": sent, "message": "No built-in notification was sent because the selected method is None or Automation only."})
+        return
+
+    if not sent:
+        connection.send_result(msg["id"], {"sent": sent, "message": "No notification was sent. Select Persistent, Mobile, or Both and choose at least one valid mobile target for mobile notifications."})
+        return
+
+    connection.send_result(msg["id"], {"sent": sent, "message": f"Test notification sent to {len(sent)} target(s)."})
+
 async def _async_register_panel(hass: HomeAssistant) -> None:
     """Register the Home Maintenance Manager sidebar panel."""
     if async_register_built_in_panel is None or StaticPathConfig is None:
@@ -188,6 +245,7 @@ async def async_setup(hass: HomeAssistant, config: dict[str, Any]) -> bool:
     websocket_api.async_register_command(hass, websocket_get_tasks)
     websocket_api.async_register_command(hass, websocket_get_metadata)
     websocket_api.async_register_command(hass, websocket_update_notification_settings)
+    websocket_api.async_register_command(hass, websocket_test_notification)
     await _async_register_panel(hass)
     yaml_tasks = config.get(DOMAIN, {}).get(CONF_TASKS, [])
     hass.data[DOMAIN]["yaml_tasks"] = yaml_tasks
