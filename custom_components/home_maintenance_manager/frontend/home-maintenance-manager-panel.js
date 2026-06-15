@@ -17,6 +17,7 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     this.runtimeAnalysis = null;
     this.runtimeAnalysisLoading = false;
     this.analysisDays = 30;
+    this._modalSnapshot = null;
   }
 
   set hass(hass) {
@@ -93,6 +94,11 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
       textarea { min-height:80px; }
       .modal-scrim { position:fixed; inset:0; background:rgba(0,0,0,.45); display:flex; align-items:flex-start; justify-content:center; padding:40px 16px; z-index:10; overflow:auto; }
       .modal { width:min(940px, 100%); background:var(--card-background-color); border-radius:22px; padding:22px; box-shadow:0 16px 50px rgba(0,0,0,.35); }
+      .modal-actions-bottom { display:flex; gap:8px; justify-content:space-between; align-items:center; margin-top:18px; padding-top:16px; border-top:1px solid var(--divider-color); }
+      .modal-actions-bottom .right { display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-end; }
+      .unsaved-dialog { position:fixed; inset:0; background:rgba(0,0,0,.52); z-index:30; display:flex; align-items:center; justify-content:center; padding:20px; }
+      .unsaved-card { width:min(460px, 100%); background:var(--card-background-color); border-radius:18px; padding:20px; box-shadow:0 16px 50px rgba(0,0,0,.4); border:1px solid var(--divider-color); }
+      .unsaved-card h3 { margin:0 0 8px; }
       .modal-head { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:8px; }
       .empty { text-align:center; padding:40px 16px; }
       .history-item { border-left:4px solid var(--primary-color); padding-left:12px; }
@@ -391,7 +397,7 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     const sourceUnit = counterRule.source_unit || (counterRule.entity && this._hass?.states?.[counterRule.entity]?.attributes?.unit_of_measurement) || '';
     const counterUnit = counterRule.target_unit || counterRule.unit || (counterSourceMode === 'rate' ? this.totalizedTargetUnit(sourceUnit) : sourceUnit) || 'units';
     const categoryOptions = this.categories().map(c=>`<option value="${this.escape(c)}" ${this.category(t)===c?'selected':''}>${this.escape(c)}</option>`).join('');
-    return `<div class="modal-scrim"><div class="modal">
+    return `<div class="modal-scrim" data-action="modal-scrim"><div class="modal" data-modal-content>
       <div class="modal-head"><div><h2>${isEdit ? 'Edit maintenance task' : 'Add maintenance task'}</h2><div class="muted">This one-page setup is grouped into sections. Start simple; advanced fields can be left blank.</div></div><button class="btn" data-action="close-modal">Close</button></div>
 
       <div class="form-section">
@@ -472,7 +478,10 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
         <label>${this.label('Instructions','Optional markdown-style instructions or checklist notes. Example: Turn off power, remove filter, clean, reinstall.')}</label><textarea id="task-instructions" placeholder="1. Turn off equipment\n2. Perform maintenance\n3. Mark complete">${this.escape(t.instructions || '')}</textarea>
       </div>
 
-      <div class="task-actions"><button class="btn primary" data-action="save-task" data-task-id="${this.escape(t.id || '')}">${isEdit ? 'Save changes' : 'Create task'}</button>${isEdit ? `<button class="btn danger" data-delete="${this.escape(t.id)}">Delete</button>` : ''}</div>
+      <div class="modal-actions-bottom">
+        <button class="btn" data-action="close-modal">Close</button>
+        <div class="right"><button class="btn primary" data-action="save-task" data-task-id="${this.escape(t.id || '')}">${isEdit ? 'Save changes' : 'Create task'}</button>${isEdit ? `<button class="btn danger" data-delete="${this.escape(t.id)}">Delete</button>` : ''}</div>
+      </div>
     </div></div>`;
   }
 
@@ -480,11 +489,12 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     this.shadowRoot.querySelectorAll('[data-tab]').forEach(el=>el.onclick=()=>{ this.tab=el.dataset.tab; this.render(); });
     this.shadowRoot.querySelectorAll('[data-action="refresh"]').forEach(el=>el.onclick=()=>this.loadData());
     this.shadowRoot.querySelectorAll('[data-action="save-notification-settings"]').forEach(el=>el.onclick=()=>this.saveNotificationSettings());
-    this.shadowRoot.querySelectorAll('[data-action="new-task"]').forEach(el=>el.onclick=()=>{ this.modal={task:{}}; this.render(); });
-    this.shadowRoot.querySelectorAll('[data-action="close-modal"]').forEach(el=>el.onclick=()=>{ this.modal=null; this.render(); });
+    this.shadowRoot.querySelectorAll('[data-action="new-task"]').forEach(el=>el.onclick=()=>{ this._modalSnapshot=null; this.modal={task:{}}; this.render(); });
+    this.shadowRoot.querySelectorAll('[data-action="close-modal"]').forEach(el=>el.onclick=()=>this.requestCloseModal());
+    this.shadowRoot.querySelectorAll('[data-action="modal-scrim"]').forEach(el=>el.onclick=(ev)=>{ if (ev.target === el) this.requestCloseModal(); });
     this.shadowRoot.querySelectorAll('[data-complete]').forEach(el=>el.onclick=()=>this.callService('mark_complete',{task_id:el.dataset.complete, method:'panel'}));
     this.shadowRoot.querySelectorAll('[data-snooze]').forEach(el=>el.onclick=()=>this.callService('snooze',{task_id:el.dataset.snooze, days:7}));
-    this.shadowRoot.querySelectorAll('[data-edit]').forEach(el=>el.onclick=()=>{ const task=this.tasks.find(t=>t.id===el.dataset.edit); this.modal={task:JSON.parse(JSON.stringify(task||{}))}; this.render(); });
+    this.shadowRoot.querySelectorAll('[data-edit]').forEach(el=>el.onclick=()=>{ const task=this.tasks.find(t=>t.id===el.dataset.edit); this._modalSnapshot=null; this.modal={task:JSON.parse(JSON.stringify(task||{}))}; this.render(); });
     this.shadowRoot.querySelectorAll('[data-delete]').forEach(el=>el.onclick=()=>{ if(confirm('Delete this maintenance task?')) this.callService('delete_task',{task_id:el.dataset.delete}); });
     this.shadowRoot.querySelectorAll('[data-category-filter]').forEach(el=>el.onclick=()=>{ this.categoryFilter=el.dataset.categoryFilter; this.tab='tasks'; this.render(); });
     const save = this.shadowRoot.querySelector('[data-action="save-task"]');
@@ -537,6 +547,70 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     if (notify) notify.onchange = () => this.syncConditionalFields();
     this.syncConditionalFields();
     this.updateMeterUnit();
+    if (this.modal && this._modalSnapshot === null) {
+      setTimeout(() => { if (this.modal && this._modalSnapshot === null) this._modalSnapshot = this.getModalFormSnapshot(); }, 0);
+    }
+  }
+
+
+  getModalFormSnapshot() {
+    const q = id => this.shadowRoot.getElementById(id);
+    if (!this.modal) return "";
+    const value = id => {
+      const el = q(id);
+      if (!el) return null;
+      if (Array.isArray(el.value)) return [...el.value].sort();
+      return el.value ?? "";
+    };
+    const fields = [
+      'task-name','task-category','task-description','task-area','task-device','task-equipment-name',
+      'task-schedule','task-days','task-runtime-hours','task-runtime-method','task-runtime-threshold','task-runtime-states',
+      'task-meter-amount','task-meter-source-type','task-baseline','task-notify-behavior','task-notify','task-mobile','task-nfc','task-instructions'
+    ];
+    const data = {};
+    for (const id of fields) data[id] = value(id);
+    data['task-runtime-entity'] = value('task-runtime-entity');
+    data['task-meter-entity'] = value('task-meter-entity');
+    data['task-entities'] = value('task-entities');
+    return JSON.stringify(data);
+  }
+
+  isModalDirty() {
+    if (!this.modal || this._modalSnapshot === null) return false;
+    return this.getModalFormSnapshot() !== this._modalSnapshot;
+  }
+
+  requestCloseModal() {
+    if (!this.modal) return;
+    if (!this.isModalDirty()) {
+      this._modalSnapshot = null;
+      this.modal = null;
+      this.render();
+      return;
+    }
+    this.showUnsavedChangesDialog();
+  }
+
+  showUnsavedChangesDialog() {
+    if (this.shadowRoot.getElementById('unsaved-dialog')) return;
+    const wrapper = document.createElement('div');
+    wrapper.id = 'unsaved-dialog';
+    wrapper.className = 'unsaved-dialog';
+    wrapper.innerHTML = `
+      <div class="unsaved-card" role="dialog" aria-modal="true" aria-labelledby="unsaved-title">
+        <h3 id="unsaved-title">Unsaved changes</h3>
+        <p class="muted">You have unsaved changes. What would you like to do?</p>
+        <div class="task-actions" style="justify-content:flex-end;margin-top:16px;">
+          <button class="btn" data-unsaved="keep">Keep editing</button>
+          <button class="btn danger" data-unsaved="discard">Discard changes</button>
+          <button class="btn primary" data-unsaved="save">Save changes</button>
+        </div>
+      </div>`;
+    wrapper.addEventListener('click', ev => { if (ev.target === wrapper) wrapper.remove(); });
+    wrapper.querySelector('[data-unsaved="keep"]').onclick = () => wrapper.remove();
+    wrapper.querySelector('[data-unsaved="discard"]').onclick = () => { wrapper.remove(); this._modalSnapshot=null; this.modal=null; this.render(); };
+    wrapper.querySelector('[data-unsaved="save"]').onclick = () => { const id = this.shadowRoot.querySelector('[data-action="save-task"]')?.dataset?.taskId || ''; wrapper.remove(); this.saveTask(id); };
+    this.shadowRoot.appendChild(wrapper);
   }
 
   renderRuntimeAnalysis() {
@@ -859,6 +933,7 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
 
   async callService(service, data) {
     await this._hass.callService('home_maintenance_manager', service, data);
+    this._modalSnapshot = null;
     this.modal = null;
     setTimeout(()=>this.loadData(), 700);
   }
