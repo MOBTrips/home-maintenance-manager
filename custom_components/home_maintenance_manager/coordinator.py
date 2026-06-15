@@ -4,12 +4,12 @@ from datetime import timedelta, time
 import logging
 from typing import Any
 
-from homeassistant.core import HomeAssistant, callback
+from homeassistant.core import Event, HomeAssistant, callback
 from homeassistant.helpers.event import async_track_state_change_event, async_track_time_interval
 from homeassistant.helpers.storage import Store
 from homeassistant.util import dt as dt_util
 
-from .const import DOMAIN, STORAGE_KEY, STORAGE_VERSION, EVENT_ACTIVITY, EVENT_COMPLETION
+from .const import DOMAIN, STORAGE_KEY, STORAGE_VERSION, EVENT_ACTIVITY, EVENT_COMPLETION, EVENT_NFC_SCAN
 from .models import MaintenanceTask
 
 _LOGGER = logging.getLogger(__name__)
@@ -126,11 +126,17 @@ class MaintenanceCoordinator:
                     entity_ids.add(rule["entity"])
         for entity_id in entity_ids:
             self._unsub.append(async_track_state_change_event(self.hass, entity_id, self._state_changed))
+        self._unsub.append(self.hass.bus.async_listen("tag_scanned", self._tag_scanned))
         self._unsub.append(async_track_time_interval(self.hass, self._tick, timedelta(minutes=1)))
 
     @callback
     def _state_changed(self, event) -> None:
         self.hass.async_create_task(self._update_runtime())
+
+    @callback
+    def _tag_scanned(self, event: Event) -> None:
+        """Handle Home Assistant NFC tag scans."""
+        self.hass.async_create_task(self.async_handle_tag_scan(event.data or {}))
 
     async def _tick(self, now) -> None:
         await self._update_runtime()
@@ -380,6 +386,77 @@ class MaintenanceCoordinator:
             except (TypeError, ValueError):
                 return False
         return state_value.lower() in ("on", "running", "heating", "cooling", "open")
+
+
+    def _find_task_for_tag(self, tag_id: str | None) -> MaintenanceTask | None:
+        if not tag_id:
+            return None
+        for task in self.tasks.values():
+            if tag_id in (task.nfc_tags or []):
+                return task
+        return None
+
+    async def async_handle_tag_scan(self, event_data: dict[str, Any]) -> None:
+        """Process a Home Assistant tag_scanned event for linked maintenance tasks."""
+        tag_id = event_data.get("tag_id") or event_data.get("id")
+        task = self._find_task_for_tag(tag_id)
+        if task is None:
+            return
+
+        action = (task.nfc_action or "confirm").lower()
+        if action == "disabled":
+            return
+
+        now = dt_util.utcnow().isoformat()
+        scan_entry = {
+            "at": now,
+            "activity": "nfc_scanned",
+            "tag_id": tag_id,
+            "scanner_device_id": event_data.get("device_id"),
+            "scanner_name": event_data.get("device_name"),
+            "nfc_action": action,
+        }
+        task.activity_history.append(scan_entry)
+        self.hass.bus.async_fire(EVENT_NFC_SCAN, {"task_id": task.id, "task_name": task.name, **scan_entry})
+        self.hass.bus.async_fire(EVENT_ACTIVITY, {"task_id": task.id, "task_name": task.name, **scan_entry})
+
+        if action == "complete":
+            await self.async_mark_complete(task.id, method="nfc", user=None, notes=f"Completed by NFC tag {tag_id}")
+            return
+
+        if action == "inspection":
+            task.activity_history.append({"at": now, "activity": "inspection", "method": "nfc", "tag_id": tag_id, "notes": "Inspection logged from NFC scan."})
+            await self.async_save()
+            self._notify()
+            return
+
+        if action == "open_dashboard":
+            # The HA mobile app already opens Home Assistant when scanning HA NFC tags.
+            # Keep a clear activity entry so the panel shows the scan.
+            await self.async_save()
+            self._notify()
+            return
+
+        # Default/safe behavior: confirmation. Create a persistent notification
+        # instead of resetting the task automatically.
+        try:
+            await self.hass.services.async_call(
+                "persistent_notification",
+                "create",
+                {
+                    "title": f"Confirm maintenance: {task.name}",
+                    "message": (
+                        f"NFC tag {tag_id} was scanned for **{task.name}**. "
+                        "Open Home Maintenance Manager and press **Mark complete** if the maintenance was performed."
+                    ),
+                    "notification_id": f"home_maintenance_manager_nfc_confirm_{task.id}",
+                },
+                blocking=True,
+            )
+        except Exception:  # pragma: no cover
+            _LOGGER.exception("Failed to create NFC confirmation notification for maintenance task %s", task.id)
+        await self.async_save()
+        self._notify()
 
     async def async_mark_complete(self, task_id: str, method: str = "manual", user: str | None = None, notes: str | None = None) -> None:
         task = self.tasks[task_id]

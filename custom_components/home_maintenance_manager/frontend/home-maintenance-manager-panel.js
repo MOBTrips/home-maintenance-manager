@@ -330,8 +330,38 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     return `<div class="list">${items.length ? items.map(i => `<div class="card history-item"><b>${this.escape(i.task)}</b> <span class="category-pill">${this.escape(i.category)}</span><div class="muted">${this.escape(i.activity || i.type || 'activity')} • ${this.dateShort(i.at)} ${i.notes ? ' - '+this.escape(i.notes) : ''}</div></div>`).join("") : `<div class="card empty">No maintenance history yet.</div>`}</div>`;
   }
 
+  nfcActionLabel(action) {
+    return ({
+      complete: 'Complete immediately',
+      confirm: 'Ask for confirmation',
+      inspection: 'Log inspection only',
+      open_dashboard: 'Open task in Maintenance panel',
+      disabled: 'Disabled'
+    })[action || 'disabled'] || action || 'Disabled';
+  }
+
+  taskForTag(tagId) {
+    if (!tagId) return null;
+    return this.tasks.find(t => (t.nfc_tags || []).includes(tagId)) || null;
+  }
+
+  lastNfcScan(t) {
+    const scans = (t.activity_history || []).filter(i => i.activity === 'nfc_scanned');
+    return scans.length ? scans.sort((a,b)=>String(b.at||'').localeCompare(String(a.at||'')))[0] : null;
+  }
+
   renderNfc() {
-    return `<div class="card"><h2>NFC Tags</h2><p class="muted">These are tags currently registered in Home Assistant. Select one when creating or editing a task so scanning it can be tied to that maintenance item.</p>${this.tags.length ? this.tags.map(tag => `<div class="tag-row"><div><b>${this.escape(tag.name || tag.tag_id || tag.id)}</b><div class="muted">${this.escape(tag.tag_id || tag.id || '')}</div></div></div>`).join("") : `<p>No registered NFC tags were found, or this HA version does not expose the tag list to custom panels.</p>`}</div>`;
+    const assigned = this.tasks.filter(t => (t.nfc_tags || []).length);
+    return `<div class="grid">
+      <div class="card"><h2>NFC Tags</h2><p class="muted">Registered Home Assistant NFC tags and their Home Maintenance Manager assignments.</p>${this.tags.length ? this.tags.map(tag => {
+        const tagId = tag.tag_id || tag.id;
+        const task = this.taskForTag(tagId);
+        const lastScan = task ? this.lastNfcScan(task) : null;
+        return `<div class="tag-row"><div><b>${this.escape(tag.name || tagId)}</b><div class="muted">${this.escape(tagId || '')}</div>${task ? `<div>Assigned to: <b>${this.escape(task.name)}</b></div><div class="muted">Action: ${this.escape(this.nfcActionLabel(task.nfc_action))}${lastScan ? ` • Last scan: ${this.dateShort(lastScan.at)}` : ''}</div>` : `<div class="muted">Not assigned to a maintenance task</div>`}</div>${task ? `<button class="btn small" data-edit="${this.escape(task.id)}">Edit task</button>` : ''}</div>`;
+      }).join("") : `<p>No registered NFC tags were found, or this HA version does not expose the tag list to custom panels.</p>`}</div>
+      <div class="card"><h2>How NFC works</h2><p>Assign a tag to a maintenance task, then choose what should happen when the tag is scanned.</p><ul><li><b>Ask for confirmation</b>: safest default; creates a confirmation notification.</li><li><b>Complete immediately</b>: resets the task cycle as soon as the tag is scanned.</li><li><b>Log inspection only</b>: records that someone checked the item without resetting due dates.</li><li><b>Open task</b>: logs the scan; the Home Assistant app will open HA from the tag.</li></ul><p class="muted">If scanning only opens Home Assistant, that is normal. HMM handles the HA <code>tag_scanned</code> event in the background.</p></div>
+      <div class="card"><h2>Assigned tasks</h2>${assigned.length ? assigned.map(t => `<div class="tag-row"><div><b>${this.escape(t.name)}</b><div class="muted">${this.escape((t.nfc_tags || []).join(', '))}</div><div>Action: ${this.escape(this.nfcActionLabel(t.nfc_action))}</div></div><button class="btn small" data-edit="${this.escape(t.id)}">Edit</button></div>`).join('') : `<p>No maintenance tasks have NFC tags assigned yet.</p>`}</div>
+    </div>`;
   }
 
   renderNotifications() {
@@ -396,6 +426,8 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     const notifyOptions = [["persistent","Home Assistant persistent notification"],["mobile","Mobile app notification"],["both","Home Assistant + mobile app"],["automation_only","Automation only"]].map(([v,l])=>`<option value="${v}" ${customNotifyMode===v?'selected':''}>${l}</option>`).join("");
     const mobileOptions = [`<option value="">Use global mobile target(s)</option>`, ...this.metadata.notify_services.map(s=>`<option value="${this.escape(s.value)}" ${t.mobile_notify_service===s.value?'selected':''}>${this.escape(s.label)}</option>`)].join("");
     const tagOptions = [`<option value="">No NFC tag</option>`, ...this.tags.map(tag=>`<option value="${this.escape(tag.tag_id || tag.id)}" ${(t.nfc_tags||[])[0]===(tag.tag_id||tag.id)?'selected':''}>${this.escape(tag.name || tag.tag_id || tag.id)}</option>`)].join("");
+    const nfcAction = t.nfc_action || ((t.nfc_tags||[]).length ? 'confirm' : 'disabled');
+    const nfcActionOptions = [["confirm","Ask for confirmation"],["complete","Complete immediately"],["inspection","Log inspection only"],["open_dashboard","Open task in Maintenance panel"],["disabled","Disabled"]].map(([v,l])=>`<option value="${v}" ${nfcAction===v?'selected':''}>${l}</option>`).join('');
     const runtimeRule = (t.rules||[]).find(r=>r.type==='runtime') || {};
     const runtimeMethod = runtimeRule.above !== undefined ? 'above_threshold' : runtimeRule.states ? 'specific_state' : 'entity_on';
     const runtimeStateText = Array.isArray(runtimeRule.states) ? runtimeRule.states.join(', ') : 'running,on,heating,cooling';
@@ -486,7 +518,10 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
           <div class="conditional custom-notify-fields"><label>${this.label('Task override method','Only shown when Override for this task is selected.')}</label><select id="task-notify">${notifyOptions}</select></div>
           <div class="conditional custom-notify-fields mobile-fields"><label>${this.label('Task mobile target override','Optional. Leave blank to use the global mobile target(s).')}</label><select id="task-mobile">${mobileOptions}</select></div>
         </div>
-        <label>${this.label('NFC tag','Choose a registered Home Assistant NFC tag. Scanning it can be used to confirm or log this task.')}</label><select id="task-nfc">${tagOptions}</select>
+        <div class="two">
+          <div><label>${this.label('NFC tag','Choose a registered Home Assistant NFC tag. Scanning it can be used to complete, confirm, or log this task.')}</label><select id="task-nfc">${tagOptions}</select></div>
+          <div><label>${this.label('When this tag is scanned','Choose the NFC workflow. Ask for confirmation is safest; Complete immediately is fastest for trusted locations.')}</label><select id="task-nfc-action">${nfcActionOptions}</select><div class="help">Scanning a HA NFC tag opens Home Assistant and also fires a tag_scanned event that HMM handles.</div></div>
+        </div>
       </div>
 
       <div class="form-section">
@@ -583,7 +618,7 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     const fields = [
       'task-name','task-category','task-description','task-area','task-device','task-equipment-name',
       'task-schedule','task-days','task-runtime-hours','task-runtime-method','task-runtime-threshold','task-runtime-states',
-      'task-meter-amount','task-meter-source-type','task-baseline','task-notify-behavior','task-notify','task-mobile','task-nfc','task-instructions'
+      'task-meter-amount','task-meter-source-type','task-baseline','task-notify-behavior','task-notify','task-mobile','task-nfc','task-nfc-action','task-instructions'
     ];
     const data = {};
     for (const id of fields) data[id] = value(id);
@@ -1019,6 +1054,7 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     const entityValue = q('task-entities')?.value;
     const selectedEntities = Array.isArray(entityValue) ? entityValue : (entityValue ? [entityValue] : []);
     const nfc = q('task-nfc').value;
+    const nfcAction = nfc ? (q('task-nfc-action')?.value || 'confirm') : 'disabled';
     const task = {
       id: existingId || this.slug(name),
       name,
@@ -1032,7 +1068,7 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
       rule_logic: ["time_and_runtime","time_and_meter"].includes(schedule) ? 'all' : 'any',
       primary_rule_id: null,
       nfc_tags: nfc ? [nfc] : [],
-      nfc_action: nfc ? 'confirm' : 'disabled',
+      nfc_action: nfcAction,
       instructions: q('task-instructions').value,
       checklist: existing?.checklist || [], parts: existing?.parts || [], tools: existing?.tools || [],
       notification_mode: notify,
