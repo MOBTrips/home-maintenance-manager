@@ -71,3 +71,14 @@ Examples:
 - Added a second Close button at the bottom of the task editor.
 - Clicking outside the task editor now attempts to close it.
 - Unsaved edits now prompt with Keep editing, Discard changes, or Save changes before closing.
+
+## v0.5.12
+
+NFC confirmation polish:
+
+- Confirmation scans now create clearer NFC confirmation notifications.
+- Mobile Companion App notifications can include actions: Mark Complete, Inspection Only, Open Task, and Dismiss.
+- HMM listens for `mobile_app_notification_action` events and processes NFC action buttons.
+- NFC activity history now records scanner device/user context when available.
+- The Maintenance panel supports task deep links like `/home-maintenance-manager?task=<task_id>`.
+- Added a task detail view with overview, NFC status, quick actions, instructions, and recent activity.

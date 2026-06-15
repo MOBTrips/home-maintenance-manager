@@ -39,6 +39,7 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
       ]);
       this.tasks = taskData.tasks || [];
       this.metadata = meta || this.metadata;
+      this.applyRouteTask();
       if (meta?.notification_settings) this.notificationSettings = {...this.notificationSettings, ...meta.notification_settings};
       try {
         const tagResult = await this._hass.callWS({ type: "tag/list" });
@@ -103,6 +104,8 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
       .empty { text-align:center; padding:40px 16px; }
       .history-item { border-left:4px solid var(--primary-color); padding-left:12px; }
       .tag-row { display:flex; justify-content:space-between; gap:12px; align-items:center; border-bottom:1px solid var(--divider-color); padding:10px 0; }
+      .detail-list { display:grid; grid-template-columns: 180px 1fr; gap:8px 12px; margin:12px 0; }
+      .detail-list .key { color: var(--secondary-text-color); }
       .form-section { border:1px solid var(--divider-color); border-radius:18px; padding:16px; margin:16px 0; background: var(--secondary-background-color); }
       .form-section h3 { margin:0 0 4px; font-size:18px; }
       .section-note { color: var(--secondary-text-color); font-size:13px; margin:0 0 12px; }
@@ -320,7 +323,7 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
       <div class="task-actions">
         <button class="btn small primary" data-complete="${this.escape(t.id)}">Mark complete</button>
         <button class="btn small" data-snooze="${this.escape(t.id)}">Snooze 7 days</button>
-        <button class="btn small" data-edit="${this.escape(t.id)}">Edit</button>
+        <button class="btn small" data-view-task="${this.escape(t.id)}">View</button><button class="btn small" data-edit="${this.escape(t.id)}">Edit</button>
       </div>
     </div>`;
   }
@@ -359,8 +362,8 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
         const lastScan = task ? this.lastNfcScan(task) : null;
         return `<div class="tag-row"><div><b>${this.escape(tag.name || tagId)}</b><div class="muted">${this.escape(tagId || '')}</div>${task ? `<div>Assigned to: <b>${this.escape(task.name)}</b></div><div class="muted">Action: ${this.escape(this.nfcActionLabel(task.nfc_action))}${lastScan ? ` • Last scan: ${this.dateShort(lastScan.at)}` : ''}</div>` : `<div class="muted">Not assigned to a maintenance task</div>`}</div>${task ? `<button class="btn small" data-edit="${this.escape(task.id)}">Edit task</button>` : ''}</div>`;
       }).join("") : `<p>No registered NFC tags were found, or this HA version does not expose the tag list to custom panels.</p>`}</div>
-      <div class="card"><h2>How NFC works</h2><p>Assign a tag to a maintenance task, then choose what should happen when the tag is scanned.</p><ul><li><b>Ask for confirmation</b>: safest default; creates a confirmation notification.</li><li><b>Complete immediately</b>: resets the task cycle as soon as the tag is scanned.</li><li><b>Log inspection only</b>: records that someone checked the item without resetting due dates.</li><li><b>Open task</b>: logs the scan; the Home Assistant app will open HA from the tag.</li></ul><p class="muted">If scanning only opens Home Assistant, that is normal. HMM handles the HA <code>tag_scanned</code> event in the background.</p></div>
-      <div class="card"><h2>Assigned tasks</h2>${assigned.length ? assigned.map(t => `<div class="tag-row"><div><b>${this.escape(t.name)}</b><div class="muted">${this.escape((t.nfc_tags || []).join(', '))}</div><div>Action: ${this.escape(this.nfcActionLabel(t.nfc_action))}</div></div><button class="btn small" data-edit="${this.escape(t.id)}">Edit</button></div>`).join('') : `<p>No maintenance tasks have NFC tags assigned yet.</p>`}</div>
+      <div class="card"><h2>How NFC works</h2><p>Assign a tag to a maintenance task, then choose what should happen when the tag is scanned.</p><ul><li><b>Ask for confirmation</b>: safest default; creates a confirmation notification.</li><li><b>Complete immediately</b>: resets the task cycle as soon as the tag is scanned.</li><li><b>Log inspection only</b>: records that someone checked the item without resetting due dates.</li><li><b>Open task</b>: sends a notification with a link back to this task in the Maintenance panel.</li></ul><p class="muted">If scanning opens Home Assistant, that is normal. HMM handles the HA <code>tag_scanned</code> event in the background. Confirmation scans can also send mobile action buttons when a mobile notify target is configured.</p></div>
+      <div class="card"><h2>Assigned tasks</h2>${assigned.length ? assigned.map(t => `<div class="tag-row"><div><b>${this.escape(t.name)}</b><div class="muted">${this.escape((t.nfc_tags || []).join(', '))}</div><div>Action: ${this.escape(this.nfcActionLabel(t.nfc_action))}</div></div><button class="btn small" data-view-task="${this.escape(t.id)}">View</button><button class="btn small" data-edit="${this.escape(t.id)}">Edit</button></div>`).join('') : `<p>No maintenance tasks have NFC tags assigned yet.</p>`}</div>
     </div>`;
   }
 
@@ -413,8 +416,80 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
   }
 
 
+
+  applyRouteTask() {
+    try {
+      const url = new URL(window.location.href);
+      const taskId = url.searchParams.get('task');
+      if (!taskId || this.modal) return;
+      const task = this.tasks.find(t => t.id === taskId);
+      if (task) {
+        this.tab = 'tasks';
+        this.modal = { detail: JSON.parse(JSON.stringify(task)) };
+      }
+    } catch (err) {
+      // Route parsing is best-effort for custom panel deep links.
+    }
+  }
+
+  openTaskDetail(taskId) {
+    const task = this.tasks.find(t => t.id === taskId);
+    if (!task) return;
+    this._modalSnapshot = null;
+    this.modal = { detail: JSON.parse(JSON.stringify(task)) };
+    try {
+      const url = new URL(window.location.href);
+      url.searchParams.set('task', taskId);
+      window.history.replaceState({}, '', url.toString());
+    } catch (err) {}
+    this.render();
+  }
+
+  closeTaskDetail() {
+    this.modal = null;
+    try {
+      const url = new URL(window.location.href);
+      url.searchParams.delete('task');
+      window.history.replaceState({}, '', url.toString());
+    } catch (err) {}
+    this.render();
+  }
+
+  renderTaskDetailModal(t) {
+    const status = this.taskStatus(t);
+    const scan = this.lastNfcScan(t);
+    const recent = (t.activity_history || []).slice().sort((a,b)=>String(b.at||'').localeCompare(String(a.at||''))).slice(0,8);
+    const progress = t.summary || {};
+    return `<div class="modal-scrim" data-action="detail-scrim"><div class="modal" data-modal-content>
+      <div class="modal-head"><div><h2>${this.escape(t.name || t.id)}</h2><div class="muted">Task details, NFC status, and quick actions.</div></div><button class="btn" data-action="close-detail">Close</button></div>
+      <div class="form-section">
+        <h3>Overview</h3>
+        <div class="detail-list">
+          <div class="key">Status</div><div><span class="pill ${status}">${this.escape(status)}</span></div>
+          <div class="key">Category</div><div>${this.escape(this.category(t))}</div>
+          <div class="key">Equipment</div><div>${this.escape(t.equipment_name || 'Not specified')}</div>
+          <div class="key">Percent used</div><div>${this.percent(t)}%</div>
+          <div class="key">Next due</div><div>${this.dateShort(progress.next_due)}</div>
+          <div class="key">Last completed</div><div>${this.dateShort(t.last_completed || progress.last_completed)}</div>
+          <div class="key">NFC action</div><div>${this.escape(this.nfcActionLabel(t.nfc_action))}</div>
+          <div class="key">Last NFC scan</div><div>${scan ? `${this.dateShort(scan.at)}${scan.scanner_name ? ' by '+this.escape(scan.scanner_name) : ''}` : 'Never'}</div>
+        </div>
+        <div class="progress"><div class="bar" style="width:${this.percent(t)}%"></div></div>
+        <div class="task-actions">
+          <button class="btn primary" data-complete="${this.escape(t.id)}">Mark complete</button>
+          <button class="btn" data-snooze="${this.escape(t.id)}">Snooze 7 days</button>
+          <button class="btn" data-edit-from-detail="${this.escape(t.id)}">Edit task</button>
+        </div>
+      </div>
+      ${t.instructions ? `<div class="form-section"><h3>Instructions</h3><div style="white-space:pre-wrap">${this.escape(t.instructions)}</div></div>` : ''}
+      <div class="form-section"><h3>Recent activity</h3>${recent.length ? recent.map(i=>`<div class="history-item"><b>${this.escape(i.activity || i.type || 'activity')}</b><div class="muted">${this.dateShort(i.at)}${i.scanner_name ? ' • '+this.escape(i.scanner_name) : ''}${i.notes ? ' - '+this.escape(i.notes) : ''}</div></div>`).join('') : '<p class="muted">No activity yet.</p>'}</div>
+      <div class="modal-actions-bottom"><button class="btn" data-action="close-detail">Close</button><div class="right"><button class="btn primary" data-complete="${this.escape(t.id)}">Mark complete</button></div></div>
+    </div></div>`;
+  }
+
   renderModal() {
     if (!this.modal) return "";
+    if (this.modal.detail) return this.renderTaskDetailModal(this.modal.detail);
     const t = this.modal.task || {};
     const isEdit = !!t.id;
     const areaOptions = [`<option value="">No area / choose later</option>`, ...this.metadata.areas.map(a=>`<option value="${this.escape(a.id)}" ${t.area===a.id?'selected':''}>${this.escape(a.name)}</option>`)].join("");
@@ -545,8 +620,12 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     this.shadowRoot.querySelectorAll('[data-action="new-task"]').forEach(el=>el.onclick=()=>{ this._modalSnapshot=null; this.modal={task:{}}; this.render(); });
     this.shadowRoot.querySelectorAll('[data-action="close-modal"]').forEach(el=>el.onclick=()=>this.requestCloseModal());
     this.shadowRoot.querySelectorAll('[data-action="modal-scrim"]').forEach(el=>el.onclick=(ev)=>{ if (ev.target === el) this.requestCloseModal(); });
+    this.shadowRoot.querySelectorAll('[data-action="close-detail"]').forEach(el=>el.onclick=()=>this.closeTaskDetail());
+    this.shadowRoot.querySelectorAll('[data-action="detail-scrim"]').forEach(el=>el.onclick=(ev)=>{ if (ev.target === el) this.closeTaskDetail(); });
+    this.shadowRoot.querySelectorAll('[data-edit-from-detail]').forEach(el=>el.onclick=()=>{ const task=this.tasks.find(t=>t.id===el.dataset.editFromDetail); this._modalSnapshot=null; this.modal={task:JSON.parse(JSON.stringify(task||{}))}; this.render(); });
     this.shadowRoot.querySelectorAll('[data-complete]').forEach(el=>el.onclick=()=>this.callService('mark_complete',{task_id:el.dataset.complete, method:'panel'}));
     this.shadowRoot.querySelectorAll('[data-snooze]').forEach(el=>el.onclick=()=>this.callService('snooze',{task_id:el.dataset.snooze, days:7}));
+    this.shadowRoot.querySelectorAll('[data-view-task]').forEach(el=>el.onclick=()=>this.openTaskDetail(el.dataset.viewTask));
     this.shadowRoot.querySelectorAll('[data-edit]').forEach(el=>el.onclick=()=>{ const task=this.tasks.find(t=>t.id===el.dataset.edit); this._modalSnapshot=null; this.modal={task:JSON.parse(JSON.stringify(task||{}))}; this.render(); });
     this.shadowRoot.querySelectorAll('[data-delete]').forEach(el=>el.onclick=()=>{ if(confirm('Delete this maintenance task?')) this.callService('delete_task',{task_id:el.dataset.delete}); });
     this.shadowRoot.querySelectorAll('[data-category-filter]').forEach(el=>el.onclick=()=>{ this.categoryFilter=el.dataset.categoryFilter; this.tab='tasks'; this.render(); });

@@ -127,6 +127,7 @@ class MaintenanceCoordinator:
         for entity_id in entity_ids:
             self._unsub.append(async_track_state_change_event(self.hass, entity_id, self._state_changed))
         self._unsub.append(self.hass.bus.async_listen("tag_scanned", self._tag_scanned))
+        self._unsub.append(self.hass.bus.async_listen("mobile_app_notification_action", self._mobile_notification_action))
         self._unsub.append(async_track_time_interval(self.hass, self._tick, timedelta(minutes=1)))
 
     @callback
@@ -136,7 +137,18 @@ class MaintenanceCoordinator:
     @callback
     def _tag_scanned(self, event: Event) -> None:
         """Handle Home Assistant NFC tag scans."""
-        self.hass.async_create_task(self.async_handle_tag_scan(event.data or {}))
+        payload = dict(event.data or {})
+        if event.context and event.context.user_id:
+            payload.setdefault("user_id", event.context.user_id)
+        self.hass.async_create_task(self.async_handle_tag_scan(payload))
+
+    @callback
+    def _mobile_notification_action(self, event: Event) -> None:
+        """Handle Home Assistant Companion App notification actions."""
+        payload = dict(event.data or {})
+        if event.context and event.context.user_id:
+            payload.setdefault("user_id", event.context.user_id)
+        self.hass.async_create_task(self.async_handle_notification_action(payload))
 
     async def _tick(self, now) -> None:
         await self._update_runtime()
@@ -388,6 +400,166 @@ class MaintenanceCoordinator:
         return state_value.lower() in ("on", "running", "heating", "cooling", "open")
 
 
+    def _panel_task_url(self, task_id: str) -> str:
+        """Return a relative URL to the Maintenance panel for a task."""
+        return f"/home-maintenance-manager?task={task_id}"
+
+    def _scanner_label(self, event_data: dict[str, Any]) -> str | None:
+        """Best-effort friendly label for the phone/device that scanned a tag."""
+        if event_data.get("device_name"):
+            return str(event_data.get("device_name"))
+        device_id = event_data.get("device_id")
+        if device_id:
+            try:
+                from homeassistant.helpers import device_registry as dr
+                device = dr.async_get(self.hass).async_get(str(device_id))
+                if device:
+                    return device.name_by_user or device.name or device.model or str(device_id)
+            except Exception:  # pragma: no cover - friendly label only
+                return str(device_id)
+        return None
+
+    def _task_last_completed_label(self, task: MaintenanceTask) -> str:
+        if not task.last_completed:
+            return "Never"
+        dt = dt_util.parse_datetime(task.last_completed)
+        if not dt:
+            return str(task.last_completed)
+        delta = dt_util.utcnow() - dt
+        if delta.days <= 0:
+            return "Today"
+        if delta.days == 1:
+            return "Yesterday"
+        return f"{delta.days} days ago"
+
+    async def _dismiss_persistent_notification(self, notification_id: str) -> None:
+        try:
+            if self.hass.services.has_service("persistent_notification", "dismiss"):
+                await self.hass.services.async_call(
+                    "persistent_notification",
+                    "dismiss",
+                    {"notification_id": notification_id},
+                    blocking=True,
+                )
+        except Exception:  # pragma: no cover
+            _LOGGER.debug("Failed to dismiss persistent notification %s", notification_id, exc_info=True)
+
+    async def _send_nfc_mobile_notification(self, task: MaintenanceTask, title: str, message: str, tag_id: str | None) -> bool:
+        """Send actionable NFC confirmation to selected mobile notify targets."""
+        settings = self._notification_settings()
+        mode = self._task_notification_mode(task, settings)
+        # NFC confirmation is intentionally more helpful than normal task notifications:
+        # send mobile actions when mobile targets exist, even if the global mode is persistent,
+        # but never send to mobile if the task explicitly disables notifications.
+        if mode == "none":
+            return False
+        targets = self._task_mobile_targets(task, settings)
+        if not targets and mode in ("mobile", "both"):
+            return False
+        sent = False
+        url = self._panel_task_url(task.id)
+        actions = [
+            {"action": f"HMM_NFC_COMPLETE_{task.id}", "title": "Mark Complete"},
+            {"action": f"HMM_NFC_INSPECTION_{task.id}", "title": "Inspection Only"},
+            {"action": "URI", "title": "Open Task", "uri": url},
+            {"action": f"HMM_NFC_DISMISS_{task.id}", "title": "Dismiss"},
+        ]
+        for target in targets:
+            if not isinstance(target, str) or not target.startswith("notify."):
+                continue
+            service = target.split(".", 1)[1]
+            if not self.hass.services.has_service("notify", service):
+                continue
+            try:
+                await self.hass.services.async_call(
+                    "notify",
+                    service,
+                    {
+                        "title": title,
+                        "message": message,
+                        "data": {
+                            "tag": f"hmm_nfc_{task.id}",
+                            "url": url,
+                            "clickAction": url,
+                            "actions": actions,
+                        },
+                    },
+                    blocking=True,
+                )
+                sent = True
+            except Exception:  # pragma: no cover
+                _LOGGER.exception("Failed to send NFC mobile notification %s for maintenance task %s", target, task.id)
+        return sent
+
+    async def _create_nfc_persistent_notification(self, task: MaintenanceTask, title: str, message: str, notification_id: str) -> None:
+        """Create a persistent NFC notification with a panel link."""
+        url = self._panel_task_url(task.id)
+        try:
+            await self.hass.services.async_call(
+                "persistent_notification",
+                "create",
+                {
+                    "title": title,
+                    "message": f"{message}\n\nOpen **Maintenance** and select **{task.name}**. Panel link: `{url}`",
+                    "notification_id": notification_id,
+                },
+                blocking=True,
+            )
+        except Exception:  # pragma: no cover
+            _LOGGER.exception("Failed to create NFC persistent notification for maintenance task %s", task.id)
+
+    async def _log_nfc_activity(self, task: MaintenanceTask, activity: str, event_data: dict[str, Any] | None = None, notes: str | None = None) -> None:
+        now = dt_util.utcnow().isoformat()
+        event_data = event_data or {}
+        entry = {
+            "at": now,
+            "activity": activity,
+            "method": "nfc",
+            "tag_id": event_data.get("tag_id") or event_data.get("id"),
+            "scanner_device_id": event_data.get("device_id"),
+            "scanner_name": self._scanner_label(event_data),
+            "user_id": event_data.get("user_id"),
+            "notes": notes,
+        }
+        task.activity_history.append(entry)
+        self.hass.bus.async_fire(EVENT_ACTIVITY, {"task_id": task.id, "task_name": task.name, **entry})
+        await self.async_save()
+        self._notify()
+
+    async def async_handle_notification_action(self, event_data: dict[str, Any]) -> None:
+        """Process action buttons from NFC mobile notifications."""
+        action = str(event_data.get("action") or event_data.get("actionName") or "")
+        prefixes = {
+            "HMM_NFC_COMPLETE_": "complete",
+            "HMM_NFC_INSPECTION_": "inspection",
+            "HMM_NFC_DISMISS_": "dismissed",
+        }
+        matched: tuple[str, str] | None = None
+        for prefix, activity in prefixes.items():
+            if action.startswith(prefix):
+                matched = (activity, action[len(prefix):])
+                break
+        if not matched:
+            return
+        activity, task_id = matched
+        task = self.tasks.get(task_id)
+        if task is None:
+            return
+        notification_id = f"home_maintenance_manager_nfc_confirm_{task.id}"
+        if activity == "complete":
+            await self.async_mark_complete(task.id, method="nfc_notification", user=event_data.get("user_id"), notes="Completed from NFC confirmation notification.")
+            await self._dismiss_persistent_notification(notification_id)
+            return
+        if activity == "inspection":
+            await self._log_nfc_activity(task, "inspection", event_data, "Inspection logged from NFC confirmation notification.")
+            await self._dismiss_persistent_notification(notification_id)
+            return
+        if activity == "dismissed":
+            await self._log_nfc_activity(task, "nfc_dismissed", event_data, "NFC confirmation dismissed from mobile notification.")
+            await self._dismiss_persistent_notification(notification_id)
+            return
+
+
     def _find_task_for_tag(self, tag_id: str | None) -> MaintenanceTask | None:
         if not tag_id:
             return None
@@ -408,12 +580,14 @@ class MaintenanceCoordinator:
             return
 
         now = dt_util.utcnow().isoformat()
+        scanner_name = self._scanner_label(event_data)
         scan_entry = {
             "at": now,
             "activity": "nfc_scanned",
             "tag_id": tag_id,
             "scanner_device_id": event_data.get("device_id"),
-            "scanner_name": event_data.get("device_name"),
+            "scanner_name": scanner_name,
+            "user_id": event_data.get("user_id"),
             "nfc_action": action,
         }
         task.activity_history.append(scan_entry)
@@ -421,40 +595,42 @@ class MaintenanceCoordinator:
         self.hass.bus.async_fire(EVENT_ACTIVITY, {"task_id": task.id, "task_name": task.name, **scan_entry})
 
         if action == "complete":
-            await self.async_mark_complete(task.id, method="nfc", user=None, notes=f"Completed by NFC tag {tag_id}")
+            await self.async_mark_complete(task.id, method="nfc", user=event_data.get("user_id"), notes=f"Completed by NFC tag {tag_id}.")
             return
 
         if action == "inspection":
-            task.activity_history.append({"at": now, "activity": "inspection", "method": "nfc", "tag_id": tag_id, "notes": "Inspection logged from NFC scan."})
+            task.activity_history.append({"at": now, "activity": "inspection", "method": "nfc", "tag_id": tag_id, "scanner_name": scanner_name, "user_id": event_data.get("user_id"), "notes": "Inspection logged from NFC scan."})
             await self.async_save()
             self._notify()
             return
 
+        status = task.status(self.hass).replace("_", " ").title()
+        last_completed = self._task_last_completed_label(task)
+        title = f"Confirm maintenance: {task.name}" if action == "confirm" else f"Maintenance tag scanned: {task.name}"
+        message = (
+            f"NFC tag scanned for {task.name}.\n"
+            f"Status: {status}.\n"
+            f"Last completed: {last_completed}."
+        )
+        if scanner_name:
+            message += f"\nScanned by: {scanner_name}."
+
+        notification_id = f"home_maintenance_manager_nfc_confirm_{task.id}"
+
+        # For Open Task, create a helpful deep-link notification instead of completing/logging only.
         if action == "open_dashboard":
-            # The HA mobile app already opens Home Assistant when scanning HA NFC tags.
-            # Keep a clear activity entry so the panel shows the scan.
+            task.activity_history.append({"at": now, "activity": "nfc_open_task", "method": "nfc", "tag_id": tag_id, "scanner_name": scanner_name, "user_id": event_data.get("user_id"), "notes": "NFC scan requested opening the task."})
+            await self._create_nfc_persistent_notification(task, title, message, notification_id)
+            await self._send_nfc_mobile_notification(task, title, message, tag_id)
             await self.async_save()
             self._notify()
             return
 
-        # Default/safe behavior: confirmation. Create a persistent notification
-        # instead of resetting the task automatically.
-        try:
-            await self.hass.services.async_call(
-                "persistent_notification",
-                "create",
-                {
-                    "title": f"Confirm maintenance: {task.name}",
-                    "message": (
-                        f"NFC tag {tag_id} was scanned for **{task.name}**. "
-                        "Open Home Maintenance Manager and press **Mark complete** if the maintenance was performed."
-                    ),
-                    "notification_id": f"home_maintenance_manager_nfc_confirm_{task.id}",
-                },
-                blocking=True,
-            )
-        except Exception:  # pragma: no cover
-            _LOGGER.exception("Failed to create NFC confirmation notification for maintenance task %s", task.id)
+        # Default/safe behavior: actionable confirmation. Persistent notifications cannot
+        # render buttons, so they contain clear instructions and a panel path. Mobile app
+        # notifications receive action buttons when mobile notify services are configured.
+        await self._create_nfc_persistent_notification(task, title, message, notification_id)
+        await self._send_nfc_mobile_notification(task, title, message, tag_id)
         await self.async_save()
         self._notify()
 
