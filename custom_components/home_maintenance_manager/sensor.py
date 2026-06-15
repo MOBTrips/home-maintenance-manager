@@ -18,6 +18,7 @@ SENSOR_TYPES = {
     "runtime_remaining": ("Runtime Remaining", None, None),
     "usage_used": ("Metered Usage Used", None, None),
     "usage_remaining": ("Metered Usage Remaining", None, None),
+    "totalized_usage": ("Totalized Usage", None, None),
     "next_due": ("Next Due", None, SensorDeviceClass.TIMESTAMP),
     "last_completed": ("Last Completed", None, SensorDeviceClass.TIMESTAMP),
     "completion_count": ("Completion Count", None, None),
@@ -166,6 +167,13 @@ class MaintenanceSensor(SensorEntity):
                 return "N/A"
             value = task.counter_remaining(self.hass)
             return round(value, 1) if value is not None else None
+        if self.sensor_type == "totalized_usage":
+            # Only meaningful for rate-based metered usage rules.
+            for rule in task.rules:
+                if rule.get("type") == "counter" and rule.get("source_mode") == "rate":
+                    value = task.totalized_usage.get(str(rule.get("id") or rule.get("entity")), 0)
+                    return round(value, 1)
+            return "N/A"
         if self.sensor_type == "next_due":
             return task.next_due_datetime(self.hass)
         if self.sensor_type == "last_completed":
@@ -178,7 +186,7 @@ class MaintenanceSensor(SensorEntity):
 
     @property
     def native_unit_of_measurement(self):
-        if self.sensor_type in ("usage_used", "usage_remaining"):
+        if self.sensor_type in ("usage_used", "usage_remaining", "totalized_usage"):
             return self.task.counter_unit(self.hass)
         return self._attr_native_unit_of_measurement
 

@@ -168,6 +168,24 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     return 'Specific running state';
   }
 
+
+  isRateUnit(unit) {
+    const u = String(unit || '').toLowerCase().replace(/\s+/g, '');
+    return u.includes('/min') || u.includes('/minute') || u.includes('/h') || u.includes('/hr') || u.includes('/hour') || u.includes('/s') || u.includes('/sec') || u.includes('/second') || u.includes('permin') || u.includes('perhour') || u.includes('persecond') || u === 'w';
+  }
+  isLikelyInstantUnit(unit) {
+    const u = String(unit || '').toLowerCase().replace(/\s+/g, '');
+    return ['w','a','v','%','°f','°c','rpm','hz'].includes(u);
+  }
+  totalizedTargetUnit(unit) {
+    const raw = String(unit || '').trim();
+    const u = raw.toLowerCase().replace(/\s+/g, '');
+    if (u === 'w') return 'kWh';
+    if (raw.includes('/')) return raw.split('/')[0].trim() || 'units';
+    if (u.includes('per')) return raw.split(/per/i)[0].trim() || 'units';
+    return 'units';
+  }
+
   categories() {
     const builtIn = ["General","HVAC","Pool","Hot Tub","Water Filtration","Appliance","Plumbing","Electrical","Yard","Vehicle","3D Printer","Seasonal","Safety","Other"];
     const seen = new Set(builtIn);
@@ -369,7 +387,9 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     else if (hasTimeRule && hasCounterRule) scheduleValue = t.rule_logic === 'all' ? 'time_and_meter' : 'time_or_meter';
     else if (hasRuntimeRule) scheduleValue = 'runtime';
     else if (hasCounterRule) scheduleValue = 'meter';
-    const counterUnit = counterRule.unit || (counterRule.entity && this._hass?.states?.[counterRule.entity]?.attributes?.unit_of_measurement) || 'units';
+    const counterSourceMode = counterRule.source_mode || 'cumulative';
+    const sourceUnit = counterRule.source_unit || (counterRule.entity && this._hass?.states?.[counterRule.entity]?.attributes?.unit_of_measurement) || '';
+    const counterUnit = counterRule.target_unit || counterRule.unit || (counterSourceMode === 'rate' ? this.totalizedTargetUnit(sourceUnit) : sourceUnit) || 'units';
     const categoryOptions = this.categories().map(c=>`<option value="${this.escape(c)}" ${this.category(t)===c?'selected':''}>${this.escape(c)}</option>`).join('');
     return `<div class="modal-scrim"><div class="modal">
       <div class="modal-head"><div><h2>${isEdit ? 'Edit maintenance task' : 'Add maintenance task'}</h2><div class="muted">This one-page setup is grouped into sections. Start simple; advanced fields can be left blank.</div></div><button class="btn" data-action="close-modal">Close</button></div>
@@ -427,8 +447,12 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
           <div id="runtime-analysis">${this.renderRuntimeAnalysis()}</div>
         </div>
         <div class="two">
-          <div class="conditional meter-fields"><label>${this.label('Metered usage source','Choose a numeric sensor that increases over time, such as gallons, kWh, miles, grams, pages, or cycles.')}</label><div class="help">The unit is read from the selected entity automatically when available.</div><ha-entity-picker id="task-meter-entity" allow-custom-entity></ha-entity-picker><div id="err-meter-entity" class="field-error">Choose a metered usage source.</div></div>
-          <div class="conditional meter-fields"><label>${this.label('Usage amount','The task becomes due after the selected sensor increases by this amount since the last completion.')}</label><input id="task-meter-amount" type="number" min="0.1" step="0.1" value="${counterRule.amount || 1000}"><div class="help">Current unit: <span id="task-meter-unit">${this.escape(counterUnit)}</span></div><div id="err-meter-amount" class="field-error">Enter a valid usage amount.</div></div>
+          <div class="conditional meter-fields"><label>${this.label('Metered usage source','Choose either a cumulative meter, like total gallons/kWh/miles, or a rate sensor like gal/min that HMM can totalize.')}</label><div class="help">If this sensor is a rate, Home Maintenance Manager can create its own internal totalizer.</div><ha-entity-picker id="task-meter-entity" allow-custom-entity></ha-entity-picker><div id="meter-source-hint" class="help"></div><div id="err-meter-entity" class="field-error">Choose a metered usage source.</div></div>
+          <div class="conditional meter-fields"><label>${this.label('Meter source type','Cumulative meters already contain a total. Rate sensors such as gal/min must be totalized over time.')}</label><select id="task-meter-source-type"><option value="cumulative" ${counterSourceMode!=='rate'?'selected':''}>Cumulative meter - already total</option><option value="rate" ${counterSourceMode==='rate'?'selected':''}>Rate sensor - let HMM totalize it</option></select><div id="meter-type-hint" class="help"></div></div>
+        </div>
+        <div class="two">
+          <div class="conditional meter-fields"><label>${this.label('Usage amount','The task becomes due after this amount of totalized usage since the last completion.')}</label><input id="task-meter-amount" type="number" min="0.1" step="0.1" value="${counterRule.amount || 1000}"><div class="help">Maintenance every: <span id="task-meter-unit">${this.escape(counterUnit)}</span></div><div id="err-meter-amount" class="field-error">Enter a valid usage amount.</div></div>
+          <div class="conditional meter-fields"><div class="info-box" id="meter-explain-box">Metered usage uses a baseline at task creation/completion. HMM subtracts that baseline from the current total to calculate usage used.</div></div>
         </div>
         <label>${this.label('When was it last done?','Sets the starting point for the first due date. Today is safest for a new task.')}</label><select id="task-baseline"><option value="today">Today</option><option value="unknown">Unknown / start today</option></select>
       </div>
@@ -497,6 +521,8 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     }
     const schedule = this.shadowRoot.getElementById('task-schedule');
     const notify = this.shadowRoot.getElementById('task-notify');
+    const meterSourceType = this.shadowRoot.getElementById('task-meter-source-type');
+    if (meterSourceType) meterSourceType.onchange = () => this.updateMeterUnit();
     const notifyBehaviorEl = this.shadowRoot.getElementById('task-notify-behavior');
     if (schedule) schedule.onchange = () => this.syncConditionalFields();
     const runtimeMethodEl = this.shadowRoot.getElementById('task-runtime-method');
@@ -782,9 +808,30 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
   updateMeterUnit() {
     const meterEntity = this.shadowRoot.getElementById('task-meter-entity')?.value || '';
     const state = meterEntity ? this._hass?.states?.[meterEntity] : null;
-    const unit = state?.attributes?.unit_of_measurement || 'units';
+    const sourceUnit = state?.attributes?.unit_of_measurement || '';
+    const typeEl = this.shadowRoot.getElementById('task-meter-source-type');
+    if (typeEl && meterEntity && !typeEl.dataset.userTouched) {
+      typeEl.value = this.isRateUnit(sourceUnit) ? 'rate' : 'cumulative';
+    }
+    if (typeEl && !typeEl.dataset.bound) {
+      typeEl.dataset.bound = '1';
+      typeEl.addEventListener('change', () => { typeEl.dataset.userTouched = '1'; this.updateMeterUnit(); });
+    }
+    const mode = typeEl?.value || 'cumulative';
+    const targetUnit = mode === 'rate' ? this.totalizedTargetUnit(sourceUnit) : (sourceUnit || 'units');
     const el = this.shadowRoot.getElementById('task-meter-unit');
-    if (el) el.textContent = unit;
+    if (el) el.textContent = targetUnit;
+    const sourceHint = this.shadowRoot.getElementById('meter-source-hint');
+    const typeHint = this.shadowRoot.getElementById('meter-type-hint');
+    const explain = this.shadowRoot.getElementById('meter-explain-box');
+    if (sourceHint) {
+      if (!meterEntity) sourceHint.textContent = 'Choose a sensor. HMM will detect whether it looks cumulative or rate-based.';
+      else if (this.isRateUnit(sourceUnit)) sourceHint.textContent = `Detected ${sourceUnit || 'rate'} rate sensor. HMM can totalize this into ${targetUnit}.`;
+      else if (this.isLikelyInstantUnit(sourceUnit)) sourceHint.textContent = `Detected ${sourceUnit}. This may be an instant value; runtime threshold may be better unless this sensor is cumulative.`;
+      else sourceHint.textContent = `Detected unit: ${sourceUnit || 'no unit'}. Use cumulative if this sensor only increases over time.`;
+    }
+    if (typeHint) typeHint.textContent = mode === 'rate' ? `HMM will add ${sourceUnit || 'units/time'} over elapsed time and track total ${targetUnit}.` : 'Use this when the sensor is already a total, like total gallons, odometer miles, or lifetime kWh.';
+    if (explain) explain.textContent = mode === 'rate' ? `HMM will create an internal totalizer for this task. Mark Complete resets the maintenance baseline, not the original sensor.` : 'HMM stores the current sensor value as the baseline and tracks how much the total increases.';
   }
 
   syncConditionalFields() {
@@ -833,6 +880,7 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     const runtimeHours = Number(q('task-runtime-hours')?.value || 0);
     const meterEntity = q('task-meter-entity')?.value || '';
     const meterAmount = Number(q('task-meter-amount')?.value || 0);
+    const meterSourceType = q('task-meter-source-type')?.value || 'cumulative';
     const notifyBehavior = q('task-notify-behavior')?.value || 'global';
     const notify = notifyBehavior === 'custom' ? (q('task-notify')?.value || 'persistent') : notifyBehavior;
     const mobile = q('task-mobile')?.value || '';
@@ -867,8 +915,13 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
         const parsed = Number(raw);
         baseline = Number.isFinite(parsed) ? parsed : 0;
       }
-      const unit = state?.attributes?.unit_of_measurement || existingCounter?.unit || '';
-      rules.push({id:'counter_1', type:'counter', name:`Every ${meterAmount} ${unit || 'units'}`, entity:meterEntity, amount:meterAmount, baseline, unit});
+      const sourceUnit = state?.attributes?.unit_of_measurement || existingCounter?.source_unit || existingCounter?.unit || '';
+      const targetUnit = meterSourceType === 'rate' ? this.totalizedTargetUnit(sourceUnit) : (sourceUnit || existingCounter?.target_unit || existingCounter?.unit || '');
+      if (meterSourceType === 'rate') {
+        baseline = existingCounter?.baseline;
+        if (baseline === undefined || baseline === null || baseline === '') baseline = existingCounter?.source_mode === 'rate' ? (existing?.totalized_usage?.counter_1 || 0) : 0;
+      }
+      rules.push({id:'counter_1', type:'counter', name:`Every ${meterAmount} ${targetUnit || 'units'}`, entity:meterEntity, amount:meterAmount, baseline, unit: targetUnit, source_unit: sourceUnit, target_unit: targetUnit, source_mode: meterSourceType});
     }
     const entityValue = q('task-entities')?.value;
     const selectedEntities = Array.isArray(entityValue) ? entityValue : (entityValue ? [entityValue] : []);

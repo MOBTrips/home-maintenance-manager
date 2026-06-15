@@ -22,3 +22,20 @@ Revamps notification configuration so household defaults live in the Maintenance
 ## Notes
 
 This release adds the configuration model and UI foundation for centralized notifications. Existing task-level notification values are preserved and treated as task overrides where possible.
+
+
+## v0.5.5 - Metered usage totalizer
+
+Adds first-class support for rate sensors in metered usage tasks.
+
+- Metered usage source can be either a cumulative meter or a rate sensor.
+- Rate sensors such as `gal/min`, `L/min`, `m³/h`, `units/s`, and `W` can be totalized internally by Home Maintenance Manager.
+- The task editor detects likely rate sensors and suggests `Rate sensor - let HMM totalize it`.
+- Rate totalizers are stored per task and exposed through a new `Totalized Usage` sensor.
+- Mark Complete resets the maintenance baseline without changing the original source sensor.
+- Cumulative meter behavior is unchanged.
+
+Examples:
+
+- `sensor.ro_flow_rate` in `gal/min` -> HMM tracks total gallons.
+- `sensor.device_power` in `W` -> HMM can totalize to `kWh`, though Runtime Hours is often still better for maintenance based on operating time.

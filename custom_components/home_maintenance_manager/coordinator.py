@@ -94,23 +94,85 @@ class MaintenanceCoordinator:
     async def _tick(self, now) -> None:
         await self._update_runtime()
 
+
+    def _rate_target_unit(self, unit: str | None) -> str:
+        """Return the accumulated target unit for a rate sensor unit."""
+        if not unit:
+            return "units"
+        u = unit.strip()
+        lower = u.lower().replace(" ", "")
+        for sep in ("/min", "permin", "/minute", "perminute"):
+            if lower.endswith(sep):
+                return u[: -len(sep.replace("per", "/"))] if sep.startswith("/") else u.split("per", 1)[0]
+        for sep in ("/h", "/hr", "/hour", "perhour"):
+            if lower.endswith(sep):
+                return u.split("/", 1)[0] if "/" in u else u.split("per", 1)[0]
+        for sep in ("/s", "/sec", "/second", "persecond"):
+            if lower.endswith(sep):
+                return u.split("/", 1)[0] if "/" in u else u.split("per", 1)[0]
+        if lower == "w":
+            return "kWh"
+        return "units"
+
+    def _integrate_rate(self, value: float, source_unit: str | None, elapsed_seconds: float) -> tuple[float, str]:
+        """Convert a rate value over elapsed seconds into accumulated usage."""
+        unit = (source_unit or "").strip()
+        lower = unit.lower().replace(" ", "")
+        if lower == "w":
+            return (value * elapsed_seconds / 3600 / 1000, "kWh")
+        if "/min" in lower or "permin" in lower or "/minute" in lower:
+            return (value * elapsed_seconds / 60, self._rate_target_unit(unit))
+        if "/h" in lower or "/hr" in lower or "/hour" in lower or "perhour" in lower:
+            return (value * elapsed_seconds / 3600, self._rate_target_unit(unit))
+        if "/s" in lower or "/sec" in lower or "/second" in lower or "persecond" in lower:
+            return (value * elapsed_seconds, self._rate_target_unit(unit))
+        # Fallback: treat as units per hour so we never silently fail, but label as units.
+        return (value * elapsed_seconds / 3600, "units")
+
     async def _update_runtime(self) -> None:
         now = dt_util.utcnow()
         changed = False
         for task in self.tasks.values():
             for rule in task.rules:
-                if rule.get("type") != "runtime" or not rule.get("entity"):
+                if not rule.get("entity"):
                     continue
                 entity_id = rule["entity"]
                 state = self.hass.states.get(entity_id)
-                last = task.last_seen_states.get(entity_id, {})
-                last_seen = dt_util.parse_datetime(last.get("seen_at")) if last.get("seen_at") else now
-                was_running = bool(last.get("running", False))
-                if was_running and last_seen:
-                    task.runtime_seconds[entity_id] = task.runtime_seconds.get(entity_id, 0) + max((now - last_seen).total_seconds(), 0)
-                    changed = True
-                running = self._is_rule_running(rule, state.state if state else None)
-                task.last_seen_states[entity_id] = {"seen_at": now.isoformat(), "running": running}
+                if rule.get("type") == "runtime":
+                    last = task.last_seen_states.get(entity_id, {})
+                    last_seen = dt_util.parse_datetime(last.get("seen_at")) if last.get("seen_at") else now
+                    was_running = bool(last.get("running", False))
+                    if was_running and last_seen:
+                        task.runtime_seconds[entity_id] = task.runtime_seconds.get(entity_id, 0) + max((now - last_seen).total_seconds(), 0)
+                        changed = True
+                    running = self._is_rule_running(rule, state.state if state else None)
+                    task.last_seen_states[entity_id] = {"seen_at": now.isoformat(), "running": running}
+                elif rule.get("type") == "counter" and rule.get("source_mode") == "rate":
+                    rule_id = str(rule.get("id") or entity_id)
+                    key = f"counter_rate:{rule_id}"
+                    last = task.last_seen_states.get(key, {})
+                    last_seen = dt_util.parse_datetime(last.get("seen_at")) if last.get("seen_at") else None
+                    try:
+                        rate_value = float(state.state) if state else None
+                    except (TypeError, ValueError):
+                        rate_value = None
+                    if last_seen and rate_value is not None:
+                        elapsed = max((now - last_seen).total_seconds(), 0)
+                        # Use the previous rate over the elapsed interval. If no previous
+                        # numeric rate exists, initialize without adding usage.
+                        prev_rate = last.get("rate")
+                        try:
+                            prev_rate = float(prev_rate)
+                        except (TypeError, ValueError):
+                            prev_rate = None
+                        if prev_rate is not None and elapsed > 0:
+                            source_unit = rule.get("source_unit") or (state.attributes.get("unit_of_measurement") if state else None)
+                            added, target_unit = self._integrate_rate(prev_rate, source_unit, elapsed)
+                            if added > 0:
+                                task.totalized_usage[rule_id] = task.totalized_usage.get(rule_id, 0) + added
+                                rule["target_unit"] = rule.get("target_unit") or target_unit
+                                changed = True
+                    task.last_seen_states[key] = {"seen_at": now.isoformat(), "rate": rate_value}
         if changed:
             await self.async_save()
             self._notify()
@@ -139,14 +201,23 @@ class MaintenanceCoordinator:
         for rule in task.rules:
             if rule.get("type") == "counter" and rule.get("entity"):
                 state = self.hass.states.get(rule["entity"])
-                try:
-                    rule["baseline"] = float(state.state) if state else float(rule.get("baseline") or 0)
-                except (TypeError, ValueError):
-                    rule["baseline"] = float(rule.get("baseline") or 0)
-                if state and not rule.get("unit"):
-                    unit = state.attributes.get("unit_of_measurement")
-                    if unit:
-                        rule["unit"] = unit
+                if rule.get("source_mode") == "rate":
+                    rule_id = str(rule.get("id") or rule.get("entity"))
+                    rule["baseline"] = float(task.totalized_usage.get(rule_id, 0))
+                    if state:
+                        source_unit = state.attributes.get("unit_of_measurement")
+                        if source_unit:
+                            rule["source_unit"] = source_unit
+                            rule["target_unit"] = rule.get("target_unit") or self._rate_target_unit(source_unit)
+                else:
+                    try:
+                        rule["baseline"] = float(state.state) if state else float(rule.get("baseline") or 0)
+                    except (TypeError, ValueError):
+                        rule["baseline"] = float(rule.get("baseline") or 0)
+                    if state and not rule.get("unit"):
+                        unit = state.attributes.get("unit_of_measurement")
+                        if unit:
+                            rule["unit"] = unit
         entry = {"at": now, "method": method, "user": user, "notes": notes}
         task.completion_history.append(entry)
         task.activity_history.append({"type": "completed", **entry})

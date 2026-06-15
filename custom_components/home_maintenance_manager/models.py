@@ -55,6 +55,8 @@ class MaintenanceTask:
     snoozed_until: str | None = None
     paused: bool = False
     runtime_seconds: dict[str, float] = field(default_factory=dict)
+    # Internal totalizers for rate-based metered usage rules. Keyed by rule id.
+    totalized_usage: dict[str, float] = field(default_factory=dict)
     last_seen_states: dict[str, dict[str, Any]] = field(default_factory=dict)
     last_completed: str | None = None
     last_completed_by: str | None = None
@@ -77,6 +79,7 @@ class MaintenanceTask:
         """Update user-editable config while preserving runtime and history fields."""
         preserve = {
             "runtime_seconds",
+            "totalized_usage",
             "last_seen_states",
             "last_completed",
             "last_completed_by",
@@ -134,14 +137,18 @@ class MaintenanceTask:
                 entity_id = rule.get("entity")
                 amount = float(rule.get("amount") or 0)
                 baseline = float(rule.get("baseline") or 0)
-                state = hass.states.get(entity_id) if entity_id else None
-                try:
-                    current = float(state.state) if state else baseline
-                except (TypeError, ValueError):
-                    current = baseline
+                if rule.get("source_mode") == "rate":
+                    current = float(self.totalized_usage.get(rule_id, 0))
+                else:
+                    state = hass.states.get(entity_id) if entity_id else None
+                    try:
+                        current = float(state.state) if state else baseline
+                    except (TypeError, ValueError):
+                        current = baseline
                 used = max(current - baseline, 0)
                 pct = min(used / amount, 999) if amount else 0
-                progress.append(RuleProgress(rule_id, rule_type, name, pct, amount - used, pct >= 1, f"{used:.1f}/{amount:.1f}"))
+                unit = rule.get("target_unit") or rule.get("unit") or "units"
+                progress.append(RuleProgress(rule_id, rule_type, name, pct, amount - used, pct >= 1, f"{used:.1f}/{amount:.1f} {unit}"))
         return progress
 
     def status(self, hass: HomeAssistant) -> str:
@@ -203,17 +210,22 @@ class MaintenanceTask:
                 continue
             entity_id = rule.get("entity")
             baseline = float(rule.get("baseline") or 0)
-            state = hass.states.get(entity_id) if entity_id else None
-            try:
-                current = float(state.state) if state else baseline
-            except (TypeError, ValueError):
-                current = baseline
+            if rule.get("source_mode") == "rate":
+                current = float(self.totalized_usage.get(str(rule.get("id") or "counter_1"), 0))
+            else:
+                state = hass.states.get(entity_id) if entity_id else None
+                try:
+                    current = float(state.state) if state else baseline
+                except (TypeError, ValueError):
+                    current = baseline
             values.append(max(current - baseline, 0))
         return max(values) if values else None
 
     def counter_unit(self, hass: HomeAssistant) -> str | None:
         for rule in self.rules:
             if rule.get("type") == RULE_COUNTER:
+                if rule.get("target_unit"):
+                    return str(rule.get("target_unit"))
                 if rule.get("unit"):
                     return str(rule.get("unit"))
                 entity_id = rule.get("entity")
@@ -252,6 +264,7 @@ class MaintenanceTask:
             "usage_used": self.counter_used(hass) if self.has_counter_rule() else "N/A",
             "usage_remaining": self.counter_remaining(hass) if self.has_counter_rule() else "N/A",
             "usage_unit": self.counter_unit(hass),
+            "totalized_usage": self.totalized_usage,
             "next_due": next_due.isoformat() if next_due else None,
             "last_completed": self.last_completed,
             "completion_count": len(self.completion_history),
