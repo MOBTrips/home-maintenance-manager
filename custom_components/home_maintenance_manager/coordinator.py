@@ -71,8 +71,18 @@ class MaintenanceCoordinator:
 
     @callback
     def _notify(self) -> None:
+        """Notify entity listeners without letting stale entities break services.
+
+        When a task is deleted, Home Assistant may still have the old entities
+        loaded until the config entry reload finishes. Those stale entities can
+        raise KeyError while trying to read the deleted task. Ignore that
+        transient condition so delete_task can complete cleanly.
+        """
         for listener in list(self.listeners):
-            listener()
+            try:
+                listener()
+            except KeyError:
+                continue
 
     def _setup_tracking(self) -> None:
         for unsub in self._unsub:

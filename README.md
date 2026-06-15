@@ -24,7 +24,7 @@ Revamps notification configuration so household defaults live in the Maintenance
 This release adds the configuration model and UI foundation for centralized notifications. Existing task-level notification values are preserved and treated as task overrides where possible.
 
 
-## v0.5.6 - Metered usage totalizer
+## v0.5.7 - Metered usage totalizer
 
 Adds first-class support for rate sensors in metered usage tasks.
 
@@ -41,6 +41,12 @@ Examples:
 - `sensor.device_power` in `W` -> HMM can totalize to `kWh`, though Runtime Hours is often still better for maintenance based on operating time.
 
 
-## v0.5.6
+## v0.5.7
 - Fixed rate totalizer sensors returning non-numeric `N/A` with numeric units.
 - Rate sources like `gal/min` now expose totalized usage in `gal`, not `gal/min`.
+
+
+## v0.5.7
+
+- Fixed delete_task failures caused by stale task entities being notified before the config entry reload finished.
+- Deleted task entities now become unavailable during the short reload window instead of raising KeyError.

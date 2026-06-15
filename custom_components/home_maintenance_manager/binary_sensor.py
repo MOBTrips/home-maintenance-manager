@@ -33,20 +33,30 @@ class MaintenanceBinarySensor(BinarySensorEntity):
 
     @callback
     def _handle_update(self) -> None:
-        self.async_write_ha_state()
+        if self.task_id in self.coordinator.tasks:
+            self.async_write_ha_state()
+
+    @property
+    def available(self):
+        return self.task_id in self.coordinator.tasks
 
     @property
     def task(self):
-        return self.coordinator.tasks[self.task_id]
+        return self.coordinator.tasks.get(self.task_id)
 
     @property
     def device_info(self):
         task = self.task
+        if task is None:
+            return None
         return {"identifiers": {task.device_identifier}, "name": task.name, "manufacturer": "Home Maintenance Manager", "model": "Maintenance Task"}
 
     @property
     def is_on(self):
-        status = self.task.status(self.hass)
+        task = self.task
+        if task is None:
+            return None
+        status = task.status(self.hass)
         if self.sensor_type == "due":
             return status in ("due", "overdue")
         if self.sensor_type == "upcoming":

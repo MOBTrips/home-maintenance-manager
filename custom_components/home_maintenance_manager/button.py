@@ -24,15 +24,23 @@ class MaintenanceButton(ButtonEntity):
         self._attr_unique_id = f"{task_id}_{button_type}"
 
     @property
+    def available(self):
+        return self.task_id in self.coordinator.tasks
+
+    @property
     def task(self):
-        return self.coordinator.tasks[self.task_id]
+        return self.coordinator.tasks.get(self.task_id)
 
     @property
     def device_info(self):
         task = self.task
+        if task is None:
+            return None
         return {"identifiers": {task.device_identifier}, "name": task.name, "manufacturer": "Home Maintenance Manager", "model": "Maintenance Task"}
 
     async def async_press(self) -> None:
+        if self.task_id not in self.coordinator.tasks:
+            return
         if self.button_type == "complete":
             await self.coordinator.async_mark_complete(self.task_id, method="button")
         elif self.button_type == "snooze":

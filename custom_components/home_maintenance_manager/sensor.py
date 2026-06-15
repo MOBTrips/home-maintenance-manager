@@ -119,15 +119,22 @@ class MaintenanceSensor(SensorEntity):
 
     @callback
     def _handle_update(self) -> None:
-        self.async_write_ha_state()
+        if self.task_id in self.coordinator.tasks:
+            self.async_write_ha_state()
+
+    @property
+    def available(self):
+        return self.task_id in self.coordinator.tasks
 
     @property
     def task(self):
-        return self.coordinator.tasks[self.task_id]
+        return self.coordinator.tasks.get(self.task_id)
 
     @property
     def device_info(self):
         task = self.task
+        if task is None:
+            return None
         info = {
             "identifiers": {task.device_identifier},
             "name": task.name,
@@ -142,6 +149,8 @@ class MaintenanceSensor(SensorEntity):
     @property
     def native_value(self):
         task = self.task
+        if task is None:
+            return None
         if self.sensor_type == "summary":
             return task.status(self.hass)
         if self.sensor_type == "status":
@@ -203,6 +212,8 @@ class MaintenanceSensor(SensorEntity):
     def native_unit_of_measurement(self):
         if self.sensor_type == "totalized_usage":
             task = self.task
+            if task is None:
+                return None
             for rule in task.rules:
                 if rule.get("type") == "counter" and rule.get("source_mode") == "rate":
                     if rule.get("target_unit"):
@@ -215,12 +226,15 @@ class MaintenanceSensor(SensorEntity):
                     return self._rate_target_unit(source_unit)
             return None
         if self.sensor_type in ("usage_used", "usage_remaining"):
-            return self.task.counter_unit(self.hass)
+            task = self.task
+            return task.counter_unit(self.hass) if task is not None else None
         return self._attr_native_unit_of_measurement
 
     @property
     def extra_state_attributes(self):
         task = self.task
+        if task is None:
+            return None
         if self.sensor_type in ("summary", "status"):
             attrs = task.summary_attributes(self.hass)
             attrs.update({
