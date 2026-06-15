@@ -72,7 +72,7 @@ Examples:
 - Clicking outside the task editor now attempts to close it.
 - Unsaved edits now prompt with Keep editing, Discard changes, or Save changes before closing.
 
-## v0.5.12
+## v0.5.13
 
 NFC confirmation polish:
 
@@ -82,3 +82,9 @@ NFC confirmation polish:
 - NFC activity history now records scanner device/user context when available.
 - The Maintenance panel supports task deep links like `/home-maintenance-manager?task=<task_id>`.
 - Added a task detail view with overview, NFC status, quick actions, instructions, and recent activity.
+
+
+## 0.5.13
+
+- Added a mobile Home Assistant navigation bar to the custom Maintenance panel.
+- Added Back and HA Home buttons for the iOS Companion App so users can return to normal Home Assistant navigation.
