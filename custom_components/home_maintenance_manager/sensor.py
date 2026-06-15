@@ -173,7 +173,7 @@ class MaintenanceSensor(SensorEntity):
                 if rule.get("type") == "counter" and rule.get("source_mode") == "rate":
                     value = task.totalized_usage.get(str(rule.get("id") or rule.get("entity")), 0)
                     return round(value, 1)
-            return "N/A"
+            return None
         if self.sensor_type == "next_due":
             return task.next_due_datetime(self.hass)
         if self.sensor_type == "last_completed":
@@ -184,9 +184,37 @@ class MaintenanceSensor(SensorEntity):
             return task.late_count
         return None
 
+    def _rate_target_unit(self, unit: str | None) -> str | None:
+        if not unit:
+            return None
+        u = str(unit).strip()
+        lower = u.lower().replace(" ", "")
+        if lower == "w":
+            return "kWh"
+        for sep in ("/min", "/minute", "/h", "/hr", "/hour", "/s", "/sec", "/second"):
+            if sep in lower and "/" in u:
+                return u.split("/", 1)[0].strip() or "units"
+        for sep in ("permin", "perminute", "perhour", "persecond"):
+            if sep in lower:
+                return u.split("per", 1)[0].strip() or "units"
+        return "units"
+
     @property
     def native_unit_of_measurement(self):
-        if self.sensor_type in ("usage_used", "usage_remaining", "totalized_usage"):
+        if self.sensor_type == "totalized_usage":
+            task = self.task
+            for rule in task.rules:
+                if rule.get("type") == "counter" and rule.get("source_mode") == "rate":
+                    if rule.get("target_unit"):
+                        return str(rule.get("target_unit"))
+                    source_unit = rule.get("source_unit") or rule.get("unit")
+                    if not source_unit and rule.get("entity"):
+                        state = self.hass.states.get(rule.get("entity"))
+                        if state:
+                            source_unit = state.attributes.get("unit_of_measurement")
+                    return self._rate_target_unit(source_unit)
+            return None
+        if self.sensor_type in ("usage_used", "usage_remaining"):
             return self.task.counter_unit(self.hass)
         return self._attr_native_unit_of_measurement
 

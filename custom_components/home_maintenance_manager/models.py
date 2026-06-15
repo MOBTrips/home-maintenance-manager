@@ -221,9 +221,34 @@ class MaintenanceTask:
             values.append(max(current - baseline, 0))
         return max(values) if values else None
 
+    def _rate_target_unit(self, unit: str | None) -> str | None:
+        if not unit:
+            return None
+        u = str(unit).strip()
+        lower = u.lower().replace(" ", "")
+        if lower == "w":
+            return "kWh"
+        for sep in ("/min", "/minute", "/h", "/hr", "/hour", "/s", "/sec", "/second"):
+            if sep in lower and "/" in u:
+                return u.split("/", 1)[0].strip() or "units"
+        for sep in ("permin", "perminute", "perhour", "persecond"):
+            if sep in lower:
+                return u.split("per", 1)[0].strip() or "units"
+        return "units"
+
     def counter_unit(self, hass: HomeAssistant) -> str | None:
         for rule in self.rules:
             if rule.get("type") == RULE_COUNTER:
+                if rule.get("source_mode") == "rate":
+                    if rule.get("target_unit"):
+                        return str(rule.get("target_unit"))
+                    source_unit = rule.get("source_unit") or rule.get("unit")
+                    entity_id = rule.get("entity")
+                    if not source_unit and entity_id:
+                        state = hass.states.get(entity_id)
+                        if state:
+                            source_unit = state.attributes.get("unit_of_measurement")
+                    return self._rate_target_unit(source_unit)
                 if rule.get("target_unit"):
                     return str(rule.get("target_unit"))
                 if rule.get("unit"):
