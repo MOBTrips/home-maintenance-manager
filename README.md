@@ -1,3 +1,11 @@
+
+## v0.5.10
+
+- Added automatic due/upcoming notification delivery.
+- Global notification settings are now used when task status changes.
+- Supports persistent and mobile notify services for due reminders.
+- Optional completed/snoozed notification events.
+
 # Home Maintenance Manager v0.5.9
 
 Revamps notification configuration so household defaults live in the Maintenance sidebar Settings page instead of every task editor.

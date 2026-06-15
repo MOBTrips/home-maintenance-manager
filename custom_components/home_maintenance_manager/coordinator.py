@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import timedelta, time
+import logging
 from typing import Any
 
 from homeassistant.core import HomeAssistant, callback
@@ -10,6 +11,33 @@ from homeassistant.util import dt as dt_util
 
 from .const import DOMAIN, STORAGE_KEY, STORAGE_VERSION, EVENT_ACTIVITY, EVENT_COMPLETION
 from .models import MaintenanceTask
+
+_LOGGER = logging.getLogger(__name__)
+
+_NOTIFICATION_DEFAULTS = {
+    "enabled": True,
+    "default_mode": "automation_only",
+    "mobile_notify_services": [],
+    "notify_upcoming": True,
+    "notify_due": True,
+    "notify_overdue": True,
+    "notify_completed": False,
+    "notify_snoozed": False,
+    "repeat_mode": "once",
+    "repeat_days": 1,
+    "quiet_start": "",
+    "quiet_end": "",
+    "title_template": "[{category}] {task_name}",
+    "body_template": "{task_name} is {status}.",
+}
+
+_STATUS_EVENT_MAP = {
+    "upcoming": "notify_upcoming",
+    "due": "notify_due",
+    "overdue": "notify_overdue",
+    "completed": "notify_completed",
+    "snoozed": "notify_snoozed",
+}
 
 
 class MaintenanceCoordinator:
@@ -42,6 +70,7 @@ class MaintenanceCoordinator:
         await self.async_save()
         self._setup_tracking()
         self._notify()
+        self.hass.async_create_task(self.async_check_notifications())
 
     async def async_upsert_task(self, task_data: dict[str, Any]) -> None:
         if task_data["id"] in self.tasks:
@@ -51,6 +80,7 @@ class MaintenanceCoordinator:
         await self.async_save()
         self._setup_tracking()
         self._notify()
+        await self.async_check_notifications()
 
     async def async_delete_task(self, task_id: str) -> None:
         if task_id in self.tasks:
@@ -58,6 +88,7 @@ class MaintenanceCoordinator:
             await self.async_save()
             self._setup_tracking()
             self._notify()
+            await self.async_check_notifications()
 
     async def async_save(self) -> None:
         await self.store.async_save({"tasks": [task.as_dict() for task in self.tasks.values()]})
@@ -103,7 +134,157 @@ class MaintenanceCoordinator:
 
     async def _tick(self, now) -> None:
         await self._update_runtime()
+        await self.async_check_notifications()
 
+
+
+    def _notification_settings(self) -> dict[str, Any]:
+        """Return global notification settings for the first HMM config entry."""
+        settings = dict(_NOTIFICATION_DEFAULTS)
+        entries = self.hass.config_entries.async_entries(DOMAIN)
+        if entries:
+            settings.update(entries[0].options.get("notification_settings", {}) or {})
+        return settings
+
+    def _task_notification_mode(self, task: MaintenanceTask, settings: dict[str, Any]) -> str:
+        """Resolve task/global notification mode."""
+        task_mode = (task.notification_mode or "global").lower()
+        if task_mode in ("disabled", "none"):
+            return "none"
+        if task_mode in ("persistent", "mobile", "both", "automation_only"):
+            return task_mode
+        # 'global' and 'custom' both use the global mode; custom can override target.
+        return str(settings.get("default_mode") or "automation_only").lower()
+
+    def _task_mobile_targets(self, task: MaintenanceTask, settings: dict[str, Any]) -> list[str]:
+        """Resolve mobile notification targets for a task."""
+        if task.mobile_notify_service:
+            return [task.mobile_notify_service]
+        targets = settings.get("mobile_notify_services") or []
+        return [target for target in targets if isinstance(target, str)]
+
+    def _quiet_time_active(self, settings: dict[str, Any]) -> bool:
+        """Return true if global quiet hours are currently active."""
+        start = str(settings.get("quiet_start") or "").strip()
+        end = str(settings.get("quiet_end") or "").strip()
+        if not start or not end:
+            return False
+        try:
+            start_parts = [int(part) for part in start.split(":")[:2]]
+            end_parts = [int(part) for part in end.split(":")[:2]]
+            start_t = time(start_parts[0], start_parts[1])
+            end_t = time(end_parts[0], end_parts[1])
+        except (TypeError, ValueError, IndexError):
+            return False
+        now_t = dt_util.now().time()
+        if start_t <= end_t:
+            return start_t <= now_t < end_t
+        return now_t >= start_t or now_t < end_t
+
+    def _format_notification_text(self, template: str, task: MaintenanceTask, status: str) -> str:
+        """Safely format a notification template."""
+        values = {
+            "task_name": task.name,
+            "task_id": task.id,
+            "status": status.replace("_", " ").title(),
+            "category": task.category or "General",
+            "area": task.area or "",
+            "equipment_name": task.equipment_name or task.name,
+        }
+        try:
+            return str(template).format(**values)
+        except Exception:
+            return f"{task.name} is {status.replace('_', ' ')}."
+
+    async def _send_task_notification(self, task: MaintenanceTask, status: str, settings: dict[str, Any]) -> bool:
+        """Send one built-in notification for a task status/activity."""
+        if not settings.get("enabled", True):
+            return False
+        if self._quiet_time_active(settings):
+            return False
+        mode = self._task_notification_mode(task, settings)
+        if mode in ("none", "automation_only"):
+            return False
+
+        title = self._format_notification_text(settings.get("title_template") or "[{category}] {task_name}", task, status)
+        message = self._format_notification_text(settings.get("body_template") or "{task_name} is {status}.", task, status)
+        sent = False
+
+        if mode in ("persistent", "both"):
+            try:
+                await self.hass.services.async_call(
+                    "persistent_notification",
+                    "create",
+                    {
+                        "title": title,
+                        "message": message,
+                        "notification_id": f"home_maintenance_manager_{task.id}_{status}",
+                    },
+                    blocking=True,
+                )
+                sent = True
+            except Exception:  # pragma: no cover - service failure should not break task updates
+                _LOGGER.exception("Failed to create persistent notification for maintenance task %s", task.id)
+
+        if mode in ("mobile", "both"):
+            for target in self._task_mobile_targets(task, settings):
+                if not isinstance(target, str) or not target.startswith("notify."):
+                    continue
+                service = target.split(".", 1)[1]
+                if not self.hass.services.has_service("notify", service):
+                    continue
+                try:
+                    await self.hass.services.async_call(
+                        "notify",
+                        service,
+                        {"title": title, "message": message},
+                        blocking=True,
+                    )
+                    sent = True
+                except Exception:  # pragma: no cover
+                    _LOGGER.exception("Failed to send mobile notification %s for maintenance task %s", target, task.id)
+
+        return sent
+
+    async def async_check_notifications(self) -> None:
+        """Send notifications when tasks enter upcoming/due/overdue states."""
+        settings = self._notification_settings()
+        changed = False
+        now = dt_util.utcnow()
+        for task in self.tasks.values():
+            status = task.status(self.hass)
+            state = task.last_seen_states.setdefault("notification", {})
+            previous = state.get("status")
+            sent_by_status = state.setdefault("sent", {})
+
+            should_send = False
+            if status in _STATUS_EVENT_MAP and settings.get(_STATUS_EVENT_MAP[status], False):
+                if previous != status and status not in ("ok", "paused", "snoozed", "unknown"):
+                    should_send = True
+                elif status in ("due", "overdue"):
+                    repeat_mode = str(settings.get("repeat_mode") or "once")
+                    if repeat_mode != "once":
+                        last_sent = dt_util.parse_datetime(sent_by_status.get(status)) if sent_by_status.get(status) else None
+                        days = 1 if repeat_mode == "daily" else max(int(settings.get("repeat_days") or 1), 1)
+                        if last_sent and now - last_sent >= timedelta(days=days):
+                            should_send = True
+
+            if should_send and await self._send_task_notification(task, status, settings):
+                sent_by_status[status] = now.isoformat()
+                changed = True
+
+            if previous != status:
+                state["status"] = status
+                changed = True
+
+        if changed:
+            await self.async_save()
+
+    async def async_notify_activity(self, task: MaintenanceTask, activity: str) -> None:
+        """Send optional completed/snoozed notifications."""
+        settings = self._notification_settings()
+        if settings.get(_STATUS_EVENT_MAP.get(activity, ""), False):
+            await self._send_task_notification(task, activity, settings)
 
     def _rate_target_unit(self, unit: str | None) -> str:
         """Return the accumulated target unit for a rate sensor unit."""
@@ -186,6 +367,7 @@ class MaintenanceCoordinator:
         if changed:
             await self.async_save()
             self._notify()
+            await self.async_check_notifications()
 
     def _is_rule_running(self, rule: dict[str, Any], state_value: str | None) -> bool:
         if state_value is None or state_value in ("unknown", "unavailable"):
@@ -233,8 +415,10 @@ class MaintenanceCoordinator:
         task.activity_history.append({"type": "completed", **entry})
         self.hass.bus.async_fire(EVENT_COMPLETION, {"task_id": task.id, "task_name": task.name, **entry})
         self.hass.bus.async_fire(EVENT_ACTIVITY, {"task_id": task.id, "task_name": task.name, "activity": "completed", **entry})
+        await self.async_notify_activity(task, "completed")
         await self.async_save()
         self._notify()
+        await self.async_check_notifications()
 
     async def async_snooze(self, task_id: str, days: int) -> None:
         task = self.tasks[task_id]
@@ -247,8 +431,10 @@ class MaintenanceCoordinator:
         entry = {"at": dt_util.utcnow().isoformat(), "activity": "snoozed", "days": days, "until": task.snoozed_until}
         task.activity_history.append(entry)
         self.hass.bus.async_fire(EVENT_ACTIVITY, {"task_id": task.id, "task_name": task.name, **entry})
+        await self.async_notify_activity(task, "snoozed")
         await self.async_save()
         self._notify()
+        await self.async_check_notifications()
 
     async def async_add_log(self, task_id: str, activity: str, notes: str | None = None) -> None:
         task = self.tasks[task_id]
