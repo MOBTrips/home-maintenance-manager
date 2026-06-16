@@ -18,6 +18,7 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     this.runtimeAnalysisLoading = false;
     this.analysisDays = 30;
     this._modalSnapshot = null;
+    this.mobileMenuOpen = false;
   }
 
   set hass(hass) {
@@ -59,10 +60,14 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     return `
       :host { display:block; font-family: var(--paper-font-body1_-_font-family, Roboto, sans-serif); color: var(--primary-text-color); }
       .page { padding: 24px; max-width: 1280px; margin: 0 auto; }
-      .mobile-ha-nav { display:none; position:sticky; top:0; z-index:5; margin:-24px -24px 18px; padding:10px 14px; background:var(--app-header-background-color, var(--primary-color)); color:var(--app-header-text-color, var(--text-primary-color)); box-shadow:0 2px 8px rgba(0,0,0,.18); align-items:center; justify-content:space-between; gap:10px; }
-      .mobile-ha-nav .nav-title { font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-      .mobile-ha-nav .nav-left { display:flex; gap:8px; align-items:center; min-width:0; }
-      .mobile-ha-nav button { width:auto; padding:8px 10px; border-radius:999px; border:0; background:rgba(255,255,255,.18); color:inherit; cursor:pointer; }
+      .ha-mobile-appbar { display:none; position:sticky; top:0; z-index:6; margin:-24px -24px 24px; padding-top:env(safe-area-inset-top, 0px); background:var(--app-header-background-color, var(--primary-background-color)); color:var(--app-header-text-color, var(--primary-text-color)); border-bottom:1px solid var(--divider-color); box-shadow:0 1px 3px rgba(0,0,0,.10); }
+      .ha-mobile-appbar .bar-row { height:56px; display:flex; align-items:center; gap:16px; padding:0 12px; }
+      .ha-mobile-appbar .app-title { flex:1; min-width:0; font-size:20px; font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+      .ha-icon-button { width:44px; height:44px; border:0; border-radius:50%; background:transparent; color:inherit; cursor:pointer; font-size:28px; display:inline-flex; align-items:center; justify-content:center; line-height:1; }
+      .ha-icon-button:hover { background:rgba(0,0,0,.06); }
+      .ha-menu-popover { position:absolute; top:calc(env(safe-area-inset-top, 0px) + 50px); right:8px; min-width:190px; background:var(--card-background-color); color:var(--primary-text-color); border:1px solid var(--divider-color); border-radius:12px; box-shadow:0 8px 24px rgba(0,0,0,.24); padding:6px; }
+      .ha-menu-popover button { width:100%; text-align:left; border:0; background:transparent; color:inherit; padding:12px; border-radius:8px; cursor:pointer; }
+      .ha-menu-popover button:hover { background:var(--secondary-background-color); }
       .hero { display:flex; gap:16px; align-items:center; justify-content:space-between; margin-bottom:20px; }
       h1 { margin:0; font-size:32px; font-weight:700; }
       h2 { margin:22px 0 12px; }
@@ -91,7 +96,7 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
       .list { display:flex; flex-direction:column; gap:12px; }
       .two { display:grid; grid-template-columns: 1fr 1fr; gap:12px; }
       .three { display:grid; grid-template-columns: repeat(3, 1fr); gap:12px; }
-      @media(max-width: 800px){ .two, .three { grid-template-columns: 1fr; } .hero { align-items:flex-start; flex-direction:column;} .page { padding:16px; } .mobile-ha-nav { display:flex; margin:-16px -16px 16px; } }
+      @media(max-width: 800px){ .two, .three { grid-template-columns: 1fr; } .hero { align-items:flex-start; flex-direction:column;} .page { padding:16px; } .ha-mobile-appbar { display:block; margin:-16px -16px 24px; } }
       label { display:block; font-weight:600; margin:12px 0 6px; }
       .help { font-size:13px; color: var(--secondary-text-color); margin-bottom:6px; }
       input, select, textarea { box-sizing:border-box; width:100%; padding:12px; border-radius:10px; border:1px solid var(--divider-color); background: var(--card-background-color); color: var(--primary-text-color); }
@@ -245,9 +250,13 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     if (this.loading) return `<div class="card empty">Loading Home Maintenance Manager...</div>`;
     if (this.error) return `<div class="card empty"><h2>Could not load maintenance data</h2><p>${this.escape(this.error)}</p><button class="btn primary" data-action="refresh">Try again</button></div>`;
     return `
-      <div class="mobile-ha-nav" role="navigation" aria-label="Home Assistant navigation">
-        <div class="nav-left"><button data-action="ha-back" title="Go back">← Back</button><div class="nav-title">Maintenance</div></div>
-        <button data-action="ha-home" title="Return to Home Assistant">HA Home</button>
+      <div class="ha-mobile-appbar" role="navigation" aria-label="Home Assistant navigation">
+        <div class="bar-row">
+          <button class="ha-icon-button" data-action="ha-menu" title="Open Home Assistant menu" aria-label="Open Home Assistant menu">☰</button>
+          <div class="app-title">Maintenance</div>
+          <button class="ha-icon-button" data-action="ha-overflow" title="More options" aria-label="More options">⋮</button>
+        </div>
+        ${this.mobileMenuOpen ? `<div class="ha-menu-popover"><button data-action="ha-back">Back</button><button data-action="ha-dashboard">Maintenance dashboard</button><button data-action="ha-home">Home Assistant home</button></div>` : ``}
       </div>
       <div class="hero"><div><h1>Home Maintenance Manager</h1><div class="subtitle">A simple place to see what needs attention around the house.</div></div><button class="btn primary" data-action="new-task">Add maintenance task</button></div>
       <div class="tabs">
@@ -444,6 +453,7 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     const task = this.tasks.find(t => t.id === taskId);
     if (!task) return;
     this._modalSnapshot = null;
+    this.mobileMenuOpen = false;
     this.modal = { detail: JSON.parse(JSON.stringify(task)) };
     try {
       const url = new URL(window.location.href);
@@ -461,6 +471,12 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
       window.history.replaceState({}, '', url.toString());
     } catch (err) {}
     this.render();
+  }
+
+  openHaMenu() {
+    this.mobileMenuOpen = false;
+    this.render();
+    window.dispatchEvent(new CustomEvent('hass-toggle-menu', { bubbles: true, composed: true }));
   }
 
   navigateBackToHa() {
@@ -635,6 +651,9 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
   }
 
   bind() {
+    this.shadowRoot.querySelectorAll('[data-action="ha-menu"]').forEach(el=>el.onclick=()=>this.openHaMenu());
+    this.shadowRoot.querySelectorAll('[data-action="ha-overflow"]').forEach(el=>el.onclick=()=>{ this.mobileMenuOpen = !this.mobileMenuOpen; this.render(); });
+    this.shadowRoot.querySelectorAll('[data-action="ha-dashboard"]').forEach(el=>el.onclick=()=>{ this.mobileMenuOpen = false; this.tab = "dashboard"; this.closeTaskDetail(); });
     this.shadowRoot.querySelectorAll('[data-action="ha-back"]').forEach(el=>el.onclick=()=>this.navigateBackToHa());
     this.shadowRoot.querySelectorAll('[data-action="ha-home"]').forEach(el=>el.onclick=()=>this.navigateHomeAssistant());
     this.shadowRoot.querySelectorAll('[data-tab]').forEach(el=>el.onclick=()=>{ this.tab=el.dataset.tab; this.render(); });
@@ -741,6 +760,7 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     if (!this.modal) return;
     if (!this.isModalDirty()) {
       this._modalSnapshot = null;
+    this.mobileMenuOpen = false;
       this.modal = null;
       this.render();
       return;
@@ -1091,6 +1111,7 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
   async callService(service, data) {
     await this._hass.callService('home_maintenance_manager', service, data);
     this._modalSnapshot = null;
+    this.mobileMenuOpen = false;
     this.modal = null;
     setTimeout(()=>this.loadData(), 700);
   }
