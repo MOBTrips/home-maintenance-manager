@@ -252,32 +252,69 @@ async def async_setup(hass: HomeAssistant, config: dict[str, Any]) -> bool:
     return True
 
 
-async def _async_cleanup_task_registry_entries(hass: HomeAssistant, entry: ConfigEntry, task_id: str) -> None:
-    """Remove entity and device registry entries for a deleted maintenance task.
+async def _async_cleanup_task_registry_entries(
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+    task_id: str,
+    task_name: str | None = None,
+) -> None:
+    """Remove registry entries for a deleted maintenance task.
 
-    Deleting a task removes it from HMM storage/options, but Home Assistant's
-    registries can keep the task device around after the platform entities are
-    unloaded. Clean the task-specific registry entries explicitly so the device
-    disappears from the integration after deletion.
+    Home Assistant can keep deleted task devices around as unavailable if the
+    entity registry entries still exist when the config entry reloads.  Cleanup
+    must therefore remove both the task-owned entity registry entries and the
+    task device after the platforms have been unloaded.
     """
     from homeassistant.helpers import device_registry as dr, entity_registry as er
 
     entity_registry = er.async_get(hass)
     device_registry = dr.async_get(hass)
 
-    # Unique IDs are generated as f"{task_id}_{entity_type}" across all HMM
-    # task entities. Remove only entries owned by this config entry/domain.
-    for entity_entry in list(er.async_entries_for_config_entry(entity_registry, entry.entry_id)):
-        unique_id = str(entity_entry.unique_id or "")
-        if unique_id.startswith(f"{task_id}_"):
-            entity_registry.async_remove(entity_entry.entity_id)
-
+    device_ids: set[str] = set()
     device = device_registry.async_get_device({(DOMAIN, task_id)})
     if device is not None:
+        device_ids.add(device.id)
+
+    # Task entities use unique IDs like f"{task_id}_{entity_type}". Also remove
+    # any entity attached to the task device, because stale entities can keep the
+    # device visible in Settings > Devices & Services after task deletion.
+    for entity_entry in list(er.async_entries_for_config_entry(entity_registry, entry.entry_id)):
+        unique_id = str(entity_entry.unique_id or "")
+        should_remove = unique_id.startswith(f"{task_id}_")
+        if entity_entry.device_id and entity_entry.device_id in device_ids:
+            should_remove = True
+        if should_remove:
+            if entity_entry.device_id:
+                device_ids.add(entity_entry.device_id)
+            try:
+                entity_registry.async_remove(entity_entry.entity_id)
+            except Exception:  # pragma: no cover - cleanup should not block delete
+                _LOGGER.debug(
+                    "Could not remove entity registry entry %s for deleted HMM task %s",
+                    entity_entry.entity_id,
+                    task_id,
+                    exc_info=True,
+                )
+
+    # Re-resolve by identifier after entity cleanup in case the first lookup was
+    # blocked by stale entity/device state.
+    device = device_registry.async_get_device({(DOMAIN, task_id)})
+    if device is not None:
+        device_ids.add(device.id)
+
+    for device_id in list(device_ids):
         try:
-            device_registry.async_remove_device(device.id)
+            dev = device_registry.async_get(device_id)
+            if dev is not None:
+                device_registry.async_remove_device(device_id)
         except Exception:  # pragma: no cover - registry cleanup should not block delete
-            _LOGGER.debug("Could not remove device registry entry for deleted HMM task %s", task_id, exc_info=True)
+            _LOGGER.debug(
+                "Could not remove device registry entry %s for deleted HMM task %s (%s)",
+                device_id,
+                task_id,
+                task_name or "unknown name",
+                exc_info=True,
+            )
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     coordinator = MaintenanceCoordinator(hass)
@@ -304,15 +341,34 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     async def handle_reset_runtime(call):
         await coordinator.async_reset_runtime(call.data["task_id"])
 
-    async def _async_reload_entry_after_options_change() -> None:
+    async def _async_reload_entry_after_options_change(
+        cleanup_task_id: str | None = None,
+        cleanup_task_name: str | None = None,
+    ) -> None:
         """Reload the config entry so HA creates/removes task entities and devices.
 
-        Maintenance tasks are represented as Home Assistant entities/devices.
-        Updating the coordinator store alone updates the sidebar panel, but it does
-        not cause the sensor/binary_sensor/button platforms to add new entities.
-        A config entry reload is the safest current approach for this custom panel
-        flow because the platform setup code rebuilds entities from stored tasks.
+        For deleted tasks, unload first, clean registry entries while the stale
+        entities are not loaded, then set the entry back up. This prevents
+        unavailable orphan devices from remaining under the integration.
         """
+        if cleanup_task_id:
+            unload_ok = await hass.config_entries.async_unload(entry.entry_id)
+            if unload_ok:
+                await _async_cleanup_task_registry_entries(
+                    hass, entry, cleanup_task_id, cleanup_task_name
+                )
+                await hass.config_entries.async_setup(entry.entry_id)
+            else:
+                _LOGGER.warning(
+                    "Could not unload Home Maintenance Manager before deleting task %s; falling back to reload",
+                    cleanup_task_id,
+                )
+                await _async_cleanup_task_registry_entries(
+                    hass, entry, cleanup_task_id, cleanup_task_name
+                )
+                await hass.config_entries.async_reload(entry.entry_id)
+            return
+
         await hass.config_entries.async_reload(entry.entry_id)
 
     async def handle_upsert_task(call):
@@ -328,11 +384,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     async def handle_delete_task(call):
         task_id = call.data["task_id"]
-        tasks = [item for item in entry.options.get(CONF_TASKS, []) if item.get("id") != task_id]
+        existing_tasks = list(entry.options.get(CONF_TASKS, []))
+        task_name = next((item.get("name") for item in existing_tasks if item.get("id") == task_id), None)
+        tasks = [item for item in existing_tasks if item.get("id") != task_id]
         hass.config_entries.async_update_entry(entry, options={**entry.options, CONF_TASKS: tasks})
         await coordinator.async_delete_task(task_id)
-        await _async_cleanup_task_registry_entries(hass, entry, task_id)
-        hass.async_create_task(_async_reload_entry_after_options_change())
+        hass.async_create_task(
+            _async_reload_entry_after_options_change(task_id, task_name)
+        )
 
     hass.services.async_register(DOMAIN, SERVICE_MARK_COMPLETE, handle_mark_complete, schema=vol.Schema({vol.Required("task_id"): cv.string, vol.Optional("method", default="service"): cv.string, vol.Optional("notes"): cv.string}))
     hass.services.async_register(DOMAIN, SERVICE_SNOOZE, handle_snooze, schema=vol.Schema({vol.Required("task_id"): cv.string, vol.Optional("days", default=7): vol.Coerce(int)}))
