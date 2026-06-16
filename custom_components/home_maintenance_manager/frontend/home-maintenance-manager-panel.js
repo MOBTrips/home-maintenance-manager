@@ -19,6 +19,8 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     this.analysisDays = 30;
     this._modalSnapshot = null;
     this.mobileMenuOpen = false;
+    this._routeTaskId = null;
+    this._boundRouteChanged = () => this.handleRouteChanged();
   }
 
   set hass(hass) {
@@ -27,7 +29,17 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     if (first) this.loadData();
   }
 
-  connectedCallback() { this.render(); }
+  connectedCallback() {
+    window.addEventListener('popstate', this._boundRouteChanged);
+    window.addEventListener('hashchange', this._boundRouteChanged);
+    this.render();
+    this.handleRouteChanged();
+  }
+
+  disconnectedCallback() {
+    window.removeEventListener('popstate', this._boundRouteChanged);
+    window.removeEventListener('hashchange', this._boundRouteChanged);
+  }
 
   async loadData() {
     if (!this._hass) return;
@@ -493,19 +505,52 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
 
 
 
-  applyRouteTask() {
+  routeTaskIdFromUrl() {
     try {
       const url = new URL(window.location.href);
-      const taskId = url.searchParams.get('task');
-      if (!taskId || this.modal) return;
+      const directTask = url.searchParams.get('task') || url.searchParams.get('task_id');
+      if (directTask) return decodeURIComponent(directTask);
+
+      // Home Assistant custom panels and mobile deep links may preserve the
+      // destination in the hash instead of the query string. Accept a few
+      // forms so old and new NFC links both work:
+      //   /home-maintenance-manager?task=<id>
+      //   /home-maintenance-manager#task=<id>
+      //   /home-maintenance-manager#/task/<id>
+      const hash = (url.hash || '').replace(/^#\/?/, '');
+      if (!hash) return null;
+      const hashParams = new URLSearchParams(hash.includes('?') ? hash.split('?').pop() : hash);
+      const hashTask = hashParams.get('task') || hashParams.get('task_id');
+      if (hashTask) return decodeURIComponent(hashTask);
+      const match = hash.match(/(?:^|\/)task\/([^/?#]+)/);
+      return match ? decodeURIComponent(match[1]) : null;
+    } catch (err) {
+      return null;
+    }
+  }
+
+  applyRouteTask() {
+    try {
+      const taskId = this.routeTaskIdFromUrl();
+      if (!taskId) return;
       const task = this.tasks.find(t => t.id === taskId);
-      if (task) {
-        this.tab = 'tasks';
-        this.modal = { detail: JSON.parse(JSON.stringify(task)) };
-      }
+      if (!task) return;
+      const currentId = this.modal?.detail?.id || null;
+      if (currentId === taskId) return;
+      this.tab = 'tasks';
+      this.mobileMenuOpen = false;
+      this._routeTaskId = taskId;
+      this.modal = { detail: JSON.parse(JSON.stringify(task)) };
     } catch (err) {
       // Route parsing is best-effort for custom panel deep links.
     }
+  }
+
+  handleRouteChanged() {
+    const before = this.modal?.detail?.id || null;
+    this.applyRouteTask();
+    const after = this.modal?.detail?.id || null;
+    if (after && after !== before) this.render();
   }
 
   openTaskDetail(taskId) {
@@ -517,6 +562,7 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     try {
       const url = new URL(window.location.href);
       url.searchParams.set('task', taskId);
+      url.hash = `task=${encodeURIComponent(taskId)}`;
       window.history.replaceState({}, '', url.toString());
     } catch (err) {}
     this.render();
@@ -527,6 +573,9 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     try {
       const url = new URL(window.location.href);
       url.searchParams.delete('task');
+      url.searchParams.delete('task_id');
+      if ((url.hash || '').includes('task')) url.hash = '';
+      this._routeTaskId = null;
       window.history.replaceState({}, '', url.toString());
     } catch (err) {}
     this.render();

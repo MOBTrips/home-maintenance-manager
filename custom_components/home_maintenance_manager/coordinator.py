@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import timedelta, time
 import logging
 from typing import Any
+from urllib.parse import quote
 
 from homeassistant.core import Event, HomeAssistant, callback
 from homeassistant.helpers.event import async_track_state_change_event, async_track_time_interval
@@ -401,8 +402,13 @@ class MaintenanceCoordinator:
 
 
     def _panel_task_url(self, task_id: str) -> str:
-        """Return a relative URL to the Maintenance panel for a task."""
-        return f"/home-maintenance-manager?task={task_id}"
+        """Return a relative URL to the Maintenance panel for a task.
+
+        Include the task ID in both query string and hash form. Some Home Assistant
+        Companion App/webview launches preserve one better than the other.
+        """
+        encoded = quote(str(task_id), safe="")
+        return f"/home-maintenance-manager?task={encoded}#task={encoded}"
 
     def _scanner_label(self, event_data: dict[str, Any]) -> str | None:
         """Best-effort friendly label for the phone/device that scanned a tag."""
