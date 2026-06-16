@@ -251,6 +251,34 @@ async def async_setup(hass: HomeAssistant, config: dict[str, Any]) -> bool:
     hass.data[DOMAIN]["yaml_tasks"] = yaml_tasks
     return True
 
+
+async def _async_cleanup_task_registry_entries(hass: HomeAssistant, entry: ConfigEntry, task_id: str) -> None:
+    """Remove entity and device registry entries for a deleted maintenance task.
+
+    Deleting a task removes it from HMM storage/options, but Home Assistant's
+    registries can keep the task device around after the platform entities are
+    unloaded. Clean the task-specific registry entries explicitly so the device
+    disappears from the integration after deletion.
+    """
+    from homeassistant.helpers import device_registry as dr, entity_registry as er
+
+    entity_registry = er.async_get(hass)
+    device_registry = dr.async_get(hass)
+
+    # Unique IDs are generated as f"{task_id}_{entity_type}" across all HMM
+    # task entities. Remove only entries owned by this config entry/domain.
+    for entity_entry in list(er.async_entries_for_config_entry(entity_registry, entry.entry_id)):
+        unique_id = str(entity_entry.unique_id or "")
+        if unique_id.startswith(f"{task_id}_"):
+            entity_registry.async_remove(entity_entry.entity_id)
+
+    device = device_registry.async_get_device({(DOMAIN, task_id)})
+    if device is not None:
+        try:
+            device_registry.async_remove_device(device.id)
+        except Exception:  # pragma: no cover - registry cleanup should not block delete
+            _LOGGER.debug("Could not remove device registry entry for deleted HMM task %s", task_id, exc_info=True)
+
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     coordinator = MaintenanceCoordinator(hass)
     await coordinator.async_load()
@@ -303,6 +331,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         tasks = [item for item in entry.options.get(CONF_TASKS, []) if item.get("id") != task_id]
         hass.config_entries.async_update_entry(entry, options={**entry.options, CONF_TASKS: tasks})
         await coordinator.async_delete_task(task_id)
+        await _async_cleanup_task_registry_entries(hass, entry, task_id)
         hass.async_create_task(_async_reload_entry_after_options_change())
 
     hass.services.async_register(DOMAIN, SERVICE_MARK_COMPLETE, handle_mark_complete, schema=vol.Schema({vol.Required("task_id"): cv.string, vol.Optional("method", default="service"): cv.string, vol.Optional("notes"): cv.string}))
