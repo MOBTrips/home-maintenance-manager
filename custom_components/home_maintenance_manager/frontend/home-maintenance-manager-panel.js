@@ -204,6 +204,65 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     return 'units';
   }
 
+
+  intervalUnits() { return [['minutes','Minutes'],['hours','Hours'],['days','Days'],['weeks','Weeks'],['months','Months'],['years','Years']]; }
+  unitOptions(selected, allowed=null) {
+    const units = allowed || this.intervalUnits();
+    return units.map(([v,l]) => `<option value="${v}" ${selected===v?'selected':''}>${l}</option>`).join('');
+  }
+  intervalFromRule(rule, defaultValue, defaultUnit) {
+    if (!rule) return {value: defaultValue, unit: defaultUnit};
+    if (rule.value !== undefined || rule.unit !== undefined) return {value: Number(rule.value ?? defaultValue), unit: rule.unit || defaultUnit};
+    for (const key of ['minutes','hours','days','weeks','months','years']) if (rule[key] !== undefined) return {value: Number(rule[key] || defaultValue), unit: key};
+    return {value: defaultValue, unit: defaultUnit};
+  }
+  intervalToDays(value, unit) {
+    const n = Number(value || 0);
+    const u = String(unit || 'days');
+    if (u === 'minutes') return n / 1440;
+    if (u === 'hours') return n / 24;
+    if (u === 'weeks') return n * 7;
+    if (u === 'months') return n * 30.4375;
+    if (u === 'years') return n * 365.25;
+    return n;
+  }
+  intervalToHours(value, unit) {
+    const n = Number(value || 0);
+    const u = String(unit || 'hours');
+    if (u === 'minutes') return n / 60;
+    if (u === 'days') return n * 24;
+    if (u === 'weeks') return n * 24 * 7;
+    if (u === 'months') return n * 24 * 30.4375;
+    if (u === 'years') return n * 24 * 365.25;
+    return n;
+  }
+  subtractIntervalFromNow(value, unit) {
+    const d = new Date();
+    const n = Number(value || 0);
+    const u = String(unit || 'days');
+    if (u === 'minutes') d.setMinutes(d.getMinutes() - n);
+    else if (u === 'hours') d.setHours(d.getHours() - n);
+    else if (u === 'days') d.setDate(d.getDate() - n);
+    else if (u === 'weeks') d.setDate(d.getDate() - n * 7);
+    else if (u === 'months') d.setMonth(d.getMonth() - n);
+    else if (u === 'years') d.setFullYear(d.getFullYear() - n);
+    return d.toISOString();
+  }
+  isoForDatetimeLocal(value) {
+    if (!value) return new Date().toISOString();
+    const d = new Date(value);
+    return Number.isNaN(d.getTime()) ? new Date().toISOString() : d.toISOString();
+  }
+  localDatetimeValue(iso) {
+    const d = iso ? new Date(iso) : new Date();
+    if (Number.isNaN(d.getTime())) return '';
+    const pad = n => String(n).padStart(2,'0');
+    return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  }
+  weekdayOptions(selected=1) {
+    return [['0','Monday'],['1','Tuesday'],['2','Wednesday'],['3','Thursday'],['4','Friday'],['5','Saturday'],['6','Sunday']].map(([v,l])=>`<option value="${v}" ${String(selected)===v?'selected':''}>${l}</option>`).join('');
+  }
+
   categories() {
     const builtIn = ["General","HVAC","Pool","Hot Tub","Water Filtration","Appliance","Plumbing","Electrical","Yard","Vehicle","3D Printer","Seasonal","Safety","Other"];
     const seen = new Set(builtIn);
@@ -552,19 +611,32 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     const runtimeMethod = runtimeRule.above !== undefined ? 'above_threshold' : runtimeRule.states ? 'specific_state' : 'entity_on';
     const runtimeStateText = Array.isArray(runtimeRule.states) ? runtimeRule.states.join(', ') : 'running,on,heating,cooling';
     const counterRule = (t.rules||[]).find(r=>r.type==='counter') || {};
-    const timeRule = (t.rules||[]).find(r=>r.type==='time') || {days:90};
-    const hasTimeRule = !!timeRule.days;
+    const timeRule = (t.rules||[]).find(r=>r.type==='time') || {value:90, unit:'days'};
+    const calendarRule = (t.rules||[]).find(r=>r.type==='calendar') || {};
+    const timeInterval = this.intervalFromRule(timeRule, 90, 'days');
+    const runtimeInterval = this.intervalFromRule(runtimeRule, 100, 'hours');
+    const hasTimeRule = !!(timeRule.days || timeRule.value);
     const hasRuntimeRule = !!runtimeRule.entity;
     const hasCounterRule = !!counterRule.entity;
+    const hasCalendarRule = !!calendarRule.id || calendarRule.type === 'calendar';
     let scheduleValue = 'time';
     if (hasTimeRule && hasRuntimeRule) scheduleValue = t.rule_logic === 'all' ? 'time_and_runtime' : 'time_or_runtime';
     else if (hasTimeRule && hasCounterRule) scheduleValue = t.rule_logic === 'all' ? 'time_and_meter' : 'time_or_meter';
     else if (hasRuntimeRule) scheduleValue = 'runtime';
     else if (hasCounterRule) scheduleValue = 'meter';
+    else if (hasCalendarRule) scheduleValue = 'calendar';
     const counterSourceMode = counterRule.source_mode || 'cumulative';
     const sourceUnit = counterRule.source_unit || (counterRule.entity && this._hass?.states?.[counterRule.entity]?.attributes?.unit_of_measurement) || '';
     const counterUnit = counterRule.target_unit || counterRule.unit || (counterSourceMode === 'rate' ? this.totalizedTargetUnit(sourceUnit) : sourceUnit) || 'units';
     const categoryOptions = this.categories().map(c=>`<option value="${this.escape(c)}" ${this.category(t)===c?'selected':''}>${this.escape(c)}</option>`).join('');
+    const calKind = calendarRule.calendar_kind || calendarRule.calendar_type || 'nth_weekday';
+    const calNth = String(calendarRule.nth ?? 2);
+    const calWeekday = String(calendarRule.weekday ?? 1);
+    const calMonth = String(calendarRule.month ?? '');
+    const calDay = String(calendarRule.day ?? 1);
+    const calTime = `${String(calendarRule.hour ?? 9).padStart(2,'0')}:${String(calendarRule.minute ?? 0).padStart(2,'0')}`;
+    const baselineMode = t.baseline_method || 'today';
+
     return `<div class="modal-scrim" data-action="modal-scrim"><div class="modal" data-modal-content>
       <div class="modal-head"><div><h2>${isEdit ? 'Edit maintenance task' : 'Add maintenance task'}</h2><div class="muted">This one-page setup is grouped into sections. Start simple; advanced fields can be left blank.</div></div><button class="btn" data-action="close-modal">Close</button></div>
 
@@ -592,24 +664,41 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
         <h3>3. Maintenance schedule</h3><p class="section-note">Choose when the task becomes due. Runtime counts hours while something is running. Metered usage counts a sensor value like gallons, kWh, miles, grams, or cycles.</p>
         <div class="two">
           <div><label>${this.label('Schedule type','Choose time, runtime hours, metered usage, or a combination. Runtime is duration. Metered usage uses the source entity unit.')}</label><select id="task-schedule">
-            <option value="time" ${scheduleValue==='time'?'selected':''}>Time based</option>
+            <option value="time" ${scheduleValue==='time'?'selected':''}>Time interval</option>
             <option value="runtime" ${scheduleValue==='runtime'?'selected':''}>Runtime hours</option>
             <option value="meter" ${scheduleValue==='meter'?'selected':''}>Metered usage</option>
+            <option value="calendar" ${scheduleValue==='calendar'?'selected':''}>Calendar schedule</option>
             <option value="time_or_runtime" ${scheduleValue==='time_or_runtime'?'selected':''}>Time or runtime, whichever comes first</option>
             <option value="time_and_runtime" ${scheduleValue==='time_and_runtime'?'selected':''}>Time and runtime</option>
             <option value="time_or_meter" ${scheduleValue==='time_or_meter'?'selected':''}>Time or metered usage, whichever comes first</option>
             <option value="time_and_meter" ${scheduleValue==='time_and_meter'?'selected':''}>Time and metered usage</option>
           </select></div>
-          <div class="conditional time-fields"><label>${this.label('Every how many days?','For time-based rules, the task becomes due this many days after the last completed date.')}</label><input id="task-days" type="number" min="1" value="${Math.round(timeRule.days || 90)}"><div id="err-days" class="field-error">Enter a valid number of days.</div></div>
+          <div class="conditional time-fields"><label>${this.label('Time interval','For time-based rules, the task becomes due after this interval from the last completion.')}</label><div class="inline-fields"><input id="task-time-value" type="number" min="0.01" step="0.01" value="${this.escape(timeInterval.value)}"><select id="task-time-unit">${this.unitOptions(timeInterval.unit)}</select></div><div id="err-days" class="field-error">Enter a valid time interval.</div></div>
         </div>
         <div class="two">
           <div class="conditional runtime-fields"><label>${this.label('Runtime tracking source','Choose the entity used to decide when equipment is running. Switches and binary sensors are easiest. Numeric sensors like W or RPM can use a threshold.')}</label><div class="help">Runtime always counts time. A watts sensor usually means “hours above X watts,” not “watts used.”</div><ha-entity-picker id="task-runtime-entity" allow-custom-entity></ha-entity-picker><div id="runtime-source-hint" class="help"></div><div id="err-runtime-entity" class="field-error">Choose a runtime source for runtime-based tasks.</div></div>
           <div class="conditional runtime-fields"><label>${this.label('Counts as running when','Choose how Home Maintenance Manager should interpret the selected source entity.')}</label><select id="task-runtime-method"><option value="entity_on" ${runtimeMethod==='entity_on'?'selected':''}>Entity is ON</option><option value="above_threshold" ${runtimeMethod==='above_threshold'?'selected':''}>Numeric value is above threshold</option><option value="specific_state" ${runtimeMethod==='specific_state'?'selected':''}>Entity is in specific state(s)</option></select><div id="runtime-method-hint" class="help"></div></div>
         </div>
         <div class="two conditional runtime-fields">
-          <div><label>${this.label('Runtime limit','The task becomes due after this many runtime hours since the last completion.')}</label><input id="task-runtime-hours" type="number" min="0.1" step="0.1" value="${runtimeRule.hours || 100}"><div class="help">Unit: <span id="task-runtime-unit">runtime hours</span></div><div id="err-runtime-hours" class="field-error">Enter valid runtime hours.</div></div>
+          <div><label>${this.label('Runtime interval','The task becomes due after this amount of accumulated runtime since the last completion.')}</label><div class="inline-fields"><input id="task-runtime-value" type="number" min="0.01" step="0.01" value="${this.escape(runtimeInterval.value)}"><select id="task-runtime-interval-unit">${this.unitOptions(runtimeInterval.unit)}</select></div><div class="help">Runtime counts only while the selected running condition is true.</div><div id="err-runtime-hours" class="field-error">Enter valid runtime interval.</div></div>
           <div class="conditional threshold-fields"><label>${this.label('Running threshold','For numeric sensors, count runtime while the value is above this threshold. Example: power > 25 W means equipment is running.')}</label><input id="task-runtime-threshold" type="number" step="0.1" value="${runtimeRule.above ?? ''}" placeholder="Example: 25"><div id="err-runtime-threshold" class="field-error">Enter a valid threshold.</div></div>
           <div class="conditional state-fields"><label>${this.label('Running states','Comma-separated states that mean the equipment is running. Example: running, heating, cooling.')}</label><input id="task-runtime-states" value="${this.escape(runtimeStateText)}"><div class="help">State matching is exact and case-sensitive to Home Assistant state values.</div></div>
+        </div>
+        <div class="conditional calendar-fields">
+          <h4>Calendar schedule</h4>
+          <p class="section-note">Use this for tasks due on a calendar pattern, such as every 2nd Tuesday of the month.</p>
+          <div class="two">
+            <div><label>${this.label('Calendar pattern','Choose a monthly weekday pattern or a specific month/day.')}</label><select id="task-calendar-kind"><option value="nth_weekday" ${calKind==='nth_weekday'?'selected':''}>Monthly weekday pattern</option><option value="month_day" ${calKind==='month_day'?'selected':''}>Specific month/day</option></select></div>
+            <div><label>${this.label('Due time','The time of day the calendar task becomes due.')}</label><input id="task-calendar-time" type="time" value="${this.escape(calTime)}"></div>
+          </div>
+          <div class="two calendar-nth-fields">
+            <div><label>${this.label('Which week?','Example: 2nd Tuesday means choose 2nd and Tuesday.')}</label><select id="task-calendar-nth"><option value="1" ${calNth==='1'?'selected':''}>1st</option><option value="2" ${calNth==='2'?'selected':''}>2nd</option><option value="3" ${calNth==='3'?'selected':''}>3rd</option><option value="4" ${calNth==='4'?'selected':''}>4th</option><option value="-1" ${calNth==='-1'?'selected':''}>Last</option></select></div>
+            <div><label>${this.label('Weekday','The weekday for the calendar schedule.')}</label><select id="task-calendar-weekday">${this.weekdayOptions(calWeekday)}</select></div>
+          </div>
+          <div class="two calendar-month-day-fields">
+            <div><label>${this.label('Month','Leave blank for every month, or choose a month for annual tasks.')}</label><select id="task-calendar-month"><option value="" ${!calMonth?'selected':''}>Every month</option>${Array.from({length:12},(_,i)=>`<option value="${i+1}" ${calMonth===String(i+1)?'selected':''}>${new Date(2020,i,1).toLocaleString(undefined,{month:'long'})}</option>`).join('')}</select></div>
+            <div><label>${this.label('Day of month','If the day does not exist in a month, the last day of that month is used.')}</label><input id="task-calendar-day" type="number" min="1" max="31" value="${this.escape(calDay)}"></div>
+          </div>
         </div>
         <div class="conditional runtime-fields analysis-box">
           <div><b>Threshold helper</b></div>
@@ -628,7 +717,12 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
           <div class="conditional meter-fields"><label>${this.label('Usage amount','The task becomes due after this amount of totalized usage since the last completion.')}</label><input id="task-meter-amount" type="number" min="0.1" step="0.1" value="${counterRule.amount || 1000}"><div class="help">Maintenance every: <span id="task-meter-unit">${this.escape(counterUnit)}</span></div><div id="err-meter-amount" class="field-error">Enter a valid usage amount.</div></div>
           <div class="conditional meter-fields"><div class="info-box" id="meter-explain-box">Metered usage uses a baseline at task creation/completion. HMM subtracts that baseline from the current total to calculate usage used.</div></div>
         </div>
-        <label>${this.label('When was it last done?','Sets the starting point for the first due date. Today is safest for a new task.')}</label><select id="task-baseline"><option value="today">Today</option><option value="unknown">Unknown / start today</option></select>
+        <div class="baseline-box">
+          <label>${this.label('When was it last done?','Sets the starting point for the first due date. You can enter an exact completion date/time or how long ago the maintenance was done.')}</label>
+          <select id="task-baseline"><option value="today" ${baselineMode==='today'?'selected':''}>Today / now</option><option value="specific" ${baselineMode==='specific'?'selected':''}>Specific date and time</option><option value="ago" ${baselineMode==='ago'?'selected':''}>A certain time ago</option><option value="unknown" ${baselineMode==='unknown'?'selected':''}>Unknown / start today</option></select>
+          <div class="two conditional baseline-specific-fields"><div><label>${this.label('Last completed date/time','The exact date and time this task was last completed.')}</label><input id="task-baseline-datetime" type="datetime-local" value="${this.escape(this.localDatetimeValue(t.last_completed))}"></div></div>
+          <div class="two conditional baseline-ago-fields"><div><label>${this.label('How long ago?','Example: 6 months ago, 2 weeks ago, or 30 minutes ago.')}</label><div class="inline-fields"><input id="task-baseline-ago-value" type="number" min="0" step="0.01" value="${this.escape(t.baseline_ago_value || 0)}"><select id="task-baseline-ago-unit">${this.unitOptions(t.baseline_ago_unit || 'days')}</select></div></div></div>
+        </div>
       </div>
 
       <div class="form-section">
@@ -717,6 +811,10 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     if (meterSourceType) meterSourceType.onchange = () => this.updateMeterUnit();
     const notifyBehaviorEl = this.shadowRoot.getElementById('task-notify-behavior');
     if (schedule) schedule.onchange = () => this.syncConditionalFields();
+    const calKindEl = this.shadowRoot.getElementById('task-calendar-kind');
+    if (calKindEl) calKindEl.onchange = () => this.syncConditionalFields();
+    const baselineEl = this.shadowRoot.getElementById('task-baseline');
+    if (baselineEl) baselineEl.onchange = () => this.syncConditionalFields();
     const runtimeMethodEl = this.shadowRoot.getElementById('task-runtime-method');
     if (notify) notify.onchange = () => this.syncConditionalFields();
     if (notifyBehaviorEl) notifyBehaviorEl.onchange = () => this.syncConditionalFields();
@@ -746,8 +844,8 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     };
     const fields = [
       'task-name','task-category','task-description','task-area','task-device','task-equipment-name',
-      'task-schedule','task-days','task-runtime-hours','task-runtime-method','task-runtime-threshold','task-runtime-states',
-      'task-meter-amount','task-meter-source-type','task-baseline','task-notify-behavior','task-notify','task-mobile','task-nfc','task-nfc-action','task-instructions'
+      'task-schedule','task-time-value','task-time-unit','task-runtime-value','task-runtime-interval-unit','task-runtime-method','task-runtime-threshold','task-runtime-states',
+      'task-calendar-kind','task-calendar-nth','task-calendar-weekday','task-calendar-month','task-calendar-day','task-calendar-time','task-meter-amount','task-meter-source-type','task-baseline','task-baseline-datetime','task-baseline-ago-value','task-baseline-ago-unit','task-notify-behavior','task-notify','task-mobile','task-nfc','task-nfc-action','task-instructions'
     ];
     const data = {};
     for (const id of fields) data[id] = value(id);
@@ -899,7 +997,7 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     const hours = seconds / 3600;
     const days = Number(a.actualPeriodDays || a.periodDays || this.analysisDays || 30);
     const daily = days ? hours / days : 0;
-    const limit = Number(this.shadowRoot.getElementById('task-runtime-hours')?.value || 0);
+    const limit = this.intervalToHours(Number(this.shadowRoot.getElementById('task-runtime-value')?.value || 0), this.shadowRoot.getElementById('task-runtime-interval-unit')?.value || 'hours');
     const intervalDays = daily > 0 && limit > 0 ? (limit / daily).toFixed(1) : '—';
     return { hours: hours.toFixed(1), daily: daily.toFixed(1), intervalDays };
   }
@@ -1098,13 +1196,21 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     const showTime = ["time","time_or_runtime","time_and_runtime","time_or_meter","time_and_meter"].includes(schedule);
     const showRuntime = ["runtime","time_or_runtime","time_and_runtime"].includes(schedule);
     const showMeter = ["meter","time_or_meter","time_and_meter"].includes(schedule);
+    const showCalendar = schedule === "calendar";
     const showUsage = showRuntime || showMeter;
     const showCustomNotify = notifyBehavior === 'custom';
     const showMobile = showCustomNotify && ["mobile","both"].includes(notify);
     const runtimeMethod = this.shadowRoot.getElementById('task-runtime-method')?.value || 'entity_on';
+    const calendarKind = this.shadowRoot.getElementById('task-calendar-kind')?.value || 'nth_weekday';
+    const baselineMode = this.shadowRoot.getElementById('task-baseline')?.value || 'today';
     this.shadowRoot.querySelectorAll('.time-fields').forEach(el => el.classList.toggle('hidden', !showTime));
     this.shadowRoot.querySelectorAll('.runtime-fields').forEach(el => el.classList.toggle('hidden', !showRuntime));
     this.shadowRoot.querySelectorAll('.meter-fields').forEach(el => el.classList.toggle('hidden', !showMeter));
+    this.shadowRoot.querySelectorAll('.calendar-fields').forEach(el => el.classList.toggle('hidden', !showCalendar));
+    this.shadowRoot.querySelectorAll('.calendar-nth-fields').forEach(el => el.classList.toggle('hidden', !(showCalendar && calendarKind === 'nth_weekday')));
+    this.shadowRoot.querySelectorAll('.calendar-month-day-fields').forEach(el => el.classList.toggle('hidden', !(showCalendar && calendarKind === 'month_day')));
+    this.shadowRoot.querySelectorAll('.baseline-specific-fields').forEach(el => el.classList.toggle('hidden', baselineMode !== 'specific'));
+    this.shadowRoot.querySelectorAll('.baseline-ago-fields').forEach(el => el.classList.toggle('hidden', baselineMode !== 'ago'));
     this.shadowRoot.querySelectorAll('.usage-fields').forEach(el => el.classList.toggle('hidden', !showUsage));
     this.shadowRoot.querySelectorAll('.custom-notify-fields').forEach(el => el.classList.toggle('hidden', !showCustomNotify));
     this.shadowRoot.querySelectorAll('.mobile-fields').forEach(el => el.classList.toggle('hidden', !showMobile));
@@ -1134,9 +1240,12 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     const needsTime = ["time","time_or_runtime","time_and_runtime","time_or_meter","time_and_meter"].includes(schedule);
     const needsRuntime = ["runtime","time_or_runtime","time_and_runtime"].includes(schedule);
     const needsMeter = ["meter","time_or_meter","time_and_meter"].includes(schedule);
-    const days = Number(q('task-days')?.value || 0);
+    const needsCalendar = schedule === "calendar";
+    const timeValue = Number(q('task-time-value')?.value || 0);
+    const timeUnit = q('task-time-unit')?.value || 'days';
     const runtimeEntity = q('task-runtime-entity')?.value || '';
-    const runtimeHours = Number(q('task-runtime-hours')?.value || 0);
+    const runtimeValue = Number(q('task-runtime-value')?.value || 0);
+    const runtimeUnit = q('task-runtime-interval-unit')?.value || 'hours';
     const meterEntity = q('task-meter-entity')?.value || '';
     const meterAmount = Number(q('task-meter-amount')?.value || 0);
     const meterSourceType = q('task-meter-source-type')?.value || 'cumulative';
@@ -1150,17 +1259,36 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     const existing = existingId ? this.tasks.find(t=>t.id===existingId) : null;
     let hasError = false;
     this.setError('err-name', !name); hasError = hasError || !name;
-    this.setError('err-days', needsTime && (!days || days < 1)); hasError = hasError || (needsTime && (!days || days < 1));
+    this.setError('err-days', needsTime && (!timeValue || timeValue <= 0)); hasError = hasError || (needsTime && (!timeValue || timeValue <= 0));
     this.setError('err-runtime-entity', needsRuntime && !runtimeEntity); hasError = hasError || (needsRuntime && !runtimeEntity);
-    this.setError('err-runtime-hours', needsRuntime && (!runtimeHours || runtimeHours <= 0)); hasError = hasError || (needsRuntime && (!runtimeHours || runtimeHours <= 0));
+    this.setError('err-runtime-hours', needsRuntime && (!runtimeValue || runtimeValue <= 0)); hasError = hasError || (needsRuntime && (!runtimeValue || runtimeValue <= 0));
     this.setError('err-runtime-threshold', needsRuntime && runtimeMethod === 'above_threshold' && (runtimeThresholdRaw === '' || !Number.isFinite(runtimeThreshold))); hasError = hasError || (needsRuntime && runtimeMethod === 'above_threshold' && (runtimeThresholdRaw === '' || !Number.isFinite(runtimeThreshold)));
     this.setError('err-meter-entity', needsMeter && !meterEntity); hasError = hasError || (needsMeter && !meterEntity);
     this.setError('err-meter-amount', needsMeter && (!meterAmount || meterAmount <= 0)); hasError = hasError || (needsMeter && (!meterAmount || meterAmount <= 0));
-        if (hasError) return;
+    if (hasError) return;
+
     const rules = [];
-    if (needsTime) rules.push({id:'time_1', type:'time', name:`Every ${days} days`, days});
+    if (needsTime) {
+      rules.push({id:'time_1', type:'time', name:`Every ${timeValue} ${timeUnit}`, value:timeValue, unit:timeUnit, days:this.intervalToDays(timeValue, timeUnit)});
+    }
+    if (needsCalendar) {
+      const [hourRaw, minuteRaw] = String(q('task-calendar-time')?.value || '09:00').split(':');
+      const calendarKind = q('task-calendar-kind')?.value || 'nth_weekday';
+      const calendarRule = {id:'calendar_1', type:'calendar', name:'Calendar schedule', calendar_kind:calendarKind, hour:Number(hourRaw||9), minute:Number(minuteRaw||0)};
+      if (calendarKind === 'month_day') {
+        calendarRule.month = q('task-calendar-month')?.value || null;
+        calendarRule.day = Number(q('task-calendar-day')?.value || 1);
+        calendarRule.name = calendarRule.month ? `Every ${calendarRule.month}/${calendarRule.day}` : `Every month on day ${calendarRule.day}`;
+      } else {
+        calendarRule.nth = Number(q('task-calendar-nth')?.value || 2);
+        calendarRule.weekday = Number(q('task-calendar-weekday')?.value || 1);
+        calendarRule.name = 'Monthly weekday schedule';
+      }
+      rules.push(calendarRule);
+    }
     if (needsRuntime) {
-      const runtimeRule = {id:'runtime_1', type:'runtime', name:`Every ${runtimeHours} runtime hours`, entity:runtimeEntity, hours:runtimeHours};
+      const runtimeHours = this.intervalToHours(runtimeValue, runtimeUnit);
+      const runtimeRule = {id:'runtime_1', type:'runtime', name:`Every ${runtimeValue} runtime ${runtimeUnit}`, entity:runtimeEntity, value:runtimeValue, unit:runtimeUnit, hours:runtimeHours};
       if (runtimeMethod === 'above_threshold') runtimeRule.above = runtimeThreshold;
       if (runtimeMethod === 'specific_state') runtimeRule.states = runtimeStates.length ? runtimeStates : ['running'];
       rules.push(runtimeRule);
@@ -1186,6 +1314,19 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     const selectedEntities = Array.isArray(entityValue) ? entityValue : (entityValue ? [entityValue] : []);
     const nfc = q('task-nfc').value;
     const nfcAction = nfc ? (q('task-nfc-action')?.value || 'confirm') : 'disabled';
+    const baselineMethod = q('task-baseline')?.value || 'today';
+    let lastCompleted = existing ? (existing.last_completed || new Date().toISOString()) : new Date().toISOString();
+    let baselineAgoValue = q('task-baseline-ago-value')?.value || '';
+    let baselineAgoUnit = q('task-baseline-ago-unit')?.value || 'days';
+    if (!existing || baselineMethod !== (existing.baseline_method || 'today')) {
+      if (baselineMethod === 'specific') lastCompleted = this.isoForDatetimeLocal(q('task-baseline-datetime')?.value);
+      else if (baselineMethod === 'ago') lastCompleted = this.subtractIntervalFromNow(Number(baselineAgoValue || 0), baselineAgoUnit);
+      else lastCompleted = new Date().toISOString();
+    } else if (baselineMethod === 'specific') {
+      lastCompleted = this.isoForDatetimeLocal(q('task-baseline-datetime')?.value);
+    } else if (baselineMethod === 'ago') {
+      lastCompleted = this.subtractIntervalFromNow(Number(baselineAgoValue || 0), baselineAgoUnit);
+    }
     const task = {
       id: existingId || this.slug(name),
       name,
@@ -1209,8 +1350,10 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
       max_snooze_days: 30,
       warning_percent: 0.8,
       paused: false,
-      last_completed: existing ? (existing.last_completed || new Date().toISOString()) : new Date().toISOString(),
-      baseline_method: q('task-baseline').value
+      last_completed: lastCompleted,
+      baseline_method: baselineMethod,
+      baseline_ago_value: baselineAgoValue,
+      baseline_ago_unit: baselineAgoUnit
     };
     await this.callService('upsert_task', { task });
   }

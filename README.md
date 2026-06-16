@@ -1,95 +1,18 @@
+# Home Maintenance Manager v0.5.18
 
-## v0.5.10
+Patch release focused on maintenance schedule cleanup.
 
-- Added automatic due/upcoming notification delivery.
-- Global notification settings are now used when task status changes.
-- Supports persistent and mobile notify services for due reminders.
-- Optional completed/snoozed notification events.
+## Changes
 
-# Home Maintenance Manager v0.5.9
+- Time interval tasks now support minutes, hours, days, weeks, months, and years.
+- Runtime interval tasks now support minutes, hours, days, weeks, months, and years.
+- The task editor now has a richer “When was it last done?” baseline section:
+  - Today / now
+  - Specific date and time
+  - X minutes/hours/days/weeks/months/years ago
+  - Unknown / start today
+- Added a basic Calendar schedule type:
+  - Monthly weekday pattern, such as every 2nd Tuesday
+  - Specific month/day pattern, such as every month on day 1 or every January 1
+- Backend supports new interval rule fields while remaining compatible with older `days` and `hours` rules.
 
-Revamps notification configuration so household defaults live in the Maintenance sidebar Settings page instead of every task editor.
-
-## Added
-
-- Global notification settings under **Maintenance → Settings**.
-- Global enable/disable for built-in notifications.
-- Default notification method: none, persistent, mobile, persistent + mobile, or automation-only.
-- Global mobile notify target picker from Home Assistant notify services.
-- Event toggles for upcoming, due, overdue, completed, and snoozed.
-- Overdue reminder cadence settings.
-- Quiet hours fields for future notification scheduling.
-- Notification title/body templates.
-- Task-level notification behavior: use global default, disable, or override.
-
-## Changed
-
-- The Add/Edit Task screen no longer asks every task for full notification settings by default.
-- Most tasks now default to **Use global notification settings** for a cleaner homeowner-friendly workflow.
-
-## Notes
-
-This release adds the configuration model and UI foundation for centralized notifications. Existing task-level notification values are preserved and treated as task overrides where possible.
-
-
-## v0.5.9 - Notification tab and testing
-
-- Moved notification settings into a dedicated Notifications tab.
-- Added a Test notification button for persistent and mobile notification targets.
-- Added notification preview text for title/body templates.
-
-## v0.5.8 - Metered usage totalizer
-
-Adds first-class support for rate sensors in metered usage tasks.
-
-- Metered usage source can be either a cumulative meter or a rate sensor.
-- Rate sensors such as `gal/min`, `L/min`, `m³/h`, `units/s`, and `W` can be totalized internally by Home Maintenance Manager.
-- The task editor detects likely rate sensors and suggests `Rate sensor - let HMM totalize it`.
-- Rate totalizers are stored per task and exposed through a new `Totalized Usage` sensor.
-- Mark Complete resets the maintenance baseline without changing the original source sensor.
-- Cumulative meter behavior is unchanged.
-
-Examples:
-
-- `sensor.ro_flow_rate` in `gal/min` -> HMM tracks total gallons.
-- `sensor.device_power` in `W` -> HMM can totalize to `kWh`, though Runtime Hours is often still better for maintenance based on operating time.
-
-
-## v0.5.8
-- Fixed rate totalizer sensors returning non-numeric `N/A` with numeric units.
-- Rate sources like `gal/min` now expose totalized usage in `gal`, not `gal/min`.
-
-
-## v0.5.8
-
-- Fixed delete_task failures caused by stale task entities being notified before the config entry reload finished.
-- Deleted task entities now become unavailable during the short reload window instead of raising KeyError.
-
-
-## v0.5.8
-
-- Added a second Close button at the bottom of the task editor.
-- Clicking outside the task editor now attempts to close it.
-- Unsaved edits now prompt with Keep editing, Discard changes, or Save changes before closing.
-
-## v0.5.13
-
-NFC confirmation polish:
-
-- Confirmation scans now create clearer NFC confirmation notifications.
-- Mobile Companion App notifications can include actions: Mark Complete, Inspection Only, Open Task, and Dismiss.
-- HMM listens for `mobile_app_notification_action` events and processes NFC action buttons.
-- NFC activity history now records scanner device/user context when available.
-- The Maintenance panel supports task deep links like `/home-maintenance-manager?task=<task_id>`.
-- Added a task detail view with overview, NFC status, quick actions, instructions, and recent activity.
-
-
-## 0.5.13
-
-- Added a mobile Home Assistant navigation bar to the custom Maintenance panel.
-- Added Back and HA Home buttons for the iOS Companion App so users can return to normal Home Assistant navigation.
-
-
-## 0.5.15
-- Fixed mobile hamburger/sidebar toggle event dispatch.
-- Removed Maintenance dashboard from top-right overflow menu.

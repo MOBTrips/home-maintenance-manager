@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
+from calendar import monthrange
 from typing import Any
 
 from homeassistant.core import HomeAssistant
@@ -11,9 +12,121 @@ from homeassistant.util import dt as dt_util
 RULE_TIME = "time"
 RULE_RUNTIME = "runtime"
 RULE_COUNTER = "counter"
+RULE_CALENDAR = "calendar"
 LOGIC_ANY = "any"
 LOGIC_ALL = "all"
 LOGIC_PRIMARY = "primary"
+
+
+
+
+def _as_float(value: Any, default: float = 0.0) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _interval_seconds(value: float, unit: str) -> float:
+    unit = (unit or "days").lower()
+    if unit.startswith("minute"):
+        return value * 60
+    if unit.startswith("hour"):
+        return value * 3600
+    if unit.startswith("day"):
+        return value * 86400
+    if unit.startswith("week"):
+        return value * 7 * 86400
+    if unit.startswith("month"):
+        return value * 30.4375 * 86400
+    if unit.startswith("year"):
+        return value * 365.25 * 86400
+    return value * 86400
+
+
+def _add_interval(dt: datetime, value: float, unit: str) -> datetime:
+    """Add a user interval. Months/years are approximate enough for due display."""
+    return dt + timedelta(seconds=_interval_seconds(value, unit))
+
+
+def _interval_from_rule(rule: dict[str, Any], default_unit: str = "days") -> tuple[float, str]:
+    """Return interval value/unit from new or legacy rule fields."""
+    if "value" in rule or "unit" in rule:
+        return _as_float(rule.get("value"), 0), str(rule.get("unit") or default_unit)
+    if "minutes" in rule:
+        return _as_float(rule.get("minutes"), 0), "minutes"
+    if "hours" in rule:
+        return _as_float(rule.get("hours"), 0), "hours"
+    if "days" in rule:
+        return _as_float(rule.get("days"), 0), "days"
+    if "weeks" in rule:
+        return _as_float(rule.get("weeks"), 0), "weeks"
+    if "months" in rule:
+        return _as_float(rule.get("months"), 0), "months"
+    if "years" in rule:
+        return _as_float(rule.get("years"), 0), "years"
+    return 0, default_unit
+
+
+def _ordinal(n: int) -> str:
+    if 10 <= n % 100 <= 20:
+        suffix = "th"
+    else:
+        suffix = {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th")
+    return f"{n}{suffix}"
+
+
+def _next_nth_weekday_after(after: datetime, nth: int, weekday: int, hour: int, minute: int) -> datetime:
+    """Return next nth weekday-of-month occurrence after the given datetime."""
+    year, month = after.year, after.month
+    tzinfo = after.tzinfo
+    for _ in range(36):
+        first = datetime(year, month, 1, hour, minute, tzinfo=tzinfo)
+        days_to_weekday = (weekday - first.weekday()) % 7
+        if nth == -1:
+            last_day = monthrange(year, month)[1]
+            last = datetime(year, month, last_day, hour, minute, tzinfo=tzinfo)
+            days_back = (last.weekday() - weekday) % 7
+            candidate = last - timedelta(days=days_back)
+        else:
+            candidate = first + timedelta(days=days_to_weekday + (max(nth, 1) - 1) * 7)
+            if candidate.month != month:
+                candidate = None
+        if candidate and candidate > after:
+            return candidate
+        month += 1
+        if month > 12:
+            month = 1
+            year += 1
+    return after + timedelta(days=365)
+
+
+def _next_month_day_after(after: datetime, month: int | None, day: int, hour: int, minute: int) -> datetime:
+    tzinfo = after.tzinfo
+    start_year = after.year
+    months = [month] if month else list(range(1, 13))
+    for y in range(start_year, start_year + 5):
+        for m in months:
+            last_day = monthrange(y, m)[1]
+            d = min(max(day, 1), last_day)
+            candidate = datetime(y, m, d, hour, minute, tzinfo=tzinfo)
+            if candidate > after:
+                return candidate
+    return after + timedelta(days=365)
+
+
+def _calendar_next_due_after(last: datetime, rule: dict[str, Any]) -> datetime | None:
+    schedule_kind = str(rule.get("calendar_kind") or rule.get("calendar_type") or "nth_weekday")
+    hour = int(_as_float(rule.get("hour"), 9))
+    minute = int(_as_float(rule.get("minute"), 0))
+    if schedule_kind == "month_day":
+        month_raw = rule.get("month")
+        month = int(month_raw) if month_raw not in (None, "", 0, "0") else None
+        day = int(_as_float(rule.get("day"), 1))
+        return _next_month_day_after(last, month, day, hour, minute)
+    nth = int(_as_float(rule.get("nth"), 2))
+    weekday = int(_as_float(rule.get("weekday"), 1))  # Monday=0, Tuesday=1
+    return _next_nth_weekday_after(last, nth, weekday, hour, minute)
 
 
 @dataclass
@@ -61,6 +174,9 @@ class MaintenanceTask:
     last_completed: str | None = None
     last_completed_by: str | None = None
     last_completion_method: str | None = None
+    baseline_method: str | None = None
+    baseline_ago_value: float | str | None = None
+    baseline_ago_unit: str | None = None
     late_count: int = 0
     completion_history: list[dict[str, Any]] = field(default_factory=list)
     activity_history: list[dict[str, Any]] = field(default_factory=list)
@@ -115,24 +231,36 @@ class MaintenanceTask:
             rule_type = rule.get("type")
             name = str(rule.get("name") or rule_type or rule_id)
             if rule_type == RULE_TIME:
-                days = float(rule.get("days") or 0)
-                if "months" in rule:
-                    days = float(rule["months"]) * 30.4375
-                if "years" in rule:
-                    days = float(rule["years"]) * 365.25
-                if days <= 0:
+                value, unit = _interval_from_rule(rule, "days")
+                total_seconds = _interval_seconds(value, unit)
+                if total_seconds <= 0:
                     continue
-                elapsed = max((now - last).total_seconds() / 86400, 0)
-                pct = min(elapsed / days, 999)
-                progress.append(RuleProgress(rule_id, rule_type, name, pct, days - elapsed, pct >= 1, f"{elapsed:.1f}/{days:.1f} days"))
+                elapsed_seconds = max((now - last).total_seconds(), 0)
+                pct = min(elapsed_seconds / total_seconds, 999)
+                remaining_days = (total_seconds - elapsed_seconds) / 86400
+                elapsed_value = elapsed_seconds / _interval_seconds(1, unit)
+                progress.append(RuleProgress(rule_id, rule_type, name, pct, remaining_days, pct >= 1, f"{elapsed_value:.1f}/{value:.1f} {unit}"))
             elif rule_type == RULE_RUNTIME:
                 entity_id = rule.get("entity")
-                hours = float(rule.get("hours") or 0)
-                if not entity_id or hours <= 0:
+                value, unit = _interval_from_rule(rule, "hours")
+                total_seconds = _interval_seconds(value, unit)
+                if not entity_id or total_seconds <= 0:
                     continue
-                used_hours = self.runtime_seconds.get(entity_id, 0) / 3600
-                pct = min(used_hours / hours, 999)
-                progress.append(RuleProgress(rule_id, rule_type, name, pct, hours - used_hours, pct >= 1, f"{used_hours:.1f}/{hours:.1f} hours"))
+                used_seconds = self.runtime_seconds.get(entity_id, 0)
+                pct = min(used_seconds / total_seconds, 999)
+                remaining_hours = (total_seconds - used_seconds) / 3600
+                used_value = used_seconds / _interval_seconds(1, unit)
+                progress.append(RuleProgress(rule_id, rule_type, name, pct, remaining_hours, pct >= 1, f"{used_value:.1f}/{value:.1f} {unit}"))
+            elif rule_type == RULE_CALENDAR:
+                next_due = _calendar_next_due_after(last, rule)
+                if not next_due:
+                    continue
+                total_seconds = max((next_due - last).total_seconds(), 1)
+                elapsed_seconds = max((now - last).total_seconds(), 0)
+                pct = min(elapsed_seconds / total_seconds, 999)
+                remaining_days = (next_due - now).total_seconds() / 86400
+                detail = f"Due {next_due.isoformat()}"
+                progress.append(RuleProgress(rule_id, rule_type, name, pct, remaining_days, now >= next_due, detail))
             elif rule_type == RULE_COUNTER:
                 entity_id = rule.get("entity")
                 amount = float(rule.get("amount") or 0)
@@ -264,13 +392,13 @@ class MaintenanceTask:
         due_dates: list[datetime] = []
         for rule in self.rules:
             if rule.get("type") == RULE_TIME:
-                days = float(rule.get("days") or 0)
-                if "months" in rule:
-                    days = float(rule["months"]) * 30.4375
-                if "years" in rule:
-                    days = float(rule["years"]) * 365.25
-                if days > 0:
-                    due_dates.append(last + timedelta(days=days))
+                value, unit = _interval_from_rule(rule, "days")
+                if value > 0:
+                    due_dates.append(_add_interval(last, value, unit))
+            elif rule.get("type") == RULE_CALENDAR:
+                next_due = _calendar_next_due_after(last, rule)
+                if next_due:
+                    due_dates.append(next_due)
         return min(due_dates) if due_dates else None
 
     def summary_attributes(self, hass: HomeAssistant) -> dict[str, Any]:
