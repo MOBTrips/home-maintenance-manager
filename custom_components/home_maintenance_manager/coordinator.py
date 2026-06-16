@@ -55,30 +55,108 @@ class MaintenanceCoordinator:
         await self.async_save()
         self._setup_tracking()
 
+    def _normalize_nfc_config(self, task_data: dict[str, Any]) -> dict[str, Any]:
+        """Return task data with NFC disabled state represented consistently.
+
+        The frontend can send either an empty tag list, an explicit disabled
+        action, or both. Treat any disabled action as no assigned tags so a
+        stale tag cannot continue to match this task after editing.
+        """
+        normalized = dict(task_data)
+        action = str(normalized.get("nfc_action") or "disabled").lower()
+        tags = [str(tag).strip() for tag in (normalized.get("nfc_tags") or []) if str(tag).strip()]
+        if action == "disabled" or not tags:
+            normalized["nfc_tags"] = []
+            normalized["nfc_action"] = "disabled"
+        else:
+            normalized["nfc_tags"] = tags
+            normalized["nfc_action"] = action
+        return normalized
+
+    def _remove_nfc_tags_from_other_tasks(self, owner_task_id: str, tags: list[str]) -> list[str]:
+        """Ensure one NFC tag maps to only one maintenance task."""
+        removed_from: list[str] = []
+        tag_set = set(tags or [])
+        if not tag_set:
+            return removed_from
+        for task_id, task in self.tasks.items():
+            if task_id == owner_task_id:
+                continue
+            existing = list(task.nfc_tags or [])
+            cleaned = [tag for tag in existing if tag not in tag_set]
+            if cleaned != existing:
+                task.nfc_tags = cleaned
+                removed_from.append(task_id)
+                if not cleaned:
+                    task.nfc_action = "disabled"
+        return removed_from
+
+    async def _cleanup_nfc_notifications(self, task_ids: list[str]) -> None:
+        """Dismiss stale NFC persistent/mobile notifications for changed assignments."""
+        settings = self._notification_settings()
+        targets = settings.get("mobile_notify_services") or []
+        for task_id in set(task_ids):
+            await self._dismiss_persistent_notification(f"home_maintenance_manager_nfc_confirm_{task_id}")
+            for target in targets:
+                if not isinstance(target, str) or not target.startswith("notify."):
+                    continue
+                service = target.split(".", 1)[1]
+                if not self.hass.services.has_service("notify", service):
+                    continue
+                try:
+                    await self.hass.services.async_call(
+                        "notify",
+                        service,
+                        {"message": "clear_notification", "data": {"tag": f"hmm_nfc_{task_id}"}},
+                        blocking=True,
+                    )
+                except Exception:  # pragma: no cover
+                    _LOGGER.debug("Failed to clear stale NFC mobile notification for task %s", task_id, exc_info=True)
+
     async def async_sync_configured_tasks(self, configured_tasks: list[dict[str, Any]]) -> None:
         """Sync UI/YAML task definitions into storage while preserving runtime/history."""
+        configured_tasks = [self._normalize_nfc_config(task) for task in configured_tasks]
         configured_ids = {task["id"] for task in configured_tasks}
+        changed_nfc_task_ids: list[str] = []
         for task_data in configured_tasks:
             task_id = task_data["id"]
+            old_tags = list(self.tasks.get(task_id).nfc_tags or []) if task_id in self.tasks else []
+            old_action = self.tasks.get(task_id).nfc_action if task_id in self.tasks else None
             if task_id in self.tasks:
                 self.tasks[task_id].update_config_from_dict(task_data)
             else:
                 self.tasks[task_id] = MaintenanceTask.from_dict(task_data)
+            changed_nfc_task_ids.extend(self._remove_nfc_tags_from_other_tasks(task_id, task_data.get("nfc_tags") or []))
+            if old_tags != list(self.tasks[task_id].nfc_tags or []) or old_action != self.tasks[task_id].nfc_action:
+                changed_nfc_task_ids.append(task_id)
         # UI/YAML are the source of task definitions. Runtime/history is kept for configured tasks only.
         for task_id in list(self.tasks):
             if task_id not in configured_ids:
+                changed_nfc_task_ids.append(task_id)
                 del self.tasks[task_id]
         await self.async_save()
+        if changed_nfc_task_ids:
+            await self._cleanup_nfc_notifications(changed_nfc_task_ids)
         self._setup_tracking()
         self._notify()
         self.hass.async_create_task(self.async_check_notifications())
 
     async def async_upsert_task(self, task_data: dict[str, Any]) -> None:
-        if task_data["id"] in self.tasks:
-            self.tasks[task_data["id"]].update_config_from_dict(task_data)
+        task_data = self._normalize_nfc_config(task_data)
+        task_id = task_data["id"]
+        old_tags = list(self.tasks.get(task_id).nfc_tags or []) if task_id in self.tasks else []
+        old_action = self.tasks.get(task_id).nfc_action if task_id in self.tasks else None
+        changed_nfc_task_ids: list[str] = []
+        if task_id in self.tasks:
+            self.tasks[task_id].update_config_from_dict(task_data)
         else:
-            self.tasks[task_data["id"]] = MaintenanceTask.from_dict(task_data)
+            self.tasks[task_id] = MaintenanceTask.from_dict(task_data)
+        changed_nfc_task_ids.extend(self._remove_nfc_tags_from_other_tasks(task_id, task_data.get("nfc_tags") or []))
+        if old_tags != list(self.tasks[task_id].nfc_tags or []) or old_action != self.tasks[task_id].nfc_action:
+            changed_nfc_task_ids.append(task_id)
         await self.async_save()
+        if changed_nfc_task_ids:
+            await self._cleanup_nfc_notifications(changed_nfc_task_ids)
         self._setup_tracking()
         self._notify()
         await self.async_check_notifications()
@@ -87,6 +165,7 @@ class MaintenanceCoordinator:
         if task_id in self.tasks:
             del self.tasks[task_id]
             await self.async_save()
+            await self._cleanup_nfc_notifications([task_id])
             self._setup_tracking()
             self._notify()
             await self.async_check_notifications()
