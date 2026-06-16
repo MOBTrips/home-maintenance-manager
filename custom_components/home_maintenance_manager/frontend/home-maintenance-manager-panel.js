@@ -256,7 +256,7 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
           <div class="app-title">Maintenance</div>
           <button class="ha-icon-button" data-action="ha-overflow" title="More options" aria-label="More options">⋮</button>
         </div>
-        ${this.mobileMenuOpen ? `<div class="ha-menu-popover"><button data-action="ha-back">Back</button><button data-action="ha-dashboard">Maintenance dashboard</button><button data-action="ha-home">Home Assistant home</button></div>` : ``}
+        ${this.mobileMenuOpen ? `<div class="ha-menu-popover"><button data-action="ha-back">Back</button><button data-action="ha-home">Home Assistant home</button></div>` : ``}
       </div>
       <div class="hero"><div><h1>Home Maintenance Manager</h1><div class="subtitle">A simple place to see what needs attention around the house.</div></div><button class="btn primary" data-action="new-task">Add maintenance task</button></div>
       <div class="tabs">
@@ -476,6 +476,12 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
   openHaMenu() {
     this.mobileMenuOpen = false;
     this.render();
+    // Match Home Assistant's native sidebar toggle behavior. Dispatch from this
+    // custom panel so the event can bubble through HA's shadow DOM boundary.
+    this.dispatchEvent(new CustomEvent('hass-toggle-menu', { bubbles: true, composed: true }));
+    // Fallbacks for HA frontend versions / Companion App webviews that listen
+    // higher in the tree.
+    document.dispatchEvent(new CustomEvent('hass-toggle-menu', { bubbles: true, composed: true }));
     window.dispatchEvent(new CustomEvent('hass-toggle-menu', { bubbles: true, composed: true }));
   }
 

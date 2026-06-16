@@ -88,3 +88,8 @@ NFC confirmation polish:
 
 - Added a mobile Home Assistant navigation bar to the custom Maintenance panel.
 - Added Back and HA Home buttons for the iOS Companion App so users can return to normal Home Assistant navigation.
+
+
+## 0.5.15
+- Fixed mobile hamburger/sidebar toggle event dispatch.
+- Removed Maintenance dashboard from top-right overflow menu.
