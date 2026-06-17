@@ -980,7 +980,7 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
       </div>
 
       <div class="form-section">
-        <h3>5. NFC tag action</h3><p class="section-note">Attach a Home Assistant NFC tag so scanning the equipment can open, complete, confirm, or log the maintenance task.</p>
+        <h3>5. NFC Tag</h3><p class="section-note">Attach a Home Assistant NFC tag so scanning the equipment can open, complete, confirm, or log the maintenance task.</p>
         <div class="form-grid">
           <div class="form-field span-6"><label>${this.label('NFC tag','Choose a registered Home Assistant NFC tag. Scanning it can be used to complete, confirm, or log this task.')}</label><select id="task-nfc">${tagOptions}</select></div>
           <div class="form-field span-6"><label>${this.label('When this tag is scanned','Choose the NFC workflow. Ask for confirmation is safest; Complete immediately is fastest for trusted locations.')}</label><select id="task-nfc-action">${nfcActionOptions}</select><div class="help">Scanning a HA NFC tag opens Home Assistant and also fires a tag_scanned event that HMM handles.</div></div>
@@ -1173,20 +1173,24 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
       </div>
 
       <div class="form-section">
-        <h3>4. Reminders and NFC</h3><p class="section-note">Notifications are managed globally in Settings. Most tasks should use the global default. Override only for critical or low-priority tasks.</p>
-        <div class="two">
-          <div><label>${this.label('Notification behavior','Use global settings for normal tasks. Disable for low-priority tasks. Override for special tasks that need different notification behavior.')}</label><select id="task-notify-behavior">${notifyBehaviorOptions}</select></div>
-          <div class="conditional custom-notify-fields"><label>${this.label('Task override method','Only shown when Override for this task is selected.')}</label><select id="task-notify">${notifyOptions}</select></div>
-          <div class="conditional custom-notify-fields mobile-fields"><label>${this.label('Task mobile target override','Optional. Leave blank to use the global mobile target(s).')}</label><select id="task-mobile">${mobileOptions}</select></div>
-        </div>
-        <div class="two">
-          <div><label>${this.label('NFC tag','Choose a registered Home Assistant NFC tag. Scanning it can be used to complete, confirm, or log this task.')}</label><select id="task-nfc">${tagOptions}</select></div>
-          <div><label>${this.label('When this tag is scanned','Choose the NFC workflow. Ask for confirmation is safest; Complete immediately is fastest for trusted locations.')}</label><select id="task-nfc-action">${nfcActionOptions}</select><div class="help">Scanning a HA NFC tag opens Home Assistant and also fires a tag_scanned event that HMM handles.</div></div>
+        <h3>4. Reminders</h3><p class="section-note">Notifications are managed globally in Settings. Most tasks should use the global default. Override only for critical or low-priority tasks.</p>
+        <div class="form-grid">
+          <div class="form-field span-6"><label>${this.label('Notification behavior','Use global settings for normal tasks. Disable for low-priority tasks. Override for special tasks that need different notification behavior.')}</label><select id="task-notify-behavior">${notifyBehaviorOptions}</select></div>
+          <div class="form-field span-6 conditional custom-notify-fields"><label>${this.label('Task override method','Only shown when Override for this task is selected.')}</label><select id="task-notify">${notifyOptions}</select></div>
+          <div class="form-field span-6 conditional custom-notify-fields mobile-fields"><label>${this.label('Task mobile target override','Optional. Leave blank to use the global mobile target(s).')}</label><select id="task-mobile">${mobileOptions}</select></div>
         </div>
       </div>
 
       <div class="form-section">
-        <h3>5. Instructions</h3><p class="section-note">Optional homeowner-friendly notes. Add the steps someone should follow when doing the task.</p>
+        <h3>5. NFC Tag</h3><p class="section-note">Attach a Home Assistant NFC tag so scanning the equipment can open, complete, confirm, or log the maintenance task.</p>
+        <div class="form-grid">
+          <div class="form-field span-6"><label>${this.label('NFC tag','Choose a registered Home Assistant NFC tag. Scanning it can be used to complete, confirm, or log this task.')}</label><select id="task-nfc">${tagOptions}</select></div>
+          <div class="form-field span-6"><label>${this.label('When this tag is scanned','Choose the NFC workflow. Ask for confirmation is safest; Complete immediately is fastest for trusted locations.')}</label><select id="task-nfc-action">${nfcActionOptions}</select><div class="help">Scanning a HA NFC tag opens Home Assistant and also fires a tag_scanned event that HMM handles.</div></div>
+        </div>
+      </div>
+
+      <div class="form-section">
+        <h3>6. Instructions</h3><p class="section-note">Optional homeowner-friendly notes. Add the steps someone should follow when doing the task.</p>
         <label>${this.label('Instructions','Optional markdown-style instructions or checklist notes. Example: Turn off power, remove filter, clean, reinstall.')}</label><textarea id="task-instructions" placeholder="1. Turn off equipment\n2. Perform maintenance\n3. Mark complete">${this.escape(t.instructions || '')}</textarea>
       </div>
 

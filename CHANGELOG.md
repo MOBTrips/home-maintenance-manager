@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.5.32] - 2026-06-17
+
+### Added
+- Added `.github/workflows/validate.yml` with HACS Action and Hassfest validation for pull requests, pushes to `main`, scheduled runs, and manual dispatch.
+- Expanded reference documentation for getting started, architecture, assets/tasks, scheduling, seasonal tasks, NFC tags, FAQ, and HACS readiness.
+- Added README links to every reference document.
+
+### Changed
+- Updated the integration manifest version to `0.5.32`.
+- Added `integration_type: hub` to the Home Assistant manifest.
+- Updated `hacs.json` minimum Home Assistant version from `2025.12.0` to `2025.6.0` as a more practical tested baseline target.
+- Split the task editor Reminders and NFC controls into separate sections in the edit workflow.
+- Expanded the README with HACS install instructions, manual install instructions, quick start, schedule overview, NFC workflow summary, created resources, known limitations, and support links.
+
 ## [0.5.31] - 2026-06-17
 
 ### Added
