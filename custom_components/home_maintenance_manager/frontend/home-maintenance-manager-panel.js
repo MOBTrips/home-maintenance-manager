@@ -689,11 +689,12 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     const runtimeMethod = runtimeRule.above !== undefined ? 'above_threshold' : runtimeRule.states ? 'specific_state' : 'entity_on';
     const runtimeStateText = Array.isArray(runtimeRule.states) ? runtimeRule.states.join(', ') : 'running,on,heating,cooling';
     const counterRule = (t.rules||[]).find(r=>r.type==='counter') || {};
-    const timeRule = (t.rules||[]).find(r=>r.type==='time') || {value:90, unit:'days'};
+    const actualTimeRule = (t.rules||[]).find(r=>r.type==='time');
+    const timeRule = actualTimeRule || {value:90, unit:'days'};
     const calendarRule = (t.rules||[]).find(r=>r.type==='calendar') || {};
     const timeInterval = this.intervalFromRule(timeRule, 90, 'days');
     const runtimeInterval = this.intervalFromRule(runtimeRule, 100, 'hours');
-    const hasTimeRule = !!(timeRule.days || timeRule.value);
+    const hasTimeRule = !!actualTimeRule;
     const hasRuntimeRule = !!runtimeRule.entity;
     const hasCounterRule = !!counterRule.entity;
     const hasCalendarRule = !!calendarRule.id || calendarRule.type === 'calendar';
