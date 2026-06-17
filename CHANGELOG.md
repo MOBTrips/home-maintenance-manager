@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.5.30] - 2026-06-17
+
+### Changed
+- Cleaned up the task editor layout for better field alignment.
+- Reworked Task Basics so task name and maintenance category align consistently.
+- Improved the Maintenance Schedule section with horizontal value/unit controls for time, runtime, and metered schedules.
+- Split Reminders and NFC into separate task editor sections.
+- Added root-level icon and logo assets for HACS/GitHub visibility while keeping the Home Assistant sidebar icon configured.
+
 ## [0.5.29] - 2026-06-17
 ### Added
 - Documentation overhaul
