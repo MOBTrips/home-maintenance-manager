@@ -112,6 +112,11 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
       label { display:block; font-weight:600; margin:12px 0 6px; }
       .help { font-size:13px; color: var(--secondary-text-color); margin-bottom:6px; }
       input, select, textarea { box-sizing:border-box; width:100%; padding:12px; border-radius:10px; border:1px solid var(--divider-color); background: var(--card-background-color); color: var(--primary-text-color); }
+      input[type="checkbox"] { width:auto; padding:0; }
+      .check-row { display:flex; align-items:center; gap:10px; margin:12px 0 6px; font-weight:600; }
+      .check-row input[type="checkbox"] { flex:0 0 auto; }
+      .seasonal-box { margin-top:16px; padding:14px; border:1px dashed var(--divider-color); border-radius:14px; background: var(--card-background-color); }
+      .seasonal-box h4 { margin:0 0 8px; font-size:16px; }
       ha-entity-picker, ha-selector { display:block; width:100%; --mdc-theme-surface: var(--card-background-color); --mdc-theme-on-surface: var(--primary-text-color); }
       textarea { min-height:80px; }
       .modal-scrim { position:fixed; inset:0; background:rgba(0,0,0,.45); display:flex; align-items:flex-start; justify-content:center; padding:40px 16px; z-index:10; overflow:auto; }
@@ -902,6 +907,10 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     const baselineEl = this.shadowRoot.getElementById('task-baseline');
     if (baselineEl) baselineEl.onchange = () => this.syncConditionalFields();
     const runtimeMethodEl = this.shadowRoot.getElementById('task-runtime-method');
+    const seasonalEnabledEl = this.shadowRoot.getElementById('task-seasonal-enabled');
+    const seasonalSeasonEl = this.shadowRoot.getElementById('task-seasonal-season');
+    if (seasonalEnabledEl) seasonalEnabledEl.onchange = () => this.syncConditionalFields();
+    if (seasonalSeasonEl) seasonalSeasonEl.onchange = () => { this.applySeasonalPresetDates(); this.syncConditionalFields(); };
     if (notify) notify.onchange = () => this.syncConditionalFields();
     if (notifyBehaviorEl) notifyBehaviorEl.onchange = () => this.syncConditionalFields();
     if (runtimeMethodEl) runtimeMethodEl.onchange = () => { runtimeMethodEl.dataset.userTouched = '1'; this.syncConditionalFields(); };
@@ -925,12 +934,13 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     const value = id => {
       const el = q(id);
       if (!el) return null;
+      if (el.type === 'checkbox') return !!el.checked;
       if (Array.isArray(el.value)) return [...el.value].sort();
       return el.value ?? "";
     };
     const fields = [
       'task-name','task-category','task-description','task-area','task-device','task-equipment-name',
-      'task-schedule','task-seasonal-enabled','task-seasonal-season','task-time-value','task-time-unit','task-runtime-value','task-runtime-interval-unit','task-runtime-method','task-runtime-threshold','task-runtime-states',
+      'task-schedule','task-seasonal-enabled','task-seasonal-season','task-seasonal-start-month','task-seasonal-start-day','task-seasonal-end-month','task-seasonal-end-day','task-seasonal-show-inactive','task-seasonal-pause-usage','task-time-value','task-time-unit','task-runtime-value','task-runtime-interval-unit','task-runtime-method','task-runtime-threshold','task-runtime-states',
       'task-calendar-kind','task-calendar-nth','task-calendar-weekday','task-calendar-month','task-calendar-day','task-calendar-time','task-meter-amount','task-meter-source-type','task-baseline','task-baseline-datetime','task-baseline-ago-value','task-baseline-ago-unit','task-notify-behavior','task-notify','task-mobile','task-nfc','task-nfc-action','task-instructions'
     ];
     const data = {};
@@ -1273,6 +1283,19 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     }
     if (typeHint) typeHint.textContent = mode === 'rate' ? `HMM will add ${sourceUnit || 'units/time'} over elapsed time and track total ${targetUnit}.` : 'Use this when the sensor is already a total, like total gallons, odometer miles, or lifetime kWh.';
     if (explain) explain.textContent = mode === 'rate' ? `HMM will create an internal totalizer for this task. Mark Complete resets the maintenance baseline, not the original sensor.` : 'HMM stores the current sensor value as the baseline and tracks how much the total increases.';
+  }
+
+
+  applySeasonalPresetDates() {
+    const seasonEl = this.shadowRoot.getElementById('task-seasonal-season');
+    const preset = this.seasonalPreset(seasonEl?.value || 'custom');
+    if (!preset) return;
+    const [sm, sd, em, ed] = preset;
+    const set = (id, value) => { const el = this.shadowRoot.getElementById(id); if (el) el.value = String(value); };
+    set('task-seasonal-start-month', sm);
+    set('task-seasonal-start-day', sd);
+    set('task-seasonal-end-month', em);
+    set('task-seasonal-end-day', ed);
   }
 
   syncConditionalFields() {
