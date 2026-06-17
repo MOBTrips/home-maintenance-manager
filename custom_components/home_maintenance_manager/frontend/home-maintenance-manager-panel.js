@@ -117,6 +117,7 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
       .check-row input[type="checkbox"] { flex:0 0 auto; }
       .seasonal-box { margin-top:16px; padding:14px; border:1px dashed var(--divider-color); border-radius:14px; background: var(--card-background-color); }
       .seasonal-box h4 { margin:0 0 8px; font-size:16px; }
+      .season-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(170px,1fr)); gap:8px 14px; margin:8px 0 12px; }
       ha-entity-picker, ha-selector { display:block; width:100%; --mdc-theme-surface: var(--card-background-color); --mdc-theme-on-surface: var(--primary-text-color); }
       textarea { min-height:80px; }
       .modal-scrim { position:fixed; inset:0; background:rgba(0,0,0,.45); display:flex; align-items:flex-start; justify-content:center; padding:40px 16px; z-index:10; overflow:auto; }
@@ -241,6 +242,16 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
   seasonalPreset(season) {
     const presets = {spring:[3,1,5,31], summer:[6,1,8,31], fall:[9,1,11,30], winter:[12,1,2,28]};
     return presets[String(season || '').toLowerCase()] || null;
+  }
+  seasonalDateValue(month, day) {
+    const m = String(Number(month || 1)).padStart(2, '0');
+    const d = String(Number(day || 1)).padStart(2, '0');
+    return `2000-${m}-${d}`;
+  }
+  seasonalMonthDayFromDate(value, fallbackMonth=1, fallbackDay=1) {
+    const match = String(value || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (!match) return [Number(fallbackMonth || 1), Number(fallbackDay || 1)];
+    return [Number(match[2]), Number(match[3])];
   }
   intervalToDays(value, unit) {
     const n = Number(value || 0);
@@ -702,12 +713,14 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     const baselineMode = t.baseline_method || 'today';
     const seasonal = t.seasonal || {};
     const seasonalEnabled = !!seasonal.enabled;
-    const seasonalSeason = seasonal.season || 'custom';
-    const preset = this.seasonalPreset(seasonalSeason);
-    const seasonalStartMonth = seasonal.start_month || preset?.[0] || 5;
-    const seasonalStartDay = seasonal.start_day || preset?.[1] || 1;
-    const seasonalEndMonth = seasonal.end_month || preset?.[2] || 9;
-    const seasonalEndDay = seasonal.end_day || preset?.[3] || 30;
+    const seasonalSeasons = Array.isArray(seasonal.seasons) ? seasonal.seasons : ((seasonal.season && seasonal.season !== 'custom') ? [seasonal.season] : []);
+    const seasonalCustomEnabled = seasonal.custom_enabled !== undefined ? !!seasonal.custom_enabled : (!seasonalSeasons.length || seasonal.season === 'custom');
+    const seasonalStartMonth = seasonal.start_month || 5;
+    const seasonalStartDay = seasonal.start_day || 1;
+    const seasonalEndMonth = seasonal.end_month || 9;
+    const seasonalEndDay = seasonal.end_day || 30;
+    const seasonalStartDate = this.seasonalDateValue(seasonalStartMonth, seasonalStartDay);
+    const seasonalEndDate = this.seasonalDateValue(seasonalEndMonth, seasonalEndDay);
     const seasonalShowInactive = seasonal.show_when_inactive !== false;
     const seasonalPauseUsage = seasonal.pause_usage_when_inactive !== false;
 
@@ -779,15 +792,23 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
           <p class="section-note">Optional. Use this when the same time, runtime, metered, or calendar rule should only be active during part of the year.</p>
           <label class="check-row"><input id="task-seasonal-enabled" type="checkbox" ${seasonalEnabled?'checked':''}> Only active during a season/window</label>
           <div class="conditional seasonal-fields">
-            <div class="two">
-              <div><label>${this.label('Season preset','Choose a preset or Custom for exact start/end dates.')}</label><select id="task-seasonal-season"><option value="custom" ${seasonalSeason==='custom'?'selected':''}>Custom window</option><option value="spring" ${seasonalSeason==='spring'?'selected':''}>Spring (Mar 1–May 31)</option><option value="summer" ${seasonalSeason==='summer'?'selected':''}>Summer (Jun 1–Aug 31)</option><option value="fall" ${seasonalSeason==='fall'?'selected':''}>Fall (Sep 1–Nov 30)</option><option value="winter" ${seasonalSeason==='winter'?'selected':''}>Winter (Dec 1–Feb 28)</option></select></div>
-              <div><label>${this.label('Inactive display','Choose whether paused seasonal tasks stay visible on dashboards.')}</label><label class="check-row"><input id="task-seasonal-show-inactive" type="checkbox" ${seasonalShowInactive?'checked':''}> Show when inactive</label></div>
+            <div><label>${this.label('Active seasons','Choose one or more preset seasons. The task is active when any selected season is active.')}</label>
+              <div class="season-grid">
+                <label class="check-row"><input id="task-seasonal-spring" data-seasonal-preset="spring" type="checkbox" ${seasonalSeasons.includes('spring')?'checked':''}> Spring (Mar 1–May 31)</label>
+                <label class="check-row"><input id="task-seasonal-summer" data-seasonal-preset="summer" type="checkbox" ${seasonalSeasons.includes('summer')?'checked':''}> Summer (Jun 1–Aug 31)</label>
+                <label class="check-row"><input id="task-seasonal-fall" data-seasonal-preset="fall" type="checkbox" ${seasonalSeasons.includes('fall')?'checked':''}> Fall (Sep 1–Nov 30)</label>
+                <label class="check-row"><input id="task-seasonal-winter" data-seasonal-preset="winter" type="checkbox" ${seasonalSeasons.includes('winter')?'checked':''}> Winter (Dec 1–Feb 28)</label>
+              </div>
             </div>
+            <label class="check-row"><input id="task-seasonal-custom-enabled" type="checkbox" ${seasonalCustomEnabled?'checked':''}> Use a custom date range</label>
             <div class="two seasonal-custom-fields">
-              <div><label>Start date</label><div class="inline-fields"><select id="task-seasonal-start-month">${this.monthOptions(seasonalStartMonth)}</select><input id="task-seasonal-start-day" type="number" min="1" max="31" value="${this.escape(seasonalStartDay)}"></div></div>
-              <div><label>End date</label><div class="inline-fields"><select id="task-seasonal-end-month">${this.monthOptions(seasonalEndMonth)}</select><input id="task-seasonal-end-day" type="number" min="1" max="31" value="${this.escape(seasonalEndDay)}"></div></div>
+              <div><label>${this.label('Custom start date','Pick the month and day this custom active window starts. The year is ignored.')}</label><input id="task-seasonal-start-date" type="date" value="${this.escape(seasonalStartDate)}"></div>
+              <div><label>${this.label('Custom end date','Pick the month and day this custom active window ends. The year is ignored. Ranges can cross New Year.')}</label><input id="task-seasonal-end-date" type="date" value="${this.escape(seasonalEndDate)}"></div>
             </div>
-            <label class="check-row"><input id="task-seasonal-pause-usage" type="checkbox" ${seasonalPauseUsage?'checked':''}> Pause runtime and rate-meter accumulation while inactive</label>
+            <div class="two">
+              <div><label>${this.label('Inactive display','Choose whether paused seasonal tasks stay visible on dashboards.')}</label><label class="check-row"><input id="task-seasonal-show-inactive" type="checkbox" ${seasonalShowInactive?'checked':''}> Show when inactive</label></div>
+              <div><label>${this.label('Usage tracking','For runtime/rate-metered tasks, choose whether usage accumulates outside the active season.')}</label><label class="check-row"><input id="task-seasonal-pause-usage" type="checkbox" ${seasonalPauseUsage?'checked':''}> Pause usage while inactive</label></div>
+            </div>
             <div class="info-box">Outside the active window, status becomes Season Paused and due/upcoming notifications are held. When the window opens, the normal schedule logic resumes.</div>
           </div>
         </div>
@@ -908,9 +929,10 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     if (baselineEl) baselineEl.onchange = () => this.syncConditionalFields();
     const runtimeMethodEl = this.shadowRoot.getElementById('task-runtime-method');
     const seasonalEnabledEl = this.shadowRoot.getElementById('task-seasonal-enabled');
-    const seasonalSeasonEl = this.shadowRoot.getElementById('task-seasonal-season');
+    const seasonalCustomEl = this.shadowRoot.getElementById('task-seasonal-custom-enabled');
     if (seasonalEnabledEl) seasonalEnabledEl.onchange = () => this.syncConditionalFields();
-    if (seasonalSeasonEl) seasonalSeasonEl.onchange = () => { this.applySeasonalPresetDates(); this.syncConditionalFields(); };
+    if (seasonalCustomEl) seasonalCustomEl.onchange = () => this.syncConditionalFields();
+    this.shadowRoot.querySelectorAll('[data-seasonal-preset]').forEach(el => el.onchange = () => this.syncConditionalFields());
     if (notify) notify.onchange = () => this.syncConditionalFields();
     if (notifyBehaviorEl) notifyBehaviorEl.onchange = () => this.syncConditionalFields();
     if (runtimeMethodEl) runtimeMethodEl.onchange = () => { runtimeMethodEl.dataset.userTouched = '1'; this.syncConditionalFields(); };
@@ -940,7 +962,7 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     };
     const fields = [
       'task-name','task-category','task-description','task-area','task-device','task-equipment-name',
-      'task-schedule','task-seasonal-enabled','task-seasonal-season','task-seasonal-start-month','task-seasonal-start-day','task-seasonal-end-month','task-seasonal-end-day','task-seasonal-show-inactive','task-seasonal-pause-usage','task-time-value','task-time-unit','task-runtime-value','task-runtime-interval-unit','task-runtime-method','task-runtime-threshold','task-runtime-states',
+      'task-schedule','task-seasonal-enabled','task-seasonal-spring','task-seasonal-summer','task-seasonal-fall','task-seasonal-winter','task-seasonal-custom-enabled','task-seasonal-start-date','task-seasonal-end-date','task-seasonal-show-inactive','task-seasonal-pause-usage','task-time-value','task-time-unit','task-runtime-value','task-runtime-interval-unit','task-runtime-method','task-runtime-threshold','task-runtime-states',
       'task-calendar-kind','task-calendar-nth','task-calendar-weekday','task-calendar-month','task-calendar-day','task-calendar-time','task-meter-amount','task-meter-source-type','task-baseline','task-baseline-datetime','task-baseline-ago-value','task-baseline-ago-unit','task-notify-behavior','task-notify','task-mobile','task-nfc','task-nfc-action','task-instructions'
     ];
     const data = {};
@@ -1313,7 +1335,7 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     const calendarKind = this.shadowRoot.getElementById('task-calendar-kind')?.value || 'nth_weekday';
     const baselineMode = this.shadowRoot.getElementById('task-baseline')?.value || 'today';
     const seasonalEnabled = this.shadowRoot.getElementById('task-seasonal-enabled')?.checked;
-    const seasonalSeason = this.shadowRoot.getElementById('task-seasonal-season')?.value || 'custom';
+    const seasonalCustomEnabled = this.shadowRoot.getElementById('task-seasonal-custom-enabled')?.checked;
     this.shadowRoot.querySelectorAll('.time-fields').forEach(el => el.classList.toggle('hidden', !showTime));
     this.shadowRoot.querySelectorAll('.runtime-fields').forEach(el => el.classList.toggle('hidden', !showRuntime));
     this.shadowRoot.querySelectorAll('.meter-fields').forEach(el => el.classList.toggle('hidden', !showMeter));
@@ -1323,7 +1345,7 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     this.shadowRoot.querySelectorAll('.baseline-specific-fields').forEach(el => el.classList.toggle('hidden', baselineMode !== 'specific'));
     this.shadowRoot.querySelectorAll('.baseline-ago-fields').forEach(el => el.classList.toggle('hidden', baselineMode !== 'ago'));
     this.shadowRoot.querySelectorAll('.seasonal-fields').forEach(el => el.classList.toggle('hidden', !seasonalEnabled));
-    this.shadowRoot.querySelectorAll('.seasonal-custom-fields').forEach(el => el.classList.toggle('hidden', !seasonalEnabled || seasonalSeason !== 'custom'));
+    this.shadowRoot.querySelectorAll('.seasonal-custom-fields').forEach(el => el.classList.toggle('hidden', !seasonalEnabled || !seasonalCustomEnabled));
     this.shadowRoot.querySelectorAll('.usage-fields').forEach(el => el.classList.toggle('hidden', !showUsage));
     this.shadowRoot.querySelectorAll('.custom-notify-fields').forEach(el => el.classList.toggle('hidden', !showCustomNotify));
     this.shadowRoot.querySelectorAll('.mobile-fields').forEach(el => el.classList.toggle('hidden', !showMobile));
@@ -1441,14 +1463,19 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
       lastCompleted = this.subtractIntervalFromNow(Number(baselineAgoValue || 0), baselineAgoUnit);
     }
     const seasonalEnabled = !!q('task-seasonal-enabled')?.checked;
-    const seasonalSeason = q('task-seasonal-season')?.value || 'custom';
+    const seasonalSeasons = ['spring','summer','fall','winter'].filter(season => !!q(`task-seasonal-${season}`)?.checked);
+    const seasonalCustomEnabled = !!q('task-seasonal-custom-enabled')?.checked;
+    const [seasonalStartMonth, seasonalStartDay] = this.seasonalMonthDayFromDate(q('task-seasonal-start-date')?.value, 5, 1);
+    const [seasonalEndMonth, seasonalEndDay] = this.seasonalMonthDayFromDate(q('task-seasonal-end-date')?.value, 9, 30);
     const seasonal = seasonalEnabled ? {
       enabled: true,
-      season: seasonalSeason,
-      start_month: Number(q('task-seasonal-start-month')?.value || 1),
-      start_day: Number(q('task-seasonal-start-day')?.value || 1),
-      end_month: Number(q('task-seasonal-end-month')?.value || 12),
-      end_day: Number(q('task-seasonal-end-day')?.value || 31),
+      seasons: seasonalSeasons,
+      custom_enabled: seasonalCustomEnabled,
+      season: seasonalCustomEnabled && !seasonalSeasons.length ? 'custom' : (seasonalSeasons[0] || 'custom'),
+      start_month: seasonalStartMonth,
+      start_day: seasonalStartDay,
+      end_month: seasonalEndMonth,
+      end_day: seasonalEndDay,
       show_when_inactive: !!q('task-seasonal-show-inactive')?.checked,
       pause_usage_when_inactive: !!q('task-seasonal-pause-usage')?.checked
     } : {};

@@ -154,15 +154,7 @@ def _date_for_month_day(year: int, month: int, day: int, tzinfo) -> datetime:
     return datetime(year, month, min(day, monthrange(year, month)[1]), 0, 0, tzinfo=tzinfo)
 
 
-def _season_bounds(seasonal: dict[str, Any], now: datetime) -> tuple[datetime, datetime] | None:
-    if not seasonal or not seasonal.get("enabled"):
-        return None
-    season = str(seasonal.get("season") or "custom").lower()
-    if season in SEASON_PRESETS and season != "custom":
-        sm, sd, em, ed = SEASON_PRESETS[season]
-    else:
-        sm, sd = _safe_month_day(seasonal.get("start_month"), seasonal.get("start_day"), 1, 1)
-        em, ed = _safe_month_day(seasonal.get("end_month"), seasonal.get("end_day"), 12, 31)
+def _season_bounds_for_month_day(sm: int, sd: int, em: int, ed: int, now: datetime) -> tuple[datetime, datetime]:
     start = _date_for_month_day(now.year, sm, sd, now.tzinfo)
     end = _date_for_month_day(now.year, em, ed, now.tzinfo) + timedelta(days=1)
     if (em, ed) < (sm, sd):
@@ -173,27 +165,66 @@ def _season_bounds(seasonal: dict[str, Any], now: datetime) -> tuple[datetime, d
     return start, end
 
 
+def _season_windows(seasonal: dict[str, Any], now: datetime) -> list[tuple[datetime, datetime]]:
+    if not seasonal or not seasonal.get("enabled"):
+        return []
+    windows: list[tuple[datetime, datetime]] = []
+
+    # v0.5.23 supports multiple preset seasons. Keep v0.5.22 single-season
+    # tasks working by translating the old ``season`` value when ``seasons``
+    # has not been saved yet.
+    seasons = seasonal.get("seasons")
+    if not isinstance(seasons, list):
+        old_season = str(seasonal.get("season") or "").lower()
+        seasons = [old_season] if old_season in SEASON_PRESETS and old_season != "custom" else []
+    for season in seasons:
+        preset = SEASON_PRESETS.get(str(season or "").lower())
+        if preset:
+            windows.append(_season_bounds_for_month_day(*preset, now))
+
+    custom_enabled = seasonal.get("custom_enabled")
+    if custom_enabled is None:
+        custom_enabled = str(seasonal.get("season") or "custom").lower() == "custom" or not windows
+    if custom_enabled:
+        sm, sd = _safe_month_day(seasonal.get("start_month"), seasonal.get("start_day"), 1, 1)
+        em, ed = _safe_month_day(seasonal.get("end_month"), seasonal.get("end_day"), 12, 31)
+        windows.append(_season_bounds_for_month_day(sm, sd, em, ed, now))
+
+    return windows
+
+
+def _season_bounds(seasonal: dict[str, Any], now: datetime) -> tuple[datetime, datetime] | None:
+    windows = _season_windows(seasonal, now)
+    if not windows:
+        return None
+    active = [w for w in windows if w[0] <= now < w[1]]
+    if active:
+        return min(active, key=lambda w: w[0])
+    upcoming = [w for w in windows if now < w[0]]
+    if upcoming:
+        return min(upcoming, key=lambda w: w[0])
+    future = now + timedelta(days=370)
+    future_windows = _season_windows(seasonal, future)
+    return min(future_windows, key=lambda w: w[0]) if future_windows else None
+
+
 def _season_is_active(seasonal: dict[str, Any], now: datetime) -> bool:
-    bounds = _season_bounds(seasonal, now)
-    if not bounds:
+    windows = _season_windows(seasonal, now)
+    if not windows:
         return True
-    start, end = bounds
-    return start <= now < end
+    return any(start <= now < end for start, end in windows)
 
 
 def _next_season_start(seasonal: dict[str, Any], now: datetime) -> datetime | None:
-    bounds = _season_bounds(seasonal, now)
-    if not bounds:
+    windows = _season_windows(seasonal, now)
+    if not windows:
         return None
-    start, end = bounds
-    if now < start:
-        return start
-    if now < end:
-        return start
-    # Recompute using a date just after this window to get the next cycle.
-    future = end + timedelta(days=1)
-    next_bounds = _season_bounds(seasonal, future)
-    return next_bounds[0] if next_bounds else None
+    upcoming = [start for start, end in windows if now < start]
+    if upcoming:
+        return min(upcoming)
+    future = now + timedelta(days=370)
+    future_windows = _season_windows(seasonal, future)
+    return min((start for start, _end in future_windows), default=None)
 
 
 @dataclass
