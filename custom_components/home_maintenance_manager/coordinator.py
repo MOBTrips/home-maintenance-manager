@@ -51,6 +51,7 @@ class MaintenanceCoordinator:
         self._unsub: list[callable] = []
         self.storage_settings: dict[str, Any] = {}
         self.migration_info: dict[str, Any] = {}
+        self.deleted_task_ids: set[str] = set()
         self.loaded_data: dict[str, Any] = {}
 
     async def async_load(self, config_entry_options: dict[str, Any] | None = None, yaml_tasks: list[dict[str, Any]] | None = None) -> None:
@@ -69,25 +70,35 @@ class MaintenanceCoordinator:
 
         tasks_by_id: dict[str, dict[str, Any]] = {}
         migrated_from: list[str] = []
+        self.migration_info = dict(data.get("migration", {}) or {})
+        completed_sources = set(self.migration_info.get("migrated_from", []) or [])
+        self.deleted_task_ids = {str(task_id) for task_id in (data.get("deleted_task_ids", []) or [])}
 
         for item in data.get("tasks", []) or []:
             if isinstance(item, dict) and item.get("id"):
                 tasks_by_id[str(item["id"])] = dict(item)
 
         legacy_tasks = legacy_data.get("tasks", []) if isinstance(legacy_data, dict) else []
-        if legacy_tasks:
+        if legacy_tasks and LEGACY_STORAGE_KEY not in completed_sources:
             migrated_from.append(LEGACY_STORAGE_KEY)
             for item in legacy_tasks:
-                if isinstance(item, dict) and item.get("id") and str(item["id"]) not in tasks_by_id:
-                    tasks_by_id[str(item["id"])] = dict(item)
+                if not isinstance(item, dict) or not item.get("id"):
+                    continue
+                task_id = str(item["id"])
+                if task_id in self.deleted_task_ids:
+                    continue
+                if task_id not in tasks_by_id:
+                    tasks_by_id[task_id] = dict(item)
 
         option_tasks = config_entry_options.get("tasks", []) or []
-        if option_tasks:
+        if option_tasks and "config_entry.options.tasks" not in completed_sources:
             migrated_from.append("config_entry.options.tasks")
             for item in option_tasks:
                 if not isinstance(item, dict) or not item.get("id"):
                     continue
                 task_id = str(item["id"])
+                if task_id in self.deleted_task_ids:
+                    continue
                 if task_id in tasks_by_id:
                     # Preserve runtime/history from storage, but refresh editable
                     # task configuration from the config entry record.
@@ -105,10 +116,14 @@ class MaintenanceCoordinator:
                     tasks_by_id[task_id] = dict(item)
 
         if yaml_tasks:
+            # YAML remains a declarative compatibility source. Do not resurrect
+            # tasks the user explicitly deleted from HMM storage.
             migrated_from.append("configuration.yaml")
             for item in yaml_tasks:
                 if isinstance(item, dict) and item.get("id"):
-                    tasks_by_id.setdefault(str(item["id"]), dict(item))
+                    task_id = str(item["id"])
+                    if task_id not in self.deleted_task_ids:
+                        tasks_by_id.setdefault(task_id, dict(item))
 
         self.storage_settings = dict(data.get("settings", {}) or {})
         option_notification_settings = config_entry_options.get("notification_settings")
@@ -116,11 +131,10 @@ class MaintenanceCoordinator:
             self.storage_settings["notification_settings"] = dict(option_notification_settings)
             migrated_from.append("config_entry.options.notification_settings")
 
-        self.migration_info = dict(data.get("migration", {}) or {})
         if migrated_from:
             self.migration_info.update({
                 "storage_version": STORAGE_VERSION,
-                "migrated_from": sorted(set(migrated_from)),
+                "migrated_from": sorted(completed_sources | set(migrated_from)),
                 "migrated_at": dt_util.utcnow().isoformat(),
             })
 
@@ -134,6 +148,7 @@ class MaintenanceCoordinator:
             "tasks": [task.as_dict() for task in self.tasks.values()],
             "settings": self.storage_settings,
             "migration": self.migration_info,
+            "deleted_task_ids": sorted(self.deleted_task_ids),
         }
 
     def get_notification_settings(self) -> dict[str, Any]:
@@ -162,6 +177,7 @@ class MaintenanceCoordinator:
             "settings_in_storage": bool(self.storage_settings),
             "included_in_ha_backup": True,
             "migration": self.migration_info,
+            "deleted_task_ids": sorted(self.deleted_task_ids),
         }
 
     def _normalize_nfc_config(self, task_data: dict[str, Any]) -> dict[str, Any]:
@@ -251,7 +267,11 @@ class MaintenanceCoordinator:
 
     async def async_upsert_task(self, task_data: dict[str, Any]) -> None:
         task_data = self._normalize_nfc_config(task_data)
-        task_id = task_data["id"]
+        task_id = str(task_data["id"])
+        task_data["id"] = task_id
+        # If a user intentionally recreates/imports a task with the same ID,
+        # clear the tombstone that prevented legacy migration resurrection.
+        self.deleted_task_ids.discard(task_id)
         old_tags = list(self.tasks.get(task_id).nfc_tags or []) if task_id in self.tasks else []
         old_action = self.tasks.get(task_id).nfc_action if task_id in self.tasks else None
         changed_nfc_task_ids: list[str] = []
@@ -270,13 +290,17 @@ class MaintenanceCoordinator:
         await self.async_check_notifications()
 
     async def async_delete_task(self, task_id: str) -> None:
+        task_id = str(task_id)
+        # Persist a deletion tombstone so legacy/config-entry migration sources
+        # cannot resurrect the task on reload, reinstall, or integration re-add.
+        self.deleted_task_ids.add(task_id)
         if task_id in self.tasks:
             del self.tasks[task_id]
-            await self.async_save()
-            await self._cleanup_nfc_notifications([task_id])
-            self._setup_tracking()
-            self._notify()
-            await self.async_check_notifications()
+        await self.async_save()
+        await self._cleanup_nfc_notifications([task_id])
+        self._setup_tracking()
+        self._notify()
+        await self.async_check_notifications()
 
     async def async_save(self) -> None:
         await self.store.async_save(self.data_for_storage())

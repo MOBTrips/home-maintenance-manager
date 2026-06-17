@@ -10,6 +10,7 @@ from homeassistant.const import CONF_NAME
 from homeassistant.core import HomeAssistant
 import homeassistant.helpers.config_validation as cv
 from homeassistant.helpers import selector
+from homeassistant.helpers.storage import Store
 from homeassistant.components import websocket_api
 try:
     from homeassistant.components.frontend import async_register_built_in_panel
@@ -18,7 +19,7 @@ except Exception:  # pragma: no cover - older HA fallback
     async_register_built_in_panel = None
     StaticPathConfig = None
 
-from .const import DOMAIN, PLATFORMS, CONF_TASKS, SERVICE_MARK_COMPLETE, SERVICE_SNOOZE, SERVICE_ADD_LOG, SERVICE_RESET_RUNTIME, SERVICE_UPSERT_TASK, SERVICE_DELETE_TASK
+from .const import DOMAIN, PLATFORMS, CONF_TASKS, STORAGE_KEY, STORAGE_VERSION, LEGACY_STORAGE_KEY, LEGACY_STORAGE_VERSION, SERVICE_MARK_COMPLETE, SERVICE_SNOOZE, SERVICE_ADD_LOG, SERVICE_RESET_RUNTIME, SERVICE_UPSERT_TASK, SERVICE_DELETE_TASK
 from .coordinator import MaintenanceCoordinator
 from .models import MaintenanceTask
 
@@ -439,3 +440,20 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if unload_ok:
         hass.data[DOMAIN].pop(entry.entry_id, None)
     return unload_ok
+
+
+async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Remove HMM-owned storage when the integration config entry is deleted.
+
+    HACS reinstall/update does not call this; Home Assistant only calls it when
+    the user removes the integration config entry. That makes a deliberate
+    remove/add cycle behave like a clean reset while normal HA backups and
+    restores still preserve the unified storage file.
+    """
+    for version, key in ((STORAGE_VERSION, STORAGE_KEY), (LEGACY_STORAGE_VERSION, LEGACY_STORAGE_KEY)):
+        try:
+            await Store(hass, version, key).async_remove()
+        except FileNotFoundError:
+            pass
+        except Exception:  # pragma: no cover - do not block HA config-entry removal
+            _LOGGER.debug("Could not remove HMM storage key %s during config-entry removal", key, exc_info=True)

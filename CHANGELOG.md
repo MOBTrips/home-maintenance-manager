@@ -1,3 +1,10 @@
+
+## 0.6.1
+
+- Fixed task deletion after the v0.6 unified-storage migration.
+- Added persistent deletion tombstones so legacy storage/config-entry data cannot resurrect deleted tasks on reload or reinstall.
+- Added clean storage removal when the Home Maintenance Manager integration config entry is intentionally removed.
+
 # Changelog
 
 ## [0.6.0] - 2026-06-17
