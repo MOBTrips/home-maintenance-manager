@@ -741,14 +741,13 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
       </div>
 
       <div class="form-section">
-        <h3>2. What is being maintained?</h3><p class="section-note">Choose where this work happens. A Home Assistant device is optional; use Equipment name for offline items like RO filters or smoke detectors.</p>
+        <h3>2. Asset being maintained</h3><p class="section-note">Choose the real-world equipment or Home Assistant device this task belongs to. Usage sensors are selected later in the schedule section so they are not duplicated here.</p>
         <div class="two">
-          <div><label>${this.label('Area','Choose the Home Assistant area where the maintenance happens, such as Garage or Pool House.')}</label><select id="task-area">${areaOptions}</select></div>
-          <div><label>${this.label('Equipment in Home Assistant (optional)','Select a Home Assistant device only if one exists. Leave this blank for offline equipment like an RO water filter.')}</label><select id="task-device">${deviceOptions}</select></div>
+          <div><label>${this.label('Area','Choose the Home Assistant area where the maintenance happens, such as Garage or Pool House. Selecting a Home Assistant device can fill this automatically when the device has an area.')}</label><select id="task-area">${areaOptions}</select></div>
+          <div><label>${this.label('Home Assistant device (optional)','Select the device being maintained only if it exists in Home Assistant. Leave blank for offline equipment like RO filters, smoke detectors, or mower blades.')}</label><select id="task-device">${deviceOptions}</select></div>
         </div>
-        <label>${this.label('Equipment name','Use this for real-world equipment even when there is no Home Assistant device, such as RO Water Filter or Garage Door Springs.')}</label><input id="task-equipment-name" placeholder="Example: RO water filter" value="${this.escape(t.equipment_name || '')}">
-        <div class="info-box">You do not need a Home Assistant device or entity for simple time-based maintenance. For example, an RO filter can be tracked every 6 months with only a name and schedule.</div>
-        <div class="conditional usage-fields"><label>${this.label('Data sources (optional)','Home Assistant entities related to this task. For usage-based tasks, these can be sensors, switches, or binary sensors used to track runtime or context.')}</label><div class="help">Use the searchable Home Assistant entity picker. You can select multiple entities.</div><ha-selector id="task-entities"></ha-selector></div>
+        <label>${this.label('Equipment name','Use this for real-world equipment even when there is no Home Assistant device. If left blank and a Home Assistant device is selected, HMM will use the device name.')}</label><input id="task-equipment-name" placeholder="Example: RO water filter" value="${this.escape(t.equipment_name || '')}">
+        <div class="info-box">Clean setup model: the asset/device answers “what is being maintained.” The schedule section answers “what data source tracks it.” Runtime and meter source entities are automatically associated with the task when saved.</div>
       </div>
 
       <div class="form-section">
@@ -927,6 +926,8 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     const meterSourceType = this.shadowRoot.getElementById('task-meter-source-type');
     if (meterSourceType) meterSourceType.onchange = () => this.updateMeterUnit();
     const notifyBehaviorEl = this.shadowRoot.getElementById('task-notify-behavior');
+    const deviceEl = this.shadowRoot.getElementById('task-device');
+    if (deviceEl) deviceEl.onchange = () => this.syncAreaFromDevice();
     if (schedule) schedule.onchange = () => this.syncConditionalFields();
     const calKindEl = this.shadowRoot.getElementById('task-calendar-kind');
     if (calKindEl) calKindEl.onchange = () => this.syncConditionalFields();
@@ -1331,6 +1332,14 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     set('task-seasonal-end-day', ed);
   }
 
+  syncAreaFromDevice() {
+    const deviceEl = this.shadowRoot.getElementById('task-device');
+    const areaEl = this.shadowRoot.getElementById('task-area');
+    if (!deviceEl || !areaEl || areaEl.value) return;
+    const dev = (this.metadata.devices || []).find(d => d.id === deviceEl.value);
+    if (dev?.area_id) areaEl.value = dev.area_id;
+  }
+
   syncConditionalFields() {
     const schedule = this.shadowRoot.getElementById('task-schedule')?.value || 'time';
     const notifyBehavior = this.shadowRoot.getElementById('task-notify-behavior')?.value || 'global';
@@ -1462,7 +1471,12 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
       rules.push({id:'counter_1', type:'counter', name:`Every ${meterAmount} ${targetUnit || 'units'}`, entity:meterEntity, amount:meterAmount, baseline, unit: targetUnit, source_unit: sourceUnit, target_unit: targetUnit, source_mode: meterSourceType});
     }
     const entityValue = q('task-entities')?.value;
-    const selectedEntities = Array.isArray(entityValue) ? entityValue : (entityValue ? [entityValue] : []);
+    const manualEntities = Array.isArray(entityValue) ? entityValue : (entityValue ? [entityValue] : []);
+    const selectedEntities = [...new Set([
+      ...manualEntities,
+      ...(needsRuntime && runtimeEntity ? [runtimeEntity] : []),
+      ...(needsMeter && meterEntity ? [meterEntity] : [])
+    ])];
     const nfc = q('task-nfc').value;
     const nfcAction = nfc ? (q('task-nfc-action')?.value || 'confirm') : 'disabled';
     const baselineMethod = q('task-baseline')?.value || 'today';
@@ -1504,7 +1518,7 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
       category: q('task-category').value || 'General',
       area: q('task-area').value || null,
       linked_device_id: q('task-device').value || null,
-      equipment_name: q('task-equipment-name').value.trim(),
+      equipment_name: q('task-equipment-name').value.trim() || ((this.metadata.devices || []).find(d => d.id === q('task-device').value)?.name || ''),
       linked_entities: selectedEntities,
       rules,
       rule_logic: ["time_and_runtime","time_and_meter"].includes(schedule) ? 'all' : 'any',
