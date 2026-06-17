@@ -104,6 +104,22 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
       .category-pill { display:inline-block; border-radius:999px; padding:4px 9px; font-size:12px; background: var(--secondary-background-color); color: var(--secondary-text-color); margin:4px 6px 4px 0; }
       .progress { height:12px; background: var(--secondary-background-color); border-radius:999px; overflow:hidden; margin:12px 0; }
       .bar { height:100%; background: var(--primary-color); width:0%; }
+      .detail-hero { display:grid; grid-template-columns: 112px 1fr; gap:16px; align-items:center; margin:10px 0 16px; }
+      .hmm-avatar { width:96px; height:96px; border-radius:24px; display:flex; align-items:center; justify-content:center; background:linear-gradient(135deg, var(--primary-color), var(--accent-color, #03a9f4)); color:var(--text-primary-color); box-shadow:0 8px 24px rgba(0,0,0,.18); }
+      .hmm-avatar svg { width:70px; height:70px; }
+      .status-title { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+      .summary-grid { display:grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap:10px; margin:12px 0; }
+      .summary-tile { background:var(--card-background-color); border:1px solid var(--divider-color); border-radius:14px; padding:12px; }
+      .summary-tile .value { font-size:22px; font-weight:700; margin-top:4px; }
+      .progress.big { height:18px; }
+      .rule-row { border:1px solid var(--divider-color); background:var(--card-background-color); border-radius:14px; padding:12px; margin:10px 0; }
+      .season-badges { display:flex; gap:8px; flex-wrap:wrap; margin:10px 0; }
+      .season-badge { border:1px solid var(--divider-color); background:var(--card-background-color); border-radius:999px; padding:7px 10px; font-weight:700; }
+      .season-timeline { position:relative; height:34px; border-radius:999px; background:var(--card-background-color); border:1px solid var(--divider-color); overflow:hidden; margin:10px 0 4px; }
+      .season-segment { position:absolute; top:0; bottom:0; background:var(--primary-color); opacity:.75; }
+      .month-row { display:grid; grid-template-columns:repeat(12, 1fr); gap:2px; font-size:11px; color:var(--secondary-text-color); text-align:center; }
+      .detail-card-grid { display:grid; grid-template-columns: 1fr 1fr; gap:16px; }
+      @media(max-width: 800px){ .detail-card-grid, .detail-hero { grid-template-columns:1fr; } .hmm-avatar { width:76px; height:76px; border-radius:18px; } }
       .task-title { font-size:20px; font-weight:700; margin:0 0 6px; }
       .list { display:flex; flex-direction:column; gap:12px; }
       .two { display:grid; grid-template-columns: 1fr 1fr; gap:12px; }
@@ -185,6 +201,87 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
   slug(value) { return (value || "maintenance_task").toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "") || "maintenance_task"; }
   escape(value) { return String(value ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c])); }
   label(text, tip) { return `<span class="field-label"><span>${text}</span><span class="tip" title="${this.escape(tip)}">?</span></span>`; }
+
+  friendlyStatus(status) {
+    const map = { ok:'OK', upcoming:'Upcoming', due:'Due', overdue:'Overdue', paused:'Paused', snoozed:'Snoozed', season_paused:'Season Paused', unknown:'Unknown' };
+    return map[String(status || '').toLowerCase()] || String(status || 'Unknown').replaceAll('_',' ').replace(/\b\w/g, c=>c.toUpperCase());
+  }
+
+  ruleTypeLabel(type) {
+    return { time:'Time interval', runtime:'Runtime hours', counter:'Metered usage', calendar:'Calendar/date' }[type] || String(type || 'Rule');
+  }
+
+  seasonLabel(season) {
+    return { spring:'🌱 Spring', summer:'☀️ Summer', fall:'🍂 Fall', winter:'❄️ Winter' }[String(season || '').toLowerCase()] || this.escape(season || 'Season');
+  }
+
+  monthName(month) {
+    return ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][Math.max(1, Math.min(12, Number(month)||1))-1];
+  }
+
+  monthDayLabel(month, day) { return `${this.monthName(month)} ${Number(day)||1}`; }
+
+  detailIconSvg() {
+    return `<svg viewBox="0 0 64 64" aria-hidden="true"><path fill="currentColor" d="M8 30 32 10l24 20v24a4 4 0 0 1-4 4H38V42H26v16H12a4 4 0 0 1-4-4V30z" opacity=".95"/><path fill="var(--card-background-color)" d="M41.7 22.6a8.8 8.8 0 0 0-10.8 10.8L18.5 45.8a3.8 3.8 0 1 0 5.4 5.4l12.4-12.4a8.8 8.8 0 0 0 10.8-10.8l-5.5 5.5-4-4 5.5-5.5z"/><path fill="currentColor" d="M20.7 48.9a1.4 1.4 0 1 1 2-2 1.4 1.4 0 0 1-2 2z"/></svg>`;
+  }
+
+  seasonalWindowSegments(seasonal) {
+    if (!seasonal?.enabled) return [];
+    const presets = { spring:[3,1,5,31], summer:[6,1,8,31], fall:[9,1,11,30], winter:[12,1,2,28] };
+    const ranges = [];
+    const seasons = Array.isArray(seasonal.seasons) && seasonal.seasons.length ? seasonal.seasons : (seasonal.season && seasonal.season !== 'custom' ? [seasonal.season] : []);
+    if (seasonal.custom_enabled || seasonal.season === 'custom' || !seasons.length) ranges.push([seasonal.start_month||5, seasonal.start_day||1, seasonal.end_month||9, seasonal.end_day||30]);
+    else seasons.forEach(season => { if (presets[season]) ranges.push(presets[season]); });
+    const dayOfYear = (m,d) => Math.floor((Date.UTC(2024, Number(m)-1, Number(d)) - Date.UTC(2024,0,1)) / 86400000) + 1;
+    const segments = [];
+    for (const [sm,sd,em,ed] of ranges) {
+      const start = dayOfYear(sm,sd), end = dayOfYear(em,ed);
+      if (end >= start) segments.push([start, end]); else { segments.push([start, 366]); segments.push([1, end]); }
+    }
+    return segments.map(([s,e]) => ({ left: ((s-1)/366)*100, width: Math.max(((e-s+1)/366)*100, .6) }));
+  }
+
+  seasonalSummary(t) {
+    const seasonal = t.seasonal || t.summary?.seasonal || {};
+    if (!seasonal.enabled) return '';
+    const seasons = Array.isArray(seasonal.seasons) && seasonal.seasons.length ? seasonal.seasons : (seasonal.season && seasonal.season !== 'custom' ? [seasonal.season] : []);
+    const isCustom = seasonal.custom_enabled || seasonal.season === 'custom' || !seasons.length;
+    const title = isCustom ? 'Custom date range' : seasons.map(s => this.seasonLabel(s)).join(' ');
+    const range = isCustom ? `${this.monthDayLabel(seasonal.start_month||5, seasonal.start_day||1)} → ${this.monthDayLabel(seasonal.end_month||9, seasonal.end_day||30)}` : seasons.map(s => {
+      const p = this.seasonalPreset(s); return p ? `${this.seasonLabel(s)}: ${this.monthDayLabel(p[0],p[1])} → ${this.monthDayLabel(p[2],p[3])}` : this.seasonLabel(s);
+    }).join('<br>');
+    const active = t.summary?.season_active !== false;
+    const next = t.summary?.next_season_start;
+    const segments = this.seasonalWindowSegments(seasonal).map(seg=>`<span class="season-segment" style="left:${seg.left}%;width:${seg.width}%"></span>`).join('');
+    const badges = isCustom ? `<span class="season-badge">📅 Custom</span>` : seasons.map(s=>`<span class="season-badge">${this.seasonLabel(s)}</span>`).join('');
+    return `<div class="form-section"><h3>Seasonal window</h3><div class="season-badges">${badges}</div><div class="detail-list"><div class="key">Mode</div><div>${title}</div><div class="key">Active range</div><div>${range}</div><div class="key">Current state</div><div>${active ? 'Active now' : `Paused${next ? ' until '+this.dateShort(next) : ' until active season'}`}</div><div class="key">Inactive behavior</div><div>${seasonal.show_when_inactive === false ? 'Hidden while inactive' : 'Shown while inactive'}${seasonal.pause_usage_when_inactive === false ? ' • Usage continues' : ' • Usage paused'}</div></div><div class="season-timeline">${segments}</div><div class="month-row">${['J','F','M','A','M','J','J','A','S','O','N','D'].map(m=>`<span>${m}</span>`).join('')}</div></div>`;
+  }
+
+  ruleProgressHtml(t) {
+    const rules = t.summary?.rule_progress || [];
+    if (!rules.length) return '<p class="muted">No schedule progress available yet.</p>';
+    return rules.map(r => {
+      const pct = Math.max(0, Math.min(100, Math.round((r.percent_used || 0) * 100)));
+      return `<div class="rule-row"><div class="status-title"><b>${this.ruleTypeLabel(r.rule_type)}</b><span class="pill ${r.due ? 'due' : 'ok'}">${r.due ? 'Due' : 'Tracking'}</span></div><div class="muted">${this.escape(r.name || '')}</div><div class="progress big"><div class="bar" style="width:${pct}%"></div></div><div class="detail-list"><div class="key">Progress</div><div>${pct}%</div><div class="key">Used / target</div><div>${this.escape(r.detail || '')}</div><div class="key">Remaining</div><div>${r.remaining === null || r.remaining === undefined ? 'N/A' : this.escape(Number(r.remaining).toFixed(1))}</div></div></div>`;
+    }).join('');
+  }
+
+  trackingSourceHtml(t) {
+    const rules = t.rules || [];
+    const rows = [];
+    for (const r of rules) {
+      if ((r.type === 'runtime' || r.type === 'counter') && r.entity) {
+        const state = this.entityState(r.entity);
+        rows.push(`<div class="key">${this.ruleTypeLabel(r.type)} entity</div><div>${this.escape(r.entity)}</div>`);
+        rows.push(`<div class="key">Current state</div><div>${state ? this.escape(state.state + (state.attributes?.unit_of_measurement ? ' '+state.attributes.unit_of_measurement : '')) : 'Unavailable'}</div>`);
+        if (r.type === 'runtime') rows.push(`<div class="key">Detection</div><div>${this.escape(this.runtimeMethodLabel(r.entity))}${r.above !== undefined ? ' > '+this.escape(r.above) : ''}</div>`);
+        if (r.type === 'counter') rows.push(`<div class="key">Baseline</div><div>${this.escape(r.baseline ?? 0)} ${this.escape(r.target_unit || r.unit || '')}</div>`);
+      }
+    }
+    if (!rows.length && (!t.linked_entities || !t.linked_entities.length)) return '';
+    const linked = (t.linked_entities || []).map(e=>this.escape(e)).join('<br>');
+    return `<div class="form-section"><h3>Tracking source</h3><div class="detail-list">${linked ? `<div class="key">Linked entities</div><div>${linked}</div>` : ''}${rows.join('')}</div></div>`;
+  }
 
   entityState(entityId) { return entityId ? this._hass?.states?.[entityId] : null; }
   entityUnit(entityId) { return this.entityState(entityId)?.attributes?.unit_of_measurement || ''; }
@@ -641,29 +738,46 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     const status = this.taskStatus(t);
     const scan = this.lastNfcScan(t);
     const recent = (t.activity_history || []).slice().sort((a,b)=>String(b.at||'').localeCompare(String(a.at||''))).slice(0,8);
+    const completed = (t.completion_history || []).slice().sort((a,b)=>String(b.completed_at||b.at||'').localeCompare(String(a.completed_at||a.at||''))).slice(0,8);
     const progress = t.summary || {};
+    const percent = this.percent(t);
+    const seasonalCard = this.seasonalSummary(t);
+    const trackingCard = this.trackingSourceHtml(t);
+    const scheduleLabel = (t.rules || []).map(r => this.ruleTypeLabel(r.type)).join(' + ') || 'Not configured';
+    const nextDueLabel = status === 'season_paused' && progress.next_season_start ? `Season opens ${this.dateShort(progress.next_season_start)}` : this.dateShort(progress.next_due);
     return `<div class="modal-scrim" data-action="detail-scrim"><div class="modal" data-modal-content>
-      <div class="modal-head"><div><h2>${this.escape(t.name || t.id)}</h2><div class="muted">Task details, NFC status, and quick actions.</div></div><button class="btn" data-action="close-detail">Close</button></div>
-      <div class="form-section">
-        <h3>Overview</h3>
-        <div class="detail-list">
-          <div class="key">Status</div><div><span class="pill ${status}">${this.escape(status)}</span></div>
+      <div class="modal-head"><div><h2>${this.escape(t.name || t.id)}</h2><div class="muted">Task details, schedule progress, seasonal status, and quick actions.</div></div><button class="btn" data-action="close-detail">Close</button></div>
+      <div class="detail-hero">
+        <div class="hmm-avatar">${this.detailIconSvg()}</div>
+        <div>
+          <div class="status-title"><span class="pill ${status}">${this.friendlyStatus(status)}</span><span class="category-pill">${this.escape(this.category(t))}</span></div>
+          <h3 style="margin:10px 0 4px">${this.escape(t.equipment_name || 'No asset specified')}</h3>
+          <div class="muted">${this.escape(scheduleLabel)}</div>
+          <div class="progress big"><div class="bar" style="width:${percent}%"></div></div>
+          <div class="muted">${percent}% used${progress.season_active === false ? ' • inactive seasonal window' : ''}</div>
+        </div>
+      </div>
+      <div class="summary-grid">
+        <div class="summary-tile"><div class="muted">Status</div><div class="value">${this.friendlyStatus(status)}</div></div>
+        <div class="summary-tile"><div class="muted">Next due</div><div class="value">${this.escape(nextDueLabel)}</div></div>
+        <div class="summary-tile"><div class="muted">Last completed</div><div class="value">${this.dateShort(t.last_completed || progress.last_completed)}</div></div>
+        <div class="summary-tile"><div class="muted">Completion count</div><div class="value">${this.escape(progress.completion_count ?? (t.completion_history || []).length ?? 0)}</div></div>
+      </div>
+      <div class="detail-card-grid">
+        <div class="form-section"><h3>Schedule progress</h3>${this.ruleProgressHtml(t)}</div>
+        <div class="form-section"><h3>Overview</h3><div class="detail-list">
           <div class="key">Category</div><div>${this.escape(this.category(t))}</div>
-          <div class="key">Equipment</div><div>${this.escape(t.equipment_name || 'Not specified')}</div>
-          <div class="key">Percent used</div><div>${this.percent(t)}%</div>
-          <div class="key">Next due</div><div>${this.dateShort(progress.next_due)}</div>
-          <div class="key">Last completed</div><div>${this.dateShort(t.last_completed || progress.last_completed)}</div>
+          <div class="key">Asset</div><div>${this.escape(t.equipment_name || 'Not specified')}</div>
+          <div class="key">Area</div><div>${this.escape(t.area || 'Not specified')}</div>
           <div class="key">NFC action</div><div>${this.escape(this.nfcActionLabel(t.nfc_action))}</div>
           <div class="key">Last NFC scan</div><div>${scan ? `${this.dateShort(scan.at)}${scan.scanner_name ? ' by '+this.escape(scan.scanner_name) : ''}` : 'Never'}</div>
         </div>
-        <div class="progress"><div class="bar" style="width:${this.percent(t)}%"></div></div>
-        <div class="task-actions">
-          <button class="btn primary" data-complete="${this.escape(t.id)}">Mark complete</button>
-          <button class="btn" data-snooze="${this.escape(t.id)}">Snooze 7 days</button>
-          <button class="btn" data-edit-from-detail="${this.escape(t.id)}">Edit task</button>
-        </div>
+        <div class="task-actions"><button class="btn primary" data-complete="${this.escape(t.id)}">Mark complete</button><button class="btn" data-snooze="${this.escape(t.id)}">Snooze 7 days</button><button class="btn" data-edit-from-detail="${this.escape(t.id)}">Edit task</button></div></div>
       </div>
+      ${seasonalCard}
+      ${trackingCard}
       ${t.instructions ? `<div class="form-section"><h3>Instructions</h3><div style="white-space:pre-wrap">${this.escape(t.instructions)}</div></div>` : ''}
+      <div class="form-section"><h3>Completion history</h3>${completed.length ? completed.map(i=>`<div class="history-item"><b>${this.dateShort(i.completed_at || i.at)}</b><div class="muted">${this.escape(i.method || i.completed_by || i.activity || 'Completed')}${i.notes ? ' - '+this.escape(i.notes) : ''}</div></div>`).join('') : '<p class="muted">No completions yet.</p>'}</div>
       <div class="form-section"><h3>Recent activity</h3>${recent.length ? recent.map(i=>`<div class="history-item"><b>${this.escape(i.activity || i.type || 'activity')}</b><div class="muted">${this.dateShort(i.at)}${i.scanner_name ? ' • '+this.escape(i.scanner_name) : ''}${i.notes ? ' - '+this.escape(i.notes) : ''}</div></div>`).join('') : '<p class="muted">No activity yet.</p>'}</div>
       <div class="modal-actions-bottom"><button class="btn" data-action="close-detail">Close</button><div class="right"><button class="btn primary" data-complete="${this.escape(t.id)}">Mark complete</button></div></div>
     </div></div>`;

@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 160" role="img" aria-label="Home Maintenance Manager logo">
+  <rect width="160" height="160" rx="34" fill="#03A9F4"/>
+  <path d="M36 74 80 38l44 36v48a8 8 0 0 1-8 8H93V99H67v31H44a8 8 0 0 1-8-8V74z" fill="#fff"/>
+  <path d="M98 57a20 20 0 0 0-24 24l-26 26a8 8 0 0 0 11 11l26-26a20 20 0 0 0 24-24L96 81 85 70l13-13z" fill="#0B426A"/>
+  <circle cx="114" cy="114" r="22" fill="#2E7D32"/><path d="m103 114 7 7 15-17" fill="none" stroke="#fff" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="190" y="72" font-family="Roboto, Arial, sans-serif" font-size="42" font-weight="700" fill="#202124">Home Maintenance</text>
+  <text x="190" y="120" font-family="Roboto, Arial, sans-serif" font-size="42" font-weight="700" fill="#03A9F4">Manager</text>
+</svg>
