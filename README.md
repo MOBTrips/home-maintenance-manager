@@ -1,18 +1,12 @@
-# Home Maintenance Manager v0.5.18
+# Home Maintenance Manager v0.5.28
 
-Patch release focused on maintenance schedule cleanup.
+Polish release focused on the task detail experience and HMM branding.
 
 ## Changes
 
-- Time interval tasks now support minutes, hours, days, weeks, months, and years.
-- Runtime interval tasks now support minutes, hours, days, weeks, months, and years.
-- The task editor now has a richer “When was it last done?” baseline section:
-  - Today / now
-  - Specific date and time
-  - X minutes/hours/days/weeks/months/years ago
-  - Unknown / start today
-- Added a basic Calendar schedule type:
-  - Monthly weekday pattern, such as every 2nd Tuesday
-  - Specific month/day pattern, such as every month on day 1 or every January 1
-- Backend supports new interval rule fields while remaining compatible with older `days` and `hours` rules.
+- Added visual task-detail cards for schedule progress, seasonal status, tracking source, and completion history.
+- Added friendly status labels, including Season Paused.
+- Added seasonal badges and a month timeline for seasonal active windows.
+- Added HMM icon/logo SVG assets for the integration and frontend.
+- Keeps seasonal active windows compatible with time, runtime, metered, and calendar schedules.
 
