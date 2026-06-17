@@ -1,0 +1,1 @@
+Core model: Asset -> Task -> Schedule -> History.

@@ -1,0 +1,1 @@
+Install HMM, create an asset, create a task, select a schedule, and complete maintenance.

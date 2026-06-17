@@ -1,0 +1,1 @@
+Assets represent equipment. Tasks represent maintenance work.
