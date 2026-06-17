@@ -43,6 +43,7 @@ Maintain a complete audit trail of completed maintenance activities.
 
 ## Documentation
 
+- HACS Readiness: docs/hacs-readiness.md
 - Getting Started: docs/getting-started.md
 - Assets & Tasks: docs/assets-and-tasks.md
 - Scheduling: docs/scheduling.md

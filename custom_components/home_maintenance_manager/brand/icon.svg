@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="Home Maintenance Manager">
+  <defs><linearGradient id="g" x1="12" y1="10" x2="116" y2="118" gradientUnits="userSpaceOnUse"><stop stop-color="#03A9F4"/><stop offset="1" stop-color="#007ACC"/></linearGradient></defs>
+  <rect width="128" height="128" rx="28" fill="url(#g)"/>
+  <path d="M24 59 64 26l40 33v43a8 8 0 0 1-8 8H75V82H53v28H32a8 8 0 0 1-8-8V59z" fill="#fff" opacity=".96"/>
+  <path d="M79.3 45.5A17 17 0 0 0 58.5 66.3L36 88.8a7.5 7.5 0 0 0 10.6 10.6l22.5-22.5A17 17 0 0 0 89.9 56.1L78.5 67.5 67.9 56.9 79.3 45.5z" fill="#0B426A"/>
+  <path d="M39.9 92.6a3 3 0 1 1 4.2-4.2 3 3 0 0 1-4.2 4.2z" fill="#fff"/>
+  <circle cx="92" cy="92" r="19" fill="#2E7D32"/>
+  <path d="m82.5 92.5 6.2 6.2 13.3-15" fill="none" stroke="#fff" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

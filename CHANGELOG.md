@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.5.31] - 2026-06-17
+
+### Added
+- Added HACS/Home Assistant brand assets in `custom_components/home_maintenance_manager/brand/`.
+- Added PNG brand files required for HACS validation: `icon.png` and `logo.png`.
+- Added the official HACS validation GitHub Action workflow at `.github/workflows/validate.yml`.
+- Added HACS readiness documentation under `docs/hacs-readiness.md`.
+
+### Changed
+- Updated the integration manifest version to `0.5.31`.
+- Kept the sidebar panel icon as an MDI icon while adding proper integration branding for HACS/Home Assistant.
+
 ## [0.5.30] - 2026-06-17
 
 ### Changed
