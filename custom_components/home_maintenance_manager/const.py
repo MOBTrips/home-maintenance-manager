@@ -1,7 +1,9 @@
 DOMAIN = "home_maintenance_manager"
 PLATFORMS = ["sensor", "binary_sensor", "button"]
-STORAGE_VERSION = 1
-STORAGE_KEY = f"{DOMAIN}.tasks"
+STORAGE_VERSION = 2
+STORAGE_KEY = DOMAIN
+LEGACY_STORAGE_VERSION = 1
+LEGACY_STORAGE_KEY = f"{DOMAIN}.tasks"
 CONF_TASKS = "tasks"
 DEFAULT_WARNING_PERCENT = 0.8
 DEFAULT_NOTIFICATION_MODE = "automation_only"

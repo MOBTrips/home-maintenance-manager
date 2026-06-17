@@ -99,6 +99,9 @@ def _default_notification_settings() -> dict[str, Any]:
     }
 
 def _notification_settings_for_entry(hass: HomeAssistant) -> dict[str, Any]:
+    coordinator = _coordinator_for_entry(hass)
+    if coordinator is not None:
+        return coordinator.get_notification_settings()
     entries = hass.config_entries.async_entries(DOMAIN)
     settings = _default_notification_settings()
     if entries:
@@ -138,6 +141,28 @@ async def websocket_get_metadata(hass: HomeAssistant, connection, msg) -> None:
 
 
 
+
+@websocket_api.websocket_command({vol.Required("type"): f"{DOMAIN}/get_backup_status"})
+@websocket_api.async_response
+async def websocket_get_backup_status(hass: HomeAssistant, connection, msg) -> None:
+    """Return storage and Home Assistant backup alignment status."""
+    coordinator = _coordinator_for_entry(hass)
+    if coordinator is None:
+        connection.send_result(msg["id"], {
+            "storage_key": DOMAIN,
+            "storage_version": None,
+            "storage_path": f"/config/.storage/{DOMAIN}",
+            "included_in_ha_backup": True,
+            "tasks": 0,
+            "completion_history_records": 0,
+            "activity_history_records": 0,
+            "settings_in_storage": False,
+            "migration": {},
+        })
+        return
+    connection.send_result(msg["id"], coordinator.backup_status())
+
+
 @websocket_api.websocket_command({
     vol.Required("type"): f"{DOMAIN}/update_notification_settings",
     vol.Required("settings"): dict,
@@ -149,10 +174,15 @@ async def websocket_update_notification_settings(hass: HomeAssistant, connection
     if not entries:
         connection.send_error(msg["id"], "not_found", "Home Maintenance Manager config entry was not found")
         return
-    entry = entries[0]
     settings = _default_notification_settings()
     settings.update(msg.get("settings") or {})
-    hass.config_entries.async_update_entry(entry, options={**entry.options, "notification_settings": settings})
+    coordinator = _coordinator_for_entry(hass, entries[0].entry_id)
+    if coordinator is not None:
+        settings = await coordinator.async_update_notification_settings(settings)
+    else:
+        # Fallback during early startup; setup migration will move this into unified storage.
+        entry = entries[0]
+        hass.config_entries.async_update_entry(entry, options={**entry.options, "notification_settings": settings})
     connection.send_result(msg["id"], {"settings": settings})
 
 
@@ -247,6 +277,7 @@ async def async_setup(hass: HomeAssistant, config: dict[str, Any]) -> bool:
     hass.data.setdefault(DOMAIN, {})
     websocket_api.async_register_command(hass, websocket_get_tasks)
     websocket_api.async_register_command(hass, websocket_get_metadata)
+    websocket_api.async_register_command(hass, websocket_get_backup_status)
     websocket_api.async_register_command(hass, websocket_update_notification_settings)
     websocket_api.async_register_command(hass, websocket_test_notification)
     await _async_register_panel(hass)
@@ -321,14 +352,18 @@ async def _async_cleanup_task_registry_entries(
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     coordinator = MaintenanceCoordinator(hass)
-    await coordinator.async_load()
+    await coordinator.async_load(entry.options, hass.data[DOMAIN].get("yaml_tasks", []))
 
-    # UI tasks come from the config entry options; YAML tasks are also supported.
-    # They are synced into storage while preserving each task's runtime and history.
-    configured_tasks = []
-    configured_tasks.extend(entry.options.get(CONF_TASKS, []))
-    configured_tasks.extend(hass.data[DOMAIN].get("yaml_tasks", []))
-    await coordinator.async_sync_configured_tasks(configured_tasks)
+    # v0.6 migration: task definitions and HMM-owned settings now live in the
+    # unified HA Store file. Keep the config entry for integration setup only.
+    migrated_options = dict(entry.options)
+    changed_options = False
+    for legacy_key in (CONF_TASKS, "notification_settings"):
+        if legacy_key in migrated_options:
+            migrated_options.pop(legacy_key, None)
+            changed_options = True
+    if changed_options:
+        hass.config_entries.async_update_entry(entry, options=migrated_options)
 
     hass.data[DOMAIN][entry.entry_id] = coordinator
 
@@ -376,21 +411,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     async def handle_upsert_task(call):
         task = call.data["task"]
-        tasks = list(entry.options.get(CONF_TASKS, []))
-        tasks = [item for item in tasks if item.get("id") != task["id"]]
-        tasks.append(task)
-        hass.config_entries.async_update_entry(entry, options={**entry.options, CONF_TASKS: tasks})
-        # Update storage immediately so the panel can refresh, then reload the
-        # entry to create/update the real HA device and entities.
+        # v0.6: the unified storage file is the task source of truth. The config
+        # entry is no longer updated with task definitions.
         await coordinator.async_upsert_task(task)
         hass.async_create_task(_async_reload_entry_after_options_change())
 
     async def handle_delete_task(call):
         task_id = call.data["task_id"]
-        existing_tasks = list(entry.options.get(CONF_TASKS, []))
-        task_name = next((item.get("name") for item in existing_tasks if item.get("id") == task_id), None)
-        tasks = [item for item in existing_tasks if item.get("id") != task_id]
-        hass.config_entries.async_update_entry(entry, options={**entry.options, CONF_TASKS: tasks})
+        task_name = coordinator.tasks.get(task_id).name if task_id in coordinator.tasks else None
         await coordinator.async_delete_task(task_id)
         hass.async_create_task(
             _async_reload_entry_after_options_change(task_id, task_name)

@@ -1,6 +1,6 @@
 # Changelog
 
-## [0.5.32] - 2026-06-17
+## [0.6.0] - 2026-06-17
 
 ### Added
 - Added `.github/workflows/validate.yml` with HACS Action and Hassfest validation for pull requests, pushes to `main`, scheduled runs, and manual dispatch.
@@ -8,7 +8,7 @@
 - Added README links to every reference document.
 
 ### Changed
-- Updated the integration manifest version to `0.5.32`.
+- Updated the integration manifest version to `0.6.0`.
 - Added `integration_type: hub` to the Home Assistant manifest.
 - Updated `hacs.json` minimum Home Assistant version from `2025.12.0` to `2025.6.0` as a more practical tested baseline target.
 - Split the task editor Reminders and NFC controls into separate sections in the edit workflow.
@@ -79,3 +79,19 @@
 ## [0.5.21]
 ### Added
 - Seasonal active windows
+
+## 0.6.0
+
+### Storage & backup foundation
+- Moved HMM task data to a single Home Assistant storage file: `/config/.storage/home_maintenance_manager`.
+- Added storage versioning with v0.6 unified storage schema.
+- Added full migration from legacy `/config/.storage/home_maintenance_manager.tasks`.
+- Added migration from legacy config-entry task options and notification settings.
+- Stopped using config-entry options as the task source of truth.
+- Preserved runtime data, completion history, activity history, NFC assignments, snooze state, and notification settings during migration.
+- Added Home Assistant diagnostics support for downloaded integration diagnostics.
+- Added Backup & Restore status to the HMM Settings page.
+
+### Notes
+- Full Home Assistant backups include `/config/.storage/home_maintenance_manager` automatically.
+- The old legacy storage file is left in place as a safety fallback but is no longer the active database after migration.

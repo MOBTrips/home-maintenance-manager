@@ -10,7 +10,7 @@ from homeassistant.helpers.event import async_track_state_change_event, async_tr
 from homeassistant.helpers.storage import Store
 from homeassistant.util import dt as dt_util
 
-from .const import DOMAIN, STORAGE_KEY, STORAGE_VERSION, EVENT_ACTIVITY, EVENT_COMPLETION, EVENT_NFC_SCAN
+from .const import DOMAIN, STORAGE_KEY, STORAGE_VERSION, LEGACY_STORAGE_KEY, LEGACY_STORAGE_VERSION, EVENT_ACTIVITY, EVENT_COMPLETION, EVENT_NFC_SCAN
 from .models import MaintenanceTask
 
 _LOGGER = logging.getLogger(__name__)
@@ -45,15 +45,124 @@ class MaintenanceCoordinator:
     def __init__(self, hass: HomeAssistant) -> None:
         self.hass = hass
         self.store = Store(hass, STORAGE_VERSION, STORAGE_KEY)
+        self.legacy_store = Store(hass, LEGACY_STORAGE_VERSION, LEGACY_STORAGE_KEY)
         self.tasks: dict[str, MaintenanceTask] = {}
         self.listeners: list[callable] = []
         self._unsub: list[callable] = []
+        self.storage_settings: dict[str, Any] = {}
+        self.migration_info: dict[str, Any] = {}
+        self.loaded_data: dict[str, Any] = {}
 
-    async def async_load(self) -> None:
-        data = await self.store.async_load() or {"tasks": []}
-        self.tasks = {item["id"]: MaintenanceTask.from_dict(item) for item in data.get("tasks", [])}
+    async def async_load(self, config_entry_options: dict[str, Any] | None = None, yaml_tasks: list[dict[str, Any]] | None = None) -> None:
+        """Load the v0.6 unified storage file and migrate older HMM data.
+
+        v0.6 uses one HA Store file named ``home_maintenance_manager`` as the
+        authoritative database for tasks, runtime/history, NFC assignments, and
+        HMM-owned settings. Older releases used ``home_maintenance_manager.tasks``
+        plus config-entry options. This loader imports both without overwriting
+        richer runtime/history already present in storage.
+        """
+        config_entry_options = dict(config_entry_options or {})
+        yaml_tasks = list(yaml_tasks or [])
+        data = await self.store.async_load() or {}
+        legacy_data = await self.legacy_store.async_load() or {}
+
+        tasks_by_id: dict[str, dict[str, Any]] = {}
+        migrated_from: list[str] = []
+
+        for item in data.get("tasks", []) or []:
+            if isinstance(item, dict) and item.get("id"):
+                tasks_by_id[str(item["id"])] = dict(item)
+
+        legacy_tasks = legacy_data.get("tasks", []) if isinstance(legacy_data, dict) else []
+        if legacy_tasks:
+            migrated_from.append(LEGACY_STORAGE_KEY)
+            for item in legacy_tasks:
+                if isinstance(item, dict) and item.get("id") and str(item["id"]) not in tasks_by_id:
+                    tasks_by_id[str(item["id"])] = dict(item)
+
+        option_tasks = config_entry_options.get("tasks", []) or []
+        if option_tasks:
+            migrated_from.append("config_entry.options.tasks")
+            for item in option_tasks:
+                if not isinstance(item, dict) or not item.get("id"):
+                    continue
+                task_id = str(item["id"])
+                if task_id in tasks_by_id:
+                    # Preserve runtime/history from storage, but refresh editable
+                    # task configuration from the config entry record.
+                    existing = dict(tasks_by_id[task_id])
+                    runtime_keys = {
+                        "last_completed", "last_completed_by", "last_completion_method",
+                        "runtime_seconds", "completion_history", "activity_history",
+                        "snoozed_until", "snooze_count", "totalized_usage",
+                    }
+                    preserved = {k: existing[k] for k in runtime_keys if k in existing}
+                    merged = dict(item)
+                    merged.update(preserved)
+                    tasks_by_id[task_id] = merged
+                else:
+                    tasks_by_id[task_id] = dict(item)
+
+        if yaml_tasks:
+            migrated_from.append("configuration.yaml")
+            for item in yaml_tasks:
+                if isinstance(item, dict) and item.get("id"):
+                    tasks_by_id.setdefault(str(item["id"]), dict(item))
+
+        self.storage_settings = dict(data.get("settings", {}) or {})
+        option_notification_settings = config_entry_options.get("notification_settings")
+        if option_notification_settings and "notification_settings" not in self.storage_settings:
+            self.storage_settings["notification_settings"] = dict(option_notification_settings)
+            migrated_from.append("config_entry.options.notification_settings")
+
+        self.migration_info = dict(data.get("migration", {}) or {})
+        if migrated_from:
+            self.migration_info.update({
+                "storage_version": STORAGE_VERSION,
+                "migrated_from": sorted(set(migrated_from)),
+                "migrated_at": dt_util.utcnow().isoformat(),
+            })
+
+        self.tasks = {task_id: MaintenanceTask.from_dict(item) for task_id, item in tasks_by_id.items()}
         await self.async_save()
         self._setup_tracking()
+
+    def data_for_storage(self) -> dict[str, Any]:
+        return {
+            "version": STORAGE_VERSION,
+            "tasks": [task.as_dict() for task in self.tasks.values()],
+            "settings": self.storage_settings,
+            "migration": self.migration_info,
+        }
+
+    def get_notification_settings(self) -> dict[str, Any]:
+        settings = dict(_NOTIFICATION_DEFAULTS)
+        settings.update(self.storage_settings.get("notification_settings", {}) or {})
+        return settings
+
+    async def async_update_notification_settings(self, settings: dict[str, Any]) -> dict[str, Any]:
+        merged = dict(_NOTIFICATION_DEFAULTS)
+        merged.update(settings or {})
+        self.storage_settings["notification_settings"] = merged
+        await self.async_save()
+        return merged
+
+    def backup_status(self) -> dict[str, Any]:
+        history_count = sum(len(task.completion_history or []) for task in self.tasks.values())
+        activity_count = sum(len(task.activity_history or []) for task in self.tasks.values())
+        return {
+            "storage_key": STORAGE_KEY,
+            "storage_version": STORAGE_VERSION,
+            "storage_path": f"/config/.storage/{STORAGE_KEY}",
+            "legacy_storage_path": f"/config/.storage/{LEGACY_STORAGE_KEY}",
+            "tasks": len(self.tasks),
+            "completion_history_records": history_count,
+            "activity_history_records": activity_count,
+            "settings_in_storage": bool(self.storage_settings),
+            "included_in_ha_backup": True,
+            "migration": self.migration_info,
+        }
 
     def _normalize_nfc_config(self, task_data: dict[str, Any]) -> dict[str, Any]:
         """Return task data with NFC disabled state represented consistently.
@@ -114,9 +223,13 @@ class MaintenanceCoordinator:
                     _LOGGER.debug("Failed to clear stale NFC mobile notification for task %s", task_id, exc_info=True)
 
     async def async_sync_configured_tasks(self, configured_tasks: list[dict[str, Any]]) -> None:
-        """Sync UI/YAML task definitions into storage while preserving runtime/history."""
+        """Compatibility shim for YAML task definitions.
+
+        The unified storage file is now the source of truth. YAML tasks are
+        imported/updated when present, but missing YAML/config-entry tasks no
+        longer delete stored tasks.
+        """
         configured_tasks = [self._normalize_nfc_config(task) for task in configured_tasks]
-        configured_ids = {task["id"] for task in configured_tasks}
         changed_nfc_task_ids: list[str] = []
         for task_data in configured_tasks:
             task_id = task_data["id"]
@@ -129,11 +242,6 @@ class MaintenanceCoordinator:
             changed_nfc_task_ids.extend(self._remove_nfc_tags_from_other_tasks(task_id, task_data.get("nfc_tags") or []))
             if old_tags != list(self.tasks[task_id].nfc_tags or []) or old_action != self.tasks[task_id].nfc_action:
                 changed_nfc_task_ids.append(task_id)
-        # UI/YAML are the source of task definitions. Runtime/history is kept for configured tasks only.
-        for task_id in list(self.tasks):
-            if task_id not in configured_ids:
-                changed_nfc_task_ids.append(task_id)
-                del self.tasks[task_id]
         await self.async_save()
         if changed_nfc_task_ids:
             await self._cleanup_nfc_notifications(changed_nfc_task_ids)
@@ -171,7 +279,7 @@ class MaintenanceCoordinator:
             await self.async_check_notifications()
 
     async def async_save(self) -> None:
-        await self.store.async_save({"tasks": [task.as_dict() for task in self.tasks.values()]})
+        await self.store.async_save(self.data_for_storage())
 
     def async_add_listener(self, listener: callable) -> callable:
         self.listeners.append(listener)
@@ -238,11 +346,7 @@ class MaintenanceCoordinator:
 
     def _notification_settings(self) -> dict[str, Any]:
         """Return global notification settings for the first HMM config entry."""
-        settings = dict(_NOTIFICATION_DEFAULTS)
-        entries = self.hass.config_entries.async_entries(DOMAIN)
-        if entries:
-            settings.update(entries[0].options.get("notification_settings", {}) or {})
-        return settings
+        return self.get_notification_settings()
 
     def _task_notification_mode(self, task: MaintenanceTask, settings: dict[str, Any]) -> str:
         """Resolve task/global notification mode."""

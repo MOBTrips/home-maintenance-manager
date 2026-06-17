@@ -5,6 +5,7 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     this._hass = null;
     this.tasks = [];
     this.metadata = { areas: [], devices: [], entities: [], notify_services: [], notification_settings: null };
+    this.backupStatus = null;
     this.notificationSettings = { enabled: true, default_mode: "automation_only", mobile_notify_services: [], notify_upcoming: true, notify_due: true, notify_overdue: true, notify_completed: false, notify_snoozed: false, repeat_mode: "once", repeat_days: 1, quiet_start: "", quiet_end: "", title_template: "[{category}] {task_name}", body_template: "{task_name} is {status}." };
     this.tags = [];
     this.tab = "dashboard";
@@ -46,12 +47,14 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     this.loading = true;
     this.error = null;
     try {
-      const [taskData, meta] = await Promise.all([
+      const [taskData, meta, backupStatus] = await Promise.all([
         this._hass.callWS({ type: "home_maintenance_manager/get_tasks" }),
-        this._hass.callWS({ type: "home_maintenance_manager/get_metadata" })
+        this._hass.callWS({ type: "home_maintenance_manager/get_metadata" }),
+        this._hass.callWS({ type: "home_maintenance_manager/get_backup_status" })
       ]);
       this.tasks = taskData.tasks || [];
       this.metadata = meta || this.metadata;
+      this.backupStatus = backupStatus || null;
       this.applyRouteTask();
       if (meta?.notification_settings) this.notificationSettings = {...this.notificationSettings, ...meta.notification_settings};
       try {
@@ -629,7 +632,25 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
   }
 
   renderSettings() {
-    return `<div class="grid"><div class="card"><h2>Settings</h2><p class="muted">General Home Maintenance Manager information and lookups.</p><p>Notification settings have moved to the <b>Notifications</b> tab.</p></div><div class="card"><h2>Lookups</h2><p>Areas: ${this.metadata.areas.length}</p><p>Devices: ${this.metadata.devices.length}</p><p>Entities: ${this.metadata.entities.length}</p><p>Notify services: ${this.metadata.notify_services.length}</p><p>NFC tags: ${this.tags.length}</p><p>Categories: ${this.categories().length}</p></div></div>`;
+    const b = this.backupStatus || {};
+    const migratedFrom = (b.migration?.migrated_from || []).join(', ') || 'No legacy migration needed';
+    const migratedAt = b.migration?.migrated_at ? new Date(b.migration.migrated_at).toLocaleString() : 'Not recorded';
+    return `<div class="grid">
+      <div class="card"><h2>Settings</h2><p class="muted">General Home Maintenance Manager information and lookups.</p><p>Notification settings have moved to the <b>Notifications</b> tab.</p></div>
+      <div class="card"><h2>Backup & Restore</h2>
+        <p><span class="pill ok">Included in HA backups</span></p>
+        <p class="muted">HMM v0.6 stores task data, runtime history, NFC assignments, and HMM settings in one Home Assistant storage file. Full Home Assistant backups include this file automatically.</p>
+        <p><b>Storage file:</b><br><code>${this.escape(b.storage_path || '/config/.storage/home_maintenance_manager')}</code></p>
+        <p><b>Storage version:</b> ${this.escape(String(b.storage_version || 'unknown'))}</p>
+        <p><b>Tasks:</b> ${b.tasks ?? this.tasks.length}</p>
+        <p><b>Completion history records:</b> ${b.completion_history_records ?? 0}</p>
+        <p><b>Activity history records:</b> ${b.activity_history_records ?? 0}</p>
+        <p><b>Settings in storage:</b> ${b.settings_in_storage ? 'Yes' : 'No'}</p>
+        <p><b>Migrated from:</b> ${this.escape(migratedFrom)}</p>
+        <p><b>Migration time:</b> ${this.escape(migratedAt)}</p>
+      </div>
+      <div class="card"><h2>Lookups</h2><p>Areas: ${this.metadata.areas.length}</p><p>Devices: ${this.metadata.devices.length}</p><p>Entities: ${this.metadata.entities.length}</p><p>Notify services: ${this.metadata.notify_services.length}</p><p>NFC tags: ${this.tags.length}</p><p>Categories: ${this.categories().length}</p></div>
+    </div>`;
   }
 
   previewNotificationTitle() {

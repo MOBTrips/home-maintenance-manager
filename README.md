@@ -53,6 +53,8 @@ HMM is designed to feel like a native Home Assistant tool: tasks can be tied to 
 
 ## Documentation
 
+- [Storage and Backup](docs/storage-and-backup.md)
+
 - [Getting Started](docs/getting-started.md)
 - [Architecture](docs/architecture.md)
 - [Assets & Tasks](docs/assets-and-tasks.md)
