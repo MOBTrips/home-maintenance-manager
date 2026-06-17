@@ -48,6 +48,7 @@ TASK_SCHEMA = vol.Schema({
     vol.Optional("max_snooze_count", default=0): vol.Coerce(int),
     vol.Optional("max_snooze_days", default=30): vol.Coerce(int),
     vol.Optional("warning_percent", default=0.8): vol.Coerce(float),
+    vol.Optional("seasonal", default={}): dict,
     vol.Optional("paused", default=False): cv.boolean,
     vol.Optional("last_completed", default=""): vol.Any(cv.string, None),
     vol.Optional("baseline_method", default=""): vol.Any(cv.string, None),

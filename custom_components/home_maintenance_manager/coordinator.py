@@ -426,6 +426,10 @@ class MaintenanceCoordinator:
                 if not rule.get("entity"):
                     continue
                 entity_id = rule["entity"]
+                if getattr(task, "seasonal", None) and task.seasonal.get("enabled") and task.seasonal.get("pause_usage_when_inactive", True) and not task.season_active():
+                    key = f"counter_rate:{str(rule.get('id') or entity_id)}" if rule.get("type") == "counter" else entity_id
+                    task.last_seen_states[key] = {"seen_at": now.isoformat(), "running": False}
+                    continue
                 state = self.hass.states.get(entity_id)
                 if rule.get("type") == "runtime":
                     last = task.last_seen_states.get(entity_id, {})

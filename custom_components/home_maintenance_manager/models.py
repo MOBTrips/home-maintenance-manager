@@ -128,6 +128,73 @@ def _calendar_next_due_after(last: datetime, rule: dict[str, Any]) -> datetime |
     weekday = int(_as_float(rule.get("weekday"), 1))  # Monday=0, Tuesday=1
     return _next_nth_weekday_after(last, nth, weekday, hour, minute)
 
+SEASON_PRESETS = {
+    "spring": (3, 1, 5, 31),
+    "summer": (6, 1, 8, 31),
+    "fall": (9, 1, 11, 30),
+    "winter": (12, 1, 2, 28),
+}
+
+
+def _safe_month_day(month: Any, day: Any, default_month: int, default_day: int) -> tuple[int, int]:
+    try:
+        m = int(month)
+    except (TypeError, ValueError):
+        m = default_month
+    try:
+        d = int(day)
+    except (TypeError, ValueError):
+        d = default_day
+    m = min(max(m, 1), 12)
+    d = min(max(d, 1), 31)
+    return m, d
+
+
+def _date_for_month_day(year: int, month: int, day: int, tzinfo) -> datetime:
+    return datetime(year, month, min(day, monthrange(year, month)[1]), 0, 0, tzinfo=tzinfo)
+
+
+def _season_bounds(seasonal: dict[str, Any], now: datetime) -> tuple[datetime, datetime] | None:
+    if not seasonal or not seasonal.get("enabled"):
+        return None
+    season = str(seasonal.get("season") or "custom").lower()
+    if season in SEASON_PRESETS and season != "custom":
+        sm, sd, em, ed = SEASON_PRESETS[season]
+    else:
+        sm, sd = _safe_month_day(seasonal.get("start_month"), seasonal.get("start_day"), 1, 1)
+        em, ed = _safe_month_day(seasonal.get("end_month"), seasonal.get("end_day"), 12, 31)
+    start = _date_for_month_day(now.year, sm, sd, now.tzinfo)
+    end = _date_for_month_day(now.year, em, ed, now.tzinfo) + timedelta(days=1)
+    if (em, ed) < (sm, sd):
+        if now < end:
+            start = _date_for_month_day(now.year - 1, sm, sd, now.tzinfo)
+        else:
+            end = _date_for_month_day(now.year + 1, em, ed, now.tzinfo) + timedelta(days=1)
+    return start, end
+
+
+def _season_is_active(seasonal: dict[str, Any], now: datetime) -> bool:
+    bounds = _season_bounds(seasonal, now)
+    if not bounds:
+        return True
+    start, end = bounds
+    return start <= now < end
+
+
+def _next_season_start(seasonal: dict[str, Any], now: datetime) -> datetime | None:
+    bounds = _season_bounds(seasonal, now)
+    if not bounds:
+        return None
+    start, end = bounds
+    if now < start:
+        return start
+    if now < end:
+        return start
+    # Recompute using a date just after this window to get the next cycle.
+    future = end + timedelta(days=1)
+    next_bounds = _season_bounds(seasonal, future)
+    return next_bounds[0] if next_bounds else None
+
 
 @dataclass
 class RuleProgress:
@@ -165,6 +232,7 @@ class MaintenanceTask:
     max_snooze_count: int = 0
     max_snooze_days: int = 30
     warning_percent: float = 0.8
+    seasonal: dict[str, Any] = field(default_factory=dict)
     snoozed_until: str | None = None
     paused: bool = False
     runtime_seconds: dict[str, float] = field(default_factory=dict)
@@ -286,6 +354,8 @@ class MaintenanceTask:
             until = dt_util.parse_datetime(self.snoozed_until)
             if until and until > dt_util.utcnow():
                 return "snoozed"
+        if not self.season_active():
+            return "season_paused"
         progress = self.rule_progress(hass)
         if not progress:
             return "unknown"
@@ -302,7 +372,15 @@ class MaintenanceTask:
             return "upcoming"
         return "ok"
 
+    def season_active(self) -> bool:
+        return _season_is_active(self.seasonal, dt_util.utcnow())
+
+    def next_season_start(self) -> datetime | None:
+        return _next_season_start(self.seasonal, dt_util.utcnow())
+
     def percent_used(self, hass: HomeAssistant) -> float | None:
+        if not self.season_active():
+            return 0
         progress = self.rule_progress(hass)
         if not progress:
             return None
@@ -388,6 +466,8 @@ class MaintenanceTask:
         return None
 
     def next_due_datetime(self, hass: HomeAssistant) -> datetime | None:
+        if not self.season_active():
+            return self.next_season_start()
         last = self._last_completed_dt()
         due_dates: list[datetime] = []
         for rule in self.rules:
@@ -411,6 +491,9 @@ class MaintenanceTask:
             "linked_device_id": self.linked_device_id,
             "linked_entities": self.linked_entities,
             "status": self.status(hass),
+            "seasonal": self.seasonal,
+            "season_active": self.season_active(),
+            "next_season_start": self.next_season_start().isoformat() if self.next_season_start() else None,
             "percent_used": self.percent_used(hass),
             "days_remaining": self.days_remaining(hass),
             "runtime_remaining": self.runtime_remaining(hass) if self.has_runtime_rule() else "N/A",
