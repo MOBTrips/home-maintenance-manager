@@ -6,6 +6,9 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     this.tasks = [];
     this.metadata = { areas: [], devices: [], entities: [], notify_services: [], notification_settings: null };
     this.backupStatus = null;
+    this.importPackage = null;
+    this.importPreview = null;
+    this.importMode = "merge";
     this.notificationSettings = { enabled: true, default_mode: "automation_only", mobile_notify_services: [], notify_upcoming: true, notify_due: true, notify_overdue: true, notify_completed: false, notify_snoozed: false, repeat_mode: "once", repeat_days: 1, quiet_start: "", quiet_end: "", title_template: "[{category}] {task_name}", body_template: "{task_name} is {status}." };
     this.tags = [];
     this.tab = "dashboard";
@@ -171,6 +174,8 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
       .field-label { display:flex; align-items:center; gap:6px; }
       .tip { display:inline-flex; align-items:center; justify-content:center; width:18px; height:18px; border-radius:50%; background: var(--primary-color); color: var(--text-primary-color); font-size:12px; font-weight:700; cursor:help; }
       .hidden { display:none !important; }
+      .task-table { width:100%; border-collapse:collapse; }
+      .task-table th, .task-table td { border-bottom:1px solid var(--divider-color); padding:8px; text-align:left; vertical-align:top; }
       .info-box { border-left:4px solid var(--primary-color); background: var(--card-background-color); padding:10px 12px; border-radius:10px; margin:10px 0; color: var(--secondary-text-color); }
       .toolbar-card { margin-bottom:16px; }
       .category-header { display:flex; justify-content:space-between; gap:12px; align-items:baseline; margin:24px 0 10px; }
@@ -650,17 +655,46 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
         <p><b>Migration time:</b> ${this.escape(migratedAt)}</p>
       </div>
       <div class="card"><h2>Export / Import JSON</h2>
-        <p class="muted">Export creates a portable JSON file containing tasks, schedules, runtime/history data, NFC assignments, and HMM settings. Home Assistant full backup remains the preferred full-system recovery path.</p>
+        <p class="muted">Export creates a full backup-style JSON file. Import now uses a review step so you can validate tasks, detect duplicates, and see missing entities before anything is saved.</p>
         <div class="task-actions"><button class="btn primary" data-action="export-json">Export JSON</button></div>
         <hr>
-        <p><b>Import mode</b></p>
-        <p><label><input type="radio" name="import-mode" value="merge" checked> Merge - add/update imported tasks and keep existing tasks</label></p>
-        <p><label><input type="radio" name="import-mode" value="replace"> Replace - replace all HMM tasks/settings with the imported file</label></p>
+        <p><b>Import review wizard</b></p>
+        <p><label><input type="radio" name="import-mode" value="merge" ${this.importMode !== 'replace' ? 'checked' : ''}> Merge selected tasks</label></p>
+        <p><label><input type="radio" name="import-mode" value="replace" ${this.importMode === 'replace' ? 'checked' : ''}> Replace with selected tasks</label></p>
         <input id="import-json-file" type="file" accept="application/json,.json">
-        <div class="task-actions" style="margin-top:12px;"><button class="btn" data-action="import-json">Import JSON</button></div>
-        <p class="muted">Replace mode records deletion tombstones so old migrated tasks are not resurrected later.</p>
+        <div class="task-actions" style="margin-top:12px;"><button class="btn" data-action="preview-import-json">Preview Import</button></div>
+        ${this.renderImportPreview()}
+        <p class="muted">Task Packs are treated as templates. Entity IDs are reviewed as mapping requirements instead of silently failing.</p>
       </div>
       <div class="card"><h2>Lookups</h2><p>Areas: ${this.metadata.areas.length}</p><p>Devices: ${this.metadata.devices.length}</p><p>Entities: ${this.metadata.entities.length}</p><p>Notify services: ${this.metadata.notify_services.length}</p><p>NFC tags: ${this.tags.length}</p><p>Categories: ${this.categories().length}</p></div>
+    </div>`;
+  }
+
+
+  renderImportPreview() {
+    const p = this.importPreview;
+    if (!p) return '<div class="info-box">Choose a JSON file, then click <b>Preview Import</b>. No data is changed during preview.</div>';
+    const counts = p.counts || {};
+    const entity = p.entity_counts || {};
+    const rows = (p.tasks || []).map(t => {
+      const entityText = (t.entities || []).length ? `${(t.entities || []).filter(e=>e.status==='missing').length} missing / ${(t.entities || []).length} refs` : 'No entity refs';
+      const checked = t.selected ? 'checked' : '';
+      const disabled = t.status === 'invalid' ? 'disabled' : '';
+      const warn = t.required_entity_missing ? '<br><span class="muted">Required entity missing; task will be paused unless remapped.</span>' : '';
+      return `<tr><td><input type="checkbox" class="import-task-select" data-task-id="${this.escape(t.id)}" ${checked} ${disabled}></td><td><b>${this.escape(t.name || '')}</b><br><span class="muted">${this.escape(t.category || '')}</span>${warn}</td><td><span class="pill ${t.status === 'new' ? 'ok' : ''}">${this.escape(t.status)}</span></td><td>${this.escape(entityText)}</td></tr>`;
+    }).join('');
+    const warnings = (p.warnings || []).map(w=>`<div class="info-box">${this.escape(w)}</div>`).join('');
+    return `<div class="schedule-card">
+      <h3>Import Preview</h3>
+      <p><b>${this.escape(p.pack_name || 'HMM Import')}</b> <span class="muted">(${this.escape(p.package_type || 'backup')})</span></p>
+      <p>New: ${counts.new||0} · Updates: ${counts.update||0} · Duplicates: ${counts.duplicate||0} · Deleted: ${counts.deleted||0} · Invalid: ${counts.invalid||0}</p>
+      <p>Entities found: ${entity.found||0} · Missing: ${entity.missing||0} · Required missing: ${entity.required_missing||0}</p>
+      ${warnings}
+      <div class="task-actions"><button class="btn small" data-action="select-all-import">Select all valid</button><button class="btn small" data-action="select-none-import">Select none</button></div>
+      <div style="overflow:auto;margin-top:10px;"><table class="task-table"><thead><tr><th>Import</th><th>Task</th><th>Status</th><th>Entities</th></tr></thead><tbody>${rows || '<tr><td colspan="4">No importable tasks found.</td></tr>'}</tbody></table></div>
+      <p><label><input type="checkbox" id="import-settings" ${p.package_type === 'task_pack' ? '' : 'checked'} ${p.package_type === 'task_pack' ? 'disabled' : ''}> Import settings from file</label></p>
+      <p><label><input type="checkbox" id="restore-deleted"> Allow restoring previously deleted tasks</label></p>
+      <div class="task-actions"><button class="btn primary" data-action="apply-import-json">Import Selected</button><button class="btn" data-action="clear-import-preview">Clear Preview</button></div>
     </div>`;
   }
 
@@ -679,22 +713,44 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     }
   }
 
-  async importJson() {
+  async previewImportJson() {
     const fileInput = this.shadowRoot.getElementById('import-json-file');
     const file = fileInput?.files?.[0];
-    if (!file) { alert('Choose a Home Maintenance Manager JSON export file first.'); return; }
-    const mode = this.shadowRoot.querySelector('input[name="import-mode"]:checked')?.value || 'merge';
-    if (mode === 'replace' && !confirm('Replace all existing HMM tasks and settings with this import file? This cannot be undone except by restoring a backup or importing another export.')) return;
+    if (!file) { alert('Choose a Home Maintenance Manager JSON file first.'); return; }
+    this.importMode = this.shadowRoot.querySelector('input[name="import-mode"]:checked')?.value || 'merge';
     try {
       const text = await file.text();
-      const data = JSON.parse(text);
-      const result = await this._hass.callWS({ type: 'home_maintenance_manager/import_data', mode, data });
+      this.importPackage = JSON.parse(text);
+      this.importPreview = await this._hass.callWS({ type: 'home_maintenance_manager/import_preview', mode: this.importMode, data: this.importPackage });
+      this.render();
+    } catch (err) {
+      alert(`Import preview failed: ${err?.message || err}`);
+    }
+  }
+
+  selectedImportIds() {
+    return Array.from(this.shadowRoot.querySelectorAll('.import-task-select')).filter(el=>el.checked).map(el=>el.dataset.taskId);
+  }
+
+  async applyImportJson() {
+    if (!this.importPackage || !this.importPreview) { alert('Preview an import first.'); return; }
+    this.importMode = this.shadowRoot.querySelector('input[name="import-mode"]:checked')?.value || this.importMode || 'merge';
+    const selected_ids = this.selectedImportIds();
+    if (!selected_ids.length) { alert('Select at least one task to import.'); return; }
+    if (this.importMode === 'replace' && !confirm(`Replace existing HMM tasks with ${selected_ids.length} selected imported task(s)? This cannot be undone except by restoring a backup or importing another export.`)) return;
+    try {
+      const import_settings = !!this.shadowRoot.getElementById('import-settings')?.checked;
+      const restore_deleted = !!this.shadowRoot.getElementById('restore-deleted')?.checked;
+      const result = await this._hass.callWS({ type: 'home_maintenance_manager/import_apply', mode: this.importMode, data: this.importPackage, selected_ids, import_settings, restore_deleted, entity_mapping: {} });
       alert(`Import complete. Imported: ${result.imported}. Skipped: ${result.skipped}. Tasks now: ${result.after_tasks}.`);
+      this.importPackage = null; this.importPreview = null;
       await this.loadData();
     } catch (err) {
       alert(`Import failed: ${err?.message || err}`);
     }
   }
+
+  importJson() { return this.previewImportJson(); }
 
   previewNotificationTitle() {
     const template = this.shadowRoot?.getElementById('notify-title-template')?.value || this.notificationSettings?.title_template || '[{category}] {task_name}';
@@ -1277,6 +1333,11 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     this.shadowRoot.querySelectorAll('[data-action="test-notification"]').forEach(el=>el.onclick=()=>this.testNotification());
     this.shadowRoot.querySelectorAll('[data-action="export-json"]').forEach(el=>el.onclick=()=>this.exportJson());
     this.shadowRoot.querySelectorAll('[data-action="import-json"]').forEach(el=>el.onclick=()=>this.importJson());
+    this.shadowRoot.querySelectorAll('[data-action="preview-import-json"]').forEach(el=>el.onclick=()=>this.previewImportJson());
+    this.shadowRoot.querySelectorAll('[data-action="apply-import-json"]').forEach(el=>el.onclick=()=>this.applyImportJson());
+    this.shadowRoot.querySelectorAll('[data-action="clear-import-preview"]').forEach(el=>el.onclick=()=>{this.importPackage=null;this.importPreview=null;this.render();});
+    this.shadowRoot.querySelectorAll('[data-action="select-all-import"]').forEach(el=>el.onclick=()=>{this.shadowRoot.querySelectorAll('.import-task-select:not(:disabled)').forEach(cb=>cb.checked=true);});
+    this.shadowRoot.querySelectorAll('[data-action="select-none-import"]').forEach(el=>el.onclick=()=>{this.shadowRoot.querySelectorAll('.import-task-select').forEach(cb=>cb.checked=false);});
     this.shadowRoot.querySelectorAll('[data-preview-title],[data-preview-body]').forEach(el=>el.oninput=()=>this.updateNotificationPreview());
     this.shadowRoot.querySelectorAll('[data-action="new-task"]').forEach(el=>el.onclick=()=>{ this._modalSnapshot=null; this.modal={task:{}}; this.render(); });
     this.shadowRoot.querySelectorAll('[data-action="close-modal"]').forEach(el=>el.onclick=()=>this.requestCloseModal());

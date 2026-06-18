@@ -313,7 +313,7 @@ class MaintenanceCoordinator:
         return {
             "format": "home_maintenance_manager_export",
             "format_version": 1,
-            "integration_version": "0.6.2",
+            "integration_version": "0.6.3",
             "exported_at": dt_util.utcnow().isoformat(),
             "storage_version": STORAGE_VERSION,
             "tasks": [task.as_dict() for task in self.tasks.values()],
@@ -408,6 +408,144 @@ class MaintenanceCoordinator:
             "after_tasks": len(self.tasks),
             "replaced_removed": len(before_ids - set(imported)) if mode == "replace" else 0,
         }
+
+    def _task_entity_references(self, task_data: dict[str, Any]) -> list[dict[str, Any]]:
+        """Return entity references used by a task for import preview/mapping."""
+        refs: list[dict[str, Any]] = []
+        for entity_id in task_data.get("linked_entities") or []:
+            if entity_id:
+                refs.append({"field": "linked_entities", "entity_id": str(entity_id), "required": False, "role": "linked_entity"})
+        for idx, rule in enumerate(task_data.get("rules") or []):
+            if isinstance(rule, dict) and rule.get("entity"):
+                refs.append({
+                    "field": f"rules[{idx}].entity",
+                    "entity_id": str(rule.get("entity")),
+                    "required": str(rule.get("type") or "") in {"runtime", "counter"},
+                    "role": str(rule.get("type") or "rule_entity"),
+                    "rule_id": str(rule.get("id") or idx),
+                })
+        return refs
+
+    def _apply_entity_mapping_to_task_data(self, task_data: dict[str, Any], entity_mapping: dict[str, Any] | None = None) -> dict[str, Any]:
+        mapping = entity_mapping or {}
+        data = dict(task_data)
+        linked = []
+        for entity_id in data.get("linked_entities") or []:
+            action = mapping.get(str(entity_id), str(entity_id))
+            if action in (None, "", "__clear__"):
+                continue
+            linked.append(str(action))
+        data["linked_entities"] = linked
+        rules = []
+        for rule in data.get("rules") or []:
+            if not isinstance(rule, dict):
+                continue
+            new_rule = dict(rule)
+            if new_rule.get("entity"):
+                action = mapping.get(str(new_rule.get("entity")), str(new_rule.get("entity")))
+                if action in (None, "", "__clear__"):
+                    new_rule.pop("entity", None)
+                    if new_rule.get("type") in ("runtime", "counter"):
+                        data["paused"] = True
+                else:
+                    new_rule["entity"] = str(action)
+            rules.append(new_rule)
+        data["rules"] = rules
+        return data
+
+    def _package_tasks(self, package: dict[str, Any]) -> tuple[str, list[dict[str, Any]], dict[str, Any]]:
+        """Parse a backup export or task-pack shaped package."""
+        if not isinstance(package, dict):
+            raise ValueError("Import data must be a JSON object")
+        package_type = str(package.get("type") or package.get("format") or "backup")
+        if package_type == "home_maintenance_manager_export":
+            package_type = "backup"
+        raw_tasks = package.get("tasks")
+        if raw_tasks is None and isinstance(package.get("data"), dict):
+            raw_tasks = package["data"].get("tasks")
+        if not isinstance(raw_tasks, list):
+            raise ValueError("Import file does not contain a tasks list")
+        return package_type, raw_tasks, package
+
+    def import_preview(self, package: dict[str, Any], mode: str = "merge") -> dict[str, Any]:
+        """Preview an import without changing HMM storage."""
+        package_type, raw_tasks, parsed = self._package_tasks(package)
+        mode = str(mode or "merge").lower()
+        existing_by_name = {((t.name or "").strip().lower(), (t.category or "General").strip().lower()): tid for tid, t in self.tasks.items()}
+        entity_ids = set(self.hass.states.async_entity_ids())
+        preview_tasks = []
+        counts = {"new": 0, "update": 0, "duplicate": 0, "deleted": 0, "invalid": 0, "conflict": 0}
+        entity_counts = {"found": 0, "missing": 0, "required_missing": 0}
+        for idx, item in enumerate(raw_tasks):
+            if not isinstance(item, dict) or not item.get("id") or not item.get("name"):
+                row = {"index": idx, "id": str(item.get("id") if isinstance(item, dict) else idx), "name": "Invalid task", "category": "", "status": "invalid", "selected": False, "reason": "Missing required id or name", "entities": []}
+                preview_tasks.append(row); counts["invalid"] += 1; continue
+            task_id = str(item["id"])
+            key = ((item.get("name") or "").strip().lower(), (item.get("category") or "General").strip().lower())
+            if task_id in self.tasks:
+                status = "update"
+            elif task_id in self.deleted_task_ids:
+                status = "deleted"
+            elif key in existing_by_name:
+                status = "duplicate"
+            else:
+                status = "new"
+            counts[status] += 1
+            refs = []
+            required_missing = False
+            for ref in self._task_entity_references(item):
+                found = ref["entity_id"] in entity_ids
+                ref = dict(ref)
+                ref["status"] = "found" if found else "missing"
+                ref["suggestions"] = []
+                if not found:
+                    domain = ref["entity_id"].split('.',1)[0] if '.' in ref["entity_id"] else ''
+                    suffix = ref["entity_id"].split('.',1)[-1].replace('_',' ')[:30].lower()
+                    suggestions = [e for e in sorted(entity_ids) if (not domain or e.startswith(domain+'.'))][:8]
+                    ref["suggestions"] = suggestions
+                    entity_counts["missing"] += 1
+                    if ref.get("required"):
+                        required_missing = True
+                        entity_counts["required_missing"] += 1
+                else:
+                    entity_counts["found"] += 1
+                refs.append(ref)
+            selected = status in {"new", "update"} and not required_missing
+            if package_type == "task_pack" and status == "deleted":
+                selected = False
+            preview_tasks.append({"index": idx, "id": task_id, "name": item.get("name"), "category": item.get("category", "General"), "status": status, "selected": selected, "required_entity_missing": required_missing, "entities": refs})
+        return {
+            "package_type": package_type,
+            "pack_name": parsed.get("pack_name") or parsed.get("name") or parsed.get("format") or "HMM Import",
+            "format_version": parsed.get("format_version") or parsed.get("version"),
+            "exported_at": parsed.get("exported_at"),
+            "mode": mode,
+            "counts": counts,
+            "entity_counts": entity_counts,
+            "tasks": preview_tasks,
+            "settings_present": isinstance(parsed.get("settings"), dict),
+            "warnings": ["Required missing entities will pause affected runtime/counter tasks unless remapped."] if entity_counts["required_missing"] else [],
+        }
+
+    async def async_apply_import_preview(self, package: dict[str, Any], selected_ids: list[str] | None = None, mode: str = "merge", entity_mapping: dict[str, Any] | None = None, import_settings: bool = True, restore_deleted: bool = False) -> dict[str, Any]:
+        """Apply a reviewed import selection."""
+        package_type, raw_tasks, parsed = self._package_tasks(package)
+        selected = {str(x) for x in (selected_ids or [])}
+        if selected_ids is None:
+            preview = self.import_preview(package, mode)
+            selected = {str(t["id"]) for t in preview.get("tasks", []) if t.get("selected")}
+        filtered_package = dict(parsed)
+        tasks = []
+        for item in raw_tasks:
+            if isinstance(item, dict) and str(item.get("id")) in selected:
+                data = self._apply_entity_mapping_to_task_data(dict(item), entity_mapping)
+                if str(data.get("id")) in self.deleted_task_ids and not restore_deleted and package_type != "backup":
+                    continue
+                tasks.append(data)
+        filtered_package["tasks"] = tasks
+        if not import_settings or package_type == "task_pack":
+            filtered_package.pop("settings", None)
+        return await self.async_import_data(filtered_package, mode)
 
     async def async_save(self) -> None:
         await self.store.async_save(self.data_for_storage())

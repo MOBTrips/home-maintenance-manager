@@ -184,6 +184,65 @@ async def websocket_import_data(hass: HomeAssistant, connection, msg) -> None:
     connection.send_result(msg["id"], result)
 
 
+
+@websocket_api.websocket_command({
+    vol.Required("type"): f"{DOMAIN}/import_preview",
+    vol.Required("data"): dict,
+    vol.Optional("mode", default="merge"): vol.In(["merge", "replace"]),
+})
+@websocket_api.async_response
+async def websocket_import_preview(hass: HomeAssistant, connection, msg) -> None:
+    """Preview a backup or task-pack import without saving changes."""
+    coordinator = _coordinator_for_entry(hass)
+    if coordinator is None:
+        connection.send_error(msg["id"], "not_found", "Home Maintenance Manager coordinator was not found")
+        return
+    try:
+        connection.send_result(msg["id"], coordinator.import_preview(msg.get("data") or {}, msg.get("mode") or "merge"))
+    except ValueError as err:
+        connection.send_error(msg["id"], "invalid_import", str(err))
+    except Exception as err:  # pragma: no cover
+        _LOGGER.exception("Home Maintenance Manager import preview failed")
+        connection.send_error(msg["id"], "preview_failed", str(err))
+
+
+@websocket_api.websocket_command({
+    vol.Required("type"): f"{DOMAIN}/import_apply",
+    vol.Required("data"): dict,
+    vol.Optional("mode", default="merge"): vol.In(["merge", "replace"]),
+    vol.Optional("selected_ids", default=None): vol.Any([cv.string], None),
+    vol.Optional("entity_mapping", default={}): dict,
+    vol.Optional("import_settings", default=True): cv.boolean,
+    vol.Optional("restore_deleted", default=False): cv.boolean,
+})
+@websocket_api.async_response
+async def websocket_import_apply(hass: HomeAssistant, connection, msg) -> None:
+    """Apply a reviewed backup or task-pack import selection."""
+    entries = hass.config_entries.async_entries(DOMAIN)
+    coordinator = _coordinator_for_entry(hass, entries[0].entry_id if entries else None)
+    if coordinator is None:
+        connection.send_error(msg["id"], "not_found", "Home Maintenance Manager coordinator was not found")
+        return
+    try:
+        result = await coordinator.async_apply_import_preview(
+            msg.get("data") or {},
+            msg.get("selected_ids"),
+            msg.get("mode") or "merge",
+            msg.get("entity_mapping") or {},
+            bool(msg.get("import_settings", True)),
+            bool(msg.get("restore_deleted", False)),
+        )
+    except ValueError as err:
+        connection.send_error(msg["id"], "invalid_import", str(err))
+        return
+    except Exception as err:  # pragma: no cover
+        _LOGGER.exception("Home Maintenance Manager reviewed import failed")
+        connection.send_error(msg["id"], "import_failed", str(err))
+        return
+    if entries:
+        hass.async_create_task(hass.config_entries.async_reload(entries[0].entry_id))
+    connection.send_result(msg["id"], result)
+
 @websocket_api.websocket_command({vol.Required("type"): f"{DOMAIN}/get_backup_status"})
 @websocket_api.async_response
 async def websocket_get_backup_status(hass: HomeAssistant, connection, msg) -> None:
@@ -322,6 +381,8 @@ async def async_setup(hass: HomeAssistant, config: dict[str, Any]) -> bool:
     websocket_api.async_register_command(hass, websocket_get_backup_status)
     websocket_api.async_register_command(hass, websocket_export_data)
     websocket_api.async_register_command(hass, websocket_import_data)
+    websocket_api.async_register_command(hass, websocket_import_preview)
+    websocket_api.async_register_command(hass, websocket_import_apply)
     websocket_api.async_register_command(hass, websocket_update_notification_settings)
     websocket_api.async_register_command(hass, websocket_test_notification)
     await _async_register_panel(hass)

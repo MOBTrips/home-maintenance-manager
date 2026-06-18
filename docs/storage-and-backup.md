@@ -1,6 +1,6 @@
 # Storage and Backup
 
-Home Maintenance Manager v0.6.2 uses Home Assistant's storage framework as the system of record.
+Home Maintenance Manager v0.6.3 uses Home Assistant's storage framework as the system of record.
 
 ## Primary storage file
 
@@ -81,7 +81,7 @@ The HMM panel includes a Backup & Restore section under Settings showing:
 
 ## JSON export and import
 
-v0.6.2 adds a portable JSON export/import workflow under:
+v0.6.3 adds a portable JSON export/import workflow under:
 
 ```text
 Maintenance panel → Settings → Export / Import JSON
@@ -105,3 +105,10 @@ Import supports two modes:
 | Replace | Replaces all HMM tasks/settings with the import file and records deletion tombstones for removed task IDs. |
 
 Use Home Assistant full backups for complete recovery of a Home Assistant instance. Use HMM JSON export/import for task sharing, moving HMM data between instances, support troubleshooting, and future Task Packs.
+
+
+## Import Review and Task Pack Foundation
+
+v0.6.3 adds a reviewed import flow. HMM previews backup-style exports and task-pack-style JSON before changing storage. The preview classifies tasks as new, update, duplicate, deleted, or invalid and reports entity references as found or missing. Runtime and counter rule entities are treated as required references; when they cannot be resolved, the task is imported safely instead of silently running against a bad entity.
+
+Task packs should be templates, not system backups. They should avoid Home Assistant-specific entity IDs, device IDs, NFC tag IDs, completion history, and runtime history. Future task packs can use entity roles/requirements and the same preview/apply engine can map those roles to local Home Assistant entities.

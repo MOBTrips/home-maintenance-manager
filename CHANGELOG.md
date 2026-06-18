@@ -1,3 +1,12 @@
+## 0.6.3
+
+- Added import preview/review workflow before saving JSON imports.
+- Added backup vs task-pack import foundation.
+- Added backend `import_preview` and `import_apply` websocket APIs.
+- Added selected-task import support for merge and replace modes.
+- Added entity reference detection for linked entities and runtime/counter rules.
+- Added missing required entity warnings and safe pausing behavior when required runtime/counter entities are cleared.
+
 ## 0.6.2
 
 - Added portable JSON export from the HMM Settings page.
