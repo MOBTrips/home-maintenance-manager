@@ -313,7 +313,7 @@ class MaintenanceCoordinator:
         return {
             "format": "home_maintenance_manager_export",
             "format_version": 1,
-            "integration_version": "0.6.4",
+            "integration_version": "0.6.5",
             "exported_at": dt_util.utcnow().isoformat(),
             "storage_version": STORAGE_VERSION,
             "tasks": [task.as_dict() for task in self.tasks.values()],
@@ -431,10 +431,14 @@ class MaintenanceCoordinator:
         data = dict(task_data)
         linked = []
         for entity_id in data.get("linked_entities") or []:
-            action = mapping.get(str(entity_id), str(entity_id))
+            original = str(entity_id)
+            action = mapping.get(original, original)
             if action in (None, "", "__clear__"):
                 continue
-            linked.append(str(action))
+            if action == "__unresolved__":
+                linked.append(original)
+            else:
+                linked.append(str(action))
         data["linked_entities"] = linked
         rules = []
         for rule in data.get("rules") or []:
@@ -442,9 +446,14 @@ class MaintenanceCoordinator:
                 continue
             new_rule = dict(rule)
             if new_rule.get("entity"):
-                action = mapping.get(str(new_rule.get("entity")), str(new_rule.get("entity")))
+                original = str(new_rule.get("entity"))
+                action = mapping.get(original, original)
                 if action in (None, "", "__clear__"):
                     new_rule.pop("entity", None)
+                    if new_rule.get("type") in ("runtime", "counter"):
+                        data["paused"] = True
+                elif action == "__unresolved__":
+                    new_rule["entity"] = original
                     if new_rule.get("type") in ("runtime", "counter"):
                         data["paused"] = True
                 else:

@@ -119,3 +119,7 @@ See [CHANGELOG.md](CHANGELOG.md).
 ### Import Review Wizard
 
 HMM includes a dedicated JSON import review wizard. Upload a HMM export or task-pack-style JSON file, review new/update/duplicate/deleted/invalid tasks, check missing entity warnings, select only the tasks you want, then confirm the import.
+
+### Entity Mapping During Import
+
+The import wizard includes a mapping step for missing Home Assistant entities. You can map a missing entity to a current entity, clear it from the imported task, or keep it unresolved for later setup. Required runtime and meter entities that remain unresolved are imported paused so due dates are not calculated from the wrong source.

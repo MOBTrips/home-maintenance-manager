@@ -1,3 +1,11 @@
+## 0.6.5
+
+- Moved Merge/Replace import behavior out of Settings and into the import wizard.
+- Added a dedicated Entity Mapping wizard step for missing entities.
+- Added entity picker support, suggestion chips, unresolved mapping, and clear mapping actions.
+- Added a final import summary showing selected tasks, mode, mapped, cleared, and unresolved entities.
+- Required runtime/counter entities left unresolved are imported paused for safety.
+
 ## 0.6.4
 
 ### Improved
