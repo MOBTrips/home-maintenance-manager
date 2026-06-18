@@ -143,6 +143,47 @@ async def websocket_get_metadata(hass: HomeAssistant, connection, msg) -> None:
 
 
 
+
+
+@websocket_api.websocket_command({vol.Required("type"): f"{DOMAIN}/export_data"})
+@websocket_api.async_response
+async def websocket_export_data(hass: HomeAssistant, connection, msg) -> None:
+    """Return a portable JSON export package for HMM data."""
+    coordinator = _coordinator_for_entry(hass)
+    if coordinator is None:
+        connection.send_error(msg["id"], "not_found", "Home Maintenance Manager coordinator was not found")
+        return
+    connection.send_result(msg["id"], coordinator.export_data())
+
+
+@websocket_api.websocket_command({
+    vol.Required("type"): f"{DOMAIN}/import_data",
+    vol.Required("data"): dict,
+    vol.Optional("mode", default="merge"): vol.In(["merge", "replace"]),
+})
+@websocket_api.async_response
+async def websocket_import_data(hass: HomeAssistant, connection, msg) -> None:
+    """Import a portable JSON export package for HMM data."""
+    entries = hass.config_entries.async_entries(DOMAIN)
+    coordinator = _coordinator_for_entry(hass, entries[0].entry_id if entries else None)
+    if coordinator is None:
+        connection.send_error(msg["id"], "not_found", "Home Maintenance Manager coordinator was not found")
+        return
+    try:
+        result = await coordinator.async_import_data(msg.get("data") or {}, msg.get("mode") or "merge")
+    except ValueError as err:
+        connection.send_error(msg["id"], "invalid_import", str(err))
+        return
+    except Exception as err:  # pragma: no cover - defensive import error reporting
+        _LOGGER.exception("Home Maintenance Manager import failed")
+        connection.send_error(msg["id"], "import_failed", str(err))
+        return
+
+    if entries:
+        hass.async_create_task(hass.config_entries.async_reload(entries[0].entry_id))
+    connection.send_result(msg["id"], result)
+
+
 @websocket_api.websocket_command({vol.Required("type"): f"{DOMAIN}/get_backup_status"})
 @websocket_api.async_response
 async def websocket_get_backup_status(hass: HomeAssistant, connection, msg) -> None:
@@ -279,6 +320,8 @@ async def async_setup(hass: HomeAssistant, config: dict[str, Any]) -> bool:
     websocket_api.async_register_command(hass, websocket_get_tasks)
     websocket_api.async_register_command(hass, websocket_get_metadata)
     websocket_api.async_register_command(hass, websocket_get_backup_status)
+    websocket_api.async_register_command(hass, websocket_export_data)
+    websocket_api.async_register_command(hass, websocket_import_data)
     websocket_api.async_register_command(hass, websocket_update_notification_settings)
     websocket_api.async_register_command(hass, websocket_test_notification)
     await _async_register_panel(hass)

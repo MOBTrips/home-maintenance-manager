@@ -649,8 +649,51 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
         <p><b>Migrated from:</b> ${this.escape(migratedFrom)}</p>
         <p><b>Migration time:</b> ${this.escape(migratedAt)}</p>
       </div>
+      <div class="card"><h2>Export / Import JSON</h2>
+        <p class="muted">Export creates a portable JSON file containing tasks, schedules, runtime/history data, NFC assignments, and HMM settings. Home Assistant full backup remains the preferred full-system recovery path.</p>
+        <div class="task-actions"><button class="btn primary" data-action="export-json">Export JSON</button></div>
+        <hr>
+        <p><b>Import mode</b></p>
+        <p><label><input type="radio" name="import-mode" value="merge" checked> Merge - add/update imported tasks and keep existing tasks</label></p>
+        <p><label><input type="radio" name="import-mode" value="replace"> Replace - replace all HMM tasks/settings with the imported file</label></p>
+        <input id="import-json-file" type="file" accept="application/json,.json">
+        <div class="task-actions" style="margin-top:12px;"><button class="btn" data-action="import-json">Import JSON</button></div>
+        <p class="muted">Replace mode records deletion tombstones so old migrated tasks are not resurrected later.</p>
+      </div>
       <div class="card"><h2>Lookups</h2><p>Areas: ${this.metadata.areas.length}</p><p>Devices: ${this.metadata.devices.length}</p><p>Entities: ${this.metadata.entities.length}</p><p>Notify services: ${this.metadata.notify_services.length}</p><p>NFC tags: ${this.tags.length}</p><p>Categories: ${this.categories().length}</p></div>
     </div>`;
+  }
+
+  async exportJson() {
+    try {
+      const data = await this._hass.callWS({ type: 'home_maintenance_manager/export_data' });
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(blob);
+      link.download = `home_maintenance_manager_export_${stamp}.json`;
+      link.click();
+      URL.revokeObjectURL(link.href);
+    } catch (err) {
+      alert(`Export failed: ${err?.message || err}`);
+    }
+  }
+
+  async importJson() {
+    const fileInput = this.shadowRoot.getElementById('import-json-file');
+    const file = fileInput?.files?.[0];
+    if (!file) { alert('Choose a Home Maintenance Manager JSON export file first.'); return; }
+    const mode = this.shadowRoot.querySelector('input[name="import-mode"]:checked')?.value || 'merge';
+    if (mode === 'replace' && !confirm('Replace all existing HMM tasks and settings with this import file? This cannot be undone except by restoring a backup or importing another export.')) return;
+    try {
+      const text = await file.text();
+      const data = JSON.parse(text);
+      const result = await this._hass.callWS({ type: 'home_maintenance_manager/import_data', mode, data });
+      alert(`Import complete. Imported: ${result.imported}. Skipped: ${result.skipped}. Tasks now: ${result.after_tasks}.`);
+      await this.loadData();
+    } catch (err) {
+      alert(`Import failed: ${err?.message || err}`);
+    }
   }
 
   previewNotificationTitle() {
@@ -1232,6 +1275,8 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     this.shadowRoot.querySelectorAll('[data-action="refresh"]').forEach(el=>el.onclick=()=>this.loadData());
     this.shadowRoot.querySelectorAll('[data-action="save-notification-settings"]').forEach(el=>el.onclick=()=>this.saveNotificationSettings());
     this.shadowRoot.querySelectorAll('[data-action="test-notification"]').forEach(el=>el.onclick=()=>this.testNotification());
+    this.shadowRoot.querySelectorAll('[data-action="export-json"]').forEach(el=>el.onclick=()=>this.exportJson());
+    this.shadowRoot.querySelectorAll('[data-action="import-json"]').forEach(el=>el.onclick=()=>this.importJson());
     this.shadowRoot.querySelectorAll('[data-preview-title],[data-preview-body]').forEach(el=>el.oninput=()=>this.updateNotificationPreview());
     this.shadowRoot.querySelectorAll('[data-action="new-task"]').forEach(el=>el.onclick=()=>{ this._modalSnapshot=null; this.modal={task:{}}; this.render(); });
     this.shadowRoot.querySelectorAll('[data-action="close-modal"]').forEach(el=>el.onclick=()=>this.requestCloseModal());

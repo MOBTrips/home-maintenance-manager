@@ -1,3 +1,11 @@
+## 0.6.2
+
+- Added portable JSON export from the HMM Settings page.
+- Added portable JSON import from the HMM Settings page.
+- Added Merge import mode to add/update imported tasks while keeping existing tasks.
+- Added Replace import mode to replace all HMM tasks/settings and tombstone removed task IDs.
+- Added backend websocket APIs for export/import so future Task Packs can reuse the same foundation.
+
 
 ## 0.6.1
 

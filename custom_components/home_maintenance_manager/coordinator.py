@@ -302,6 +302,113 @@ class MaintenanceCoordinator:
         self._notify()
         await self.async_check_notifications()
 
+
+    def export_data(self) -> dict[str, Any]:
+        """Return a portable JSON export package.
+
+        The export format is intentionally separate from the raw HA Store file so
+        future releases can import/export task packs, support snapshots, and
+        keep Home Assistant-specific storage metadata out of shared packages.
+        """
+        return {
+            "format": "home_maintenance_manager_export",
+            "format_version": 1,
+            "integration_version": "0.6.2",
+            "exported_at": dt_util.utcnow().isoformat(),
+            "storage_version": STORAGE_VERSION,
+            "tasks": [task.as_dict() for task in self.tasks.values()],
+            "settings": self.storage_settings,
+            "migration": self.migration_info,
+        }
+
+    async def async_import_data(self, package: dict[str, Any], mode: str = "merge") -> dict[str, Any]:
+        """Import a portable JSON export package.
+
+        ``merge`` adds new tasks and updates matching task IDs while preserving
+        runtime/history for existing tasks unless the import includes those fields.
+        ``replace`` makes the imported package the full task database and records
+        tombstones for tasks removed by the replace so legacy migration sources
+        cannot resurrect them later.
+        """
+        if not isinstance(package, dict):
+            raise ValueError("Import data must be a JSON object")
+        mode = str(mode or "merge").lower()
+        if mode not in {"merge", "replace"}:
+            raise ValueError("Import mode must be merge or replace")
+
+        raw_tasks = package.get("tasks")
+        if raw_tasks is None and isinstance(package.get("data"), dict):
+            raw_tasks = package["data"].get("tasks")
+        if not isinstance(raw_tasks, list):
+            raise ValueError("Import file does not contain a tasks list")
+
+        imported: dict[str, MaintenanceTask] = {}
+        skipped = 0
+        for item in raw_tasks:
+            if not isinstance(item, dict) or not item.get("id") or not item.get("name"):
+                skipped += 1
+                continue
+            task_data = self._normalize_nfc_config(dict(item))
+            task_id = str(task_data["id"])
+            task_data["id"] = task_id
+            imported[task_id] = MaintenanceTask.from_dict(task_data)
+
+        before_ids = set(self.tasks)
+        changed_nfc_task_ids: list[str] = []
+
+        if mode == "replace":
+            removed_ids = before_ids - set(imported)
+            self.deleted_task_ids.update(removed_ids)
+            self.tasks = imported
+            self.deleted_task_ids.difference_update(imported.keys())
+            changed_nfc_task_ids.extend(list(before_ids | set(imported)))
+        else:
+            for task_id, imported_task in imported.items():
+                self.deleted_task_ids.discard(task_id)
+                old_tags = list(self.tasks.get(task_id).nfc_tags or []) if task_id in self.tasks else []
+                old_action = self.tasks.get(task_id).nfc_action if task_id in self.tasks else None
+                self.tasks[task_id] = imported_task
+                if old_tags != list(imported_task.nfc_tags or []) or old_action != imported_task.nfc_action:
+                    changed_nfc_task_ids.append(task_id)
+
+        # Enforce one owner per NFC tag after import. Later tasks win so a user
+        # can intentionally resolve collisions by editing/exporting order.
+        seen_tags: dict[str, str] = {}
+        for task_id, task in list(self.tasks.items()):
+            clean_tags = []
+            for tag in list(task.nfc_tags or []):
+                previous_owner = seen_tags.get(tag)
+                if previous_owner and previous_owner in self.tasks:
+                    previous = self.tasks[previous_owner]
+                    previous.nfc_tags = [t for t in (previous.nfc_tags or []) if t != tag]
+                    if not previous.nfc_tags:
+                        previous.nfc_action = "disabled"
+                    changed_nfc_task_ids.append(previous_owner)
+                seen_tags[tag] = task_id
+                clean_tags.append(tag)
+            task.nfc_tags = clean_tags
+
+        if isinstance(package.get("settings"), dict):
+            if mode == "replace":
+                self.storage_settings = dict(package.get("settings") or {})
+            else:
+                self.storage_settings.update(dict(package.get("settings") or {}))
+
+        await self.async_save()
+        if changed_nfc_task_ids:
+            await self._cleanup_nfc_notifications(sorted(set(changed_nfc_task_ids)))
+        self._setup_tracking()
+        self._notify()
+        await self.async_check_notifications()
+        return {
+            "mode": mode,
+            "imported": len(imported),
+            "skipped": skipped,
+            "before_tasks": len(before_ids),
+            "after_tasks": len(self.tasks),
+            "replaced_removed": len(before_ids - set(imported)) if mode == "replace" else 0,
+        }
+
     async def async_save(self) -> None:
         await self.store.async_save(self.data_for_storage())
 
