@@ -248,10 +248,19 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
       .wizard-panel { padding:16px 22px; }
       .wizard-section-card { border:1px solid var(--divider-color); border-radius:16px; padding:14px; margin:0 0 12px; background:var(--secondary-background-color); }
       .wizard-section-card h3 { margin:0 0 8px; }
+      .option-card { display:flex; align-items:flex-start; gap:10px; border:1px solid var(--divider-color); border-radius:14px; padding:12px; margin:10px 0; background:var(--card-background-color); cursor:pointer; }
+      .option-card input { flex:0 0 auto; width:auto; margin-top:3px; }
+      .danger-option { border-style:dashed; }
       .entity-map-row { display:grid; grid-template-columns:1.1fr 1.4fr; gap:14px; align-items:start; border:1px solid var(--divider-color); border-radius:16px; padding:14px; margin-bottom:12px; background:var(--secondary-background-color); }
       .entity-map-row .entity-original { word-break:break-word; }
       .entity-map-actions { display:grid; gap:8px; }
       .entity-map-actions ha-entity-picker { display:block; width:100%; }
+      .entity-map-context { margin-top:12px; display:grid; gap:8px; }
+      .entity-context-card { border:1px solid var(--divider-color); border-radius:12px; padding:10px; background:var(--card-background-color); }
+      .entity-context-title { display:flex; align-items:flex-start; justify-content:space-between; gap:8px; font-weight:800; }
+      .entity-context-meta { color:var(--secondary-text-color); font-size:13px; margin-top:3px; line-height:1.45; }
+      .entity-context-note { margin-top:6px; font-size:13px; line-height:1.45; }
+      .entity-context-more { color:var(--secondary-text-color); font-size:13px; margin-top:4px; }
       .summary-list { display:grid; gap:8px; }
       .summary-line { display:flex; justify-content:space-between; gap:12px; border-bottom:1px solid var(--divider-color); padding:8px 0; }
       .sticky-actions { position:sticky; bottom:0; background:var(--card-background-color); padding:16px 22px; margin:0; }
@@ -808,18 +817,56 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
 
   importMissingEntityRefs() {
     const rows = [];
-    const seen = new Set();
+    const byEntity = new Map();
     for (const t of (this.importPreview?.tasks || [])) {
       if (!t.selected || t.status === 'invalid') continue;
       for (const e of (t.entities || [])) {
         if (e.status !== 'missing') continue;
         const key = e.entity_id;
-        if (seen.has(key)) continue;
-        seen.add(key);
-        rows.push({...e, tasks:[t.name]});
+        if (!byEntity.has(key)) byEntity.set(key, {...e, tasks: [], required: !!e.required, roles: new Set()});
+        const ref = byEntity.get(key);
+        ref.required = ref.required || !!e.required;
+        if (e.role) ref.roles.add(e.role);
+        ref.tasks.push({
+          id: t.id,
+          name: t.name || 'Unnamed task',
+          category: t.category || 'General',
+          status: t.status || 'unknown',
+          schedule_type: t.schedule_type || t.schedule?.type || '',
+          frequency: t.frequency || t.interval || '',
+          last_completed: t.last_completed || t.last_done || '',
+          due_date: t.due_date || t.next_due || '',
+          description: t.description || t.notes || t.instructions || '',
+          required: !!e.required,
+          role: e.role || 'entity',
+        });
       }
     }
+    for (const ref of byEntity.values()) {
+      ref.role = ref.roles?.size ? Array.from(ref.roles).join(', ') : ref.role;
+      delete ref.roles;
+      rows.push(ref);
+    }
     return rows;
+  }
+
+  importTaskScheduleSummary(t) {
+    const bits = [];
+    if (t.schedule_type) bits.push(String(t.schedule_type).replace(/_/g, ' '));
+    if (t.frequency) bits.push(`Every ${t.frequency}`);
+    if (t.last_completed) bits.push(`Last done ${this.dateShort(t.last_completed)}`);
+    if (t.due_date) bits.push(`Due ${this.dateShort(t.due_date)}`);
+    return bits.join(' • ');
+  }
+
+  renderEntityMapTaskContext(task) {
+    const schedule = this.importTaskScheduleSummary(task);
+    const desc = (task.description || '').replace(/\s+/g, ' ').trim();
+    return `<div class="entity-context-card">
+      <div class="entity-context-title"><span>${this.escape(task.name)}</span><span class="pill ${task.required ? 'warn' : ''}">${this.escape(task.required ? 'Required' : 'Optional')}</span></div>
+      <div class="entity-context-meta">${this.escape(task.category || 'General')} • ${this.escape(task.role || 'entity')} • ${this.escape(task.status || 'unknown')}${schedule ? ` • ${this.escape(schedule)}` : ''}</div>
+      ${desc ? `<div class="entity-context-note">${this.escape(desc.slice(0, 180))}${desc.length > 180 ? '…' : ''}</div>` : ''}
+    </div>`;
   }
 
   renderImportWizardEntityStep(p) {
@@ -838,7 +885,11 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
       <div>
         <div class="pill ${ref.required ? 'warn' : ''}">${ref.required ? 'Required' : 'Optional'} ${this.escape(ref.role || 'entity')}</div>
         <h3 class="entity-original">${this.escape(ref.entity_id)}</h3>
-        <div class="muted">Used by selected imported tasks</div>
+        <div class="muted">Used by ${ref.tasks?.length || 0} selected imported task${(ref.tasks?.length || 0) === 1 ? '' : 's'}</div>
+        <div class="entity-map-context">
+          ${(ref.tasks || []).slice(0,4).map(t => this.renderEntityMapTaskContext(t)).join('')}
+          ${(ref.tasks || []).length > 4 ? `<div class="entity-context-more">+${(ref.tasks || []).length - 4} more task${((ref.tasks || []).length - 4) === 1 ? '' : 's'} use this entity</div>` : ''}
+        </div>
       </div>
       <div class="entity-map-actions">
         <label><input type="radio" name="map-${this.escape(ref.entity_id)}" data-map-entity="${this.escape(ref.entity_id)}" value="__unresolved__" ${current==='__unresolved__'?'checked':''}> Keep unresolved for later</label>
@@ -854,16 +905,27 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     const isPack = p.package_type === 'task_pack';
     const hasUpdates = (p.counts?.update || 0) > 0;
     const hasDeleted = (p.counts?.deleted || 0) > 0;
+    const selected = (p.tasks || []).filter(t => t.selected && t.status !== 'invalid').length;
     return `<div class="wizard-panel">
-      <div class="wizard-section-card"><h3>Import behavior</h3>
-        ${isPack ? '<p class="muted">Task Packs are templates. Replace mode and settings import are disabled for Task Packs.</p>' : '<p class="muted">Choose how selected tasks should be applied.</p>'}
-        ${!isPack ? `<label><input type="radio" name="wizard-import-mode" value="merge" ${this.importMode !== 'replace' ? 'checked' : ''}> Merge selected tasks into existing HMM data</label><br>
-        <label><input type="radio" name="wizard-import-mode" value="replace" ${this.importMode === 'replace' ? 'checked' : ''}> Replace all HMM tasks with selected imported tasks</label>` : ''}
+      <div class="wizard-section-card"><h3>Import options</h3>
+        <p class="muted">These choices control what happens when you press Import on the next page. Your selected tasks and entity mappings are preserved while you move between wizard steps.</p>
+        <div class="summary-list">
+          <div class="summary-line"><span>Selected tasks</span><b>${selected}</b></div>
+          <div class="summary-line"><span>Import type</span><b>${isPack ? 'Task Pack' : 'Backup export'}</b></div>
+        </div>
       </div>
+      ${!isPack ? `<div class="wizard-section-card"><h3>Apply mode</h3>
+        <p class="muted"><b>Merge</b> is safest for normal imports. It adds new selected tasks and updates selected matching tasks without deleting your other HMM tasks.</p>
+        <label class="option-card"><input type="radio" name="wizard-import-mode" value="merge" ${this.importMode !== 'replace' ? 'checked' : ''}> <span><b>Merge selected tasks</b><br><span class="muted">Keep existing HMM data. Add/update only the tasks selected in this wizard.</span></span></label>
+        <label class="option-card danger-option"><input type="radio" name="wizard-import-mode" value="replace" ${this.importMode === 'replace' ? 'checked' : ''}> <span><b>Replace HMM tasks with selected tasks</b><br><span class="muted">Recovery/migration mode. Existing HMM tasks not selected here will be removed.</span></span></label>
+      </div>` : `<div class="wizard-section-card"><h3>Apply mode</h3><p class="muted">Task Packs are templates, so they always use merge mode. They add selected tasks without replacing your existing HMM data.</p></div>`}
       <div class="wizard-section-card"><h3>Settings and deleted tasks</h3>
-        <label class="check-row"><input type="checkbox" id="import-settings" ${isPack ? '' : 'checked'} ${isPack ? 'disabled' : ''}> Import settings from file</label><br>
-        <label class="check-row"><input type="checkbox" id="restore-deleted" ${hasDeleted ? '' : 'disabled'}> Allow restoring previously deleted tasks</label>
-        ${hasUpdates ? '<p class="muted">Selected tasks with matching IDs will update existing tasks in merge mode.</p>' : ''}
+        <label class="check-row"><input type="checkbox" id="import-settings" ${isPack ? '' : 'checked'} ${isPack ? 'disabled' : ''}> Import HMM settings from this backup</label>
+        <p class="muted">Use this when restoring your own backup. Leave it off when you only want tasks.</p>
+        <label class="check-row"><input type="checkbox" id="restore-deleted" ${hasDeleted ? '' : 'disabled'}> Allow previously deleted tasks to be restored</label>
+        <p class="muted">Normally HMM protects you from resurrecting tasks you already deleted. Turn this on only when you intentionally want those tasks back.</p>
+        ${hasUpdates ? '<div class="info-box"><b>Updates found:</b> selected tasks with matching IDs will update existing tasks when merge mode is used.</div>' : ''}
+        ${hasDeleted ? '' : '<p class="muted">No previously deleted tasks were detected in this import.</p>'}
       </div>
     </div>`;
   }
@@ -947,7 +1009,12 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
 
   captureImportSelections() {
     if (!this.importPreview?.tasks) return;
-    const checked = new Set(Array.from(this.shadowRoot.querySelectorAll('.import-task-select')).filter(el=>el.checked).map(el=>el.dataset.taskId));
+    const boxes = Array.from(this.shadowRoot.querySelectorAll('.import-task-select'));
+    // Only the task review step renders task checkboxes. Do not treat steps without
+    // checkboxes as an empty selection, or moving through the wizard will clear
+    // previously selected tasks.
+    if (!boxes.length) return;
+    const checked = new Set(boxes.filter(el=>el.checked).map(el=>el.dataset.taskId));
     for (const task of this.importPreview.tasks) {
       if (task.status !== 'invalid') task.selected = checked.has(task.id);
     }

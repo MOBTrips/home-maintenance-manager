@@ -1,3 +1,15 @@
+## 0.6.7
+
+- Fixed import wizard task selections being cleared when moving from Entity Mapping to Import Options.
+- Improved Import Options guidance with safer merge/replace explanations.
+- Clarified that Task Packs always merge and that Replace is backup recovery mode.
+
+## 0.6.6
+
+- Improved import wizard entity mapping context.
+- Missing entity rows now show the affected task name, category, import status, role, required/optional status, schedule context, and a short task description.
+- Fixed duplicate mapped-entities line in import summary.
+
 ## 0.6.5
 
 - Moved Merge/Replace import behavior out of Settings and into the import wizard.
