@@ -1,3 +1,11 @@
+## 0.6.4
+
+### Improved
+- Rebuilt JSON import review into a dedicated full-screen/modal wizard, matching the task view/edit experience.
+- Added summary tiles, stepper, status filters, bulk selection controls, and clearer missing-entity warnings.
+- Improved mobile layout for import review so task names, categories, statuses, and entity issues are readable.
+- Import still previews only until the user confirms; no storage changes are made during review.
+
 ## 0.6.3
 
 - Added import preview/review workflow before saving JSON imports.

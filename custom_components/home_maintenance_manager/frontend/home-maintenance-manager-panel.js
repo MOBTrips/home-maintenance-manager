@@ -9,6 +9,8 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     this.importPackage = null;
     this.importPreview = null;
     this.importMode = "merge";
+    this.importWizardOpen = false;
+    this.importStatusFilter = "all";
     this.notificationSettings = { enabled: true, default_mode: "automation_only", mobile_notify_services: [], notify_upcoming: true, notify_due: true, notify_overdue: true, notify_completed: false, notify_snoozed: false, repeat_mode: "once", repeat_days: 1, quiet_start: "", quiet_end: "", title_template: "[{category}] {task_name}", body_template: "{task_name} is {status}." };
     this.tags = [];
     this.tab = "dashboard";
@@ -212,6 +214,38 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
       @media(max-width: 800px){ .manual-threshold-row { grid-template-columns: 1fr; } }
       @media(max-width: 800px){ .analysis-controls { grid-template-columns: 1fr; } }
       .tooltip-note { font-size:12px; color: var(--secondary-text-color); }
+
+      .import-wizard { width:min(1120px, 100%); padding:0; overflow:hidden; }
+      .import-wizard .sticky-head { position:sticky; top:0; z-index:2; background:var(--card-background-color); padding:20px 22px 14px; border-bottom:1px solid var(--divider-color); margin:0; }
+      .import-wizard h2 { margin:2px 0 4px; }
+      .wizard-stepper { display:flex; gap:10px; padding:14px 22px; background:var(--secondary-background-color); border-bottom:1px solid var(--divider-color); overflow:auto; }
+      .step { display:flex; align-items:center; gap:8px; border:1px solid var(--divider-color); border-radius:999px; padding:8px 12px; white-space:nowrap; color:var(--secondary-text-color); }
+      .step b { display:inline-flex; width:22px; height:22px; border-radius:50%; align-items:center; justify-content:center; background:var(--divider-color); color:var(--primary-text-color); }
+      .step.active { border-color:var(--primary-color); color:var(--primary-text-color); }
+      .step.active b { background:var(--primary-color); color:var(--text-primary-color); }
+      .wizard-summary-grid { display:grid; grid-template-columns:repeat(4, 1fr); gap:12px; padding:18px 22px 8px; }
+      .summary-tile { border:1px solid var(--divider-color); border-radius:16px; padding:14px; background:var(--secondary-background-color); }
+      .summary-tile.attention { border-color:var(--primary-color); }
+      .summary-value { font-size:28px; font-weight:800; line-height:1; }
+      .wizard-warning, .wizard-alert { margin:12px 22px; border-left:5px solid var(--primary-color); padding:12px 14px; border-radius:12px; background:var(--secondary-background-color); color:var(--primary-text-color); }
+      .wizard-controls { display:flex; justify-content:space-between; gap:16px; align-items:end; padding:8px 22px 14px; border-bottom:1px solid var(--divider-color); }
+      .chip-row { display:flex; gap:8px; flex-wrap:wrap; }
+      .chip { border:1px solid var(--divider-color); background:var(--card-background-color); border-radius:999px; padding:8px 11px; cursor:pointer; color:var(--primary-text-color); }
+      .chip.active { background:var(--primary-color); color:var(--text-primary-color); border-color:var(--primary-color); }
+      .wizard-bulk-actions { display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-end; }
+      .review-list { padding:12px 22px; max-height:45vh; overflow:auto; background:var(--card-background-color); }
+      .review-row { display:grid; grid-template-columns:42px 1fr; gap:12px; border:1px solid var(--divider-color); border-radius:16px; padding:14px; margin-bottom:10px; background:var(--secondary-background-color); }
+      .review-row.disabled { opacity:.62; }
+      .review-check { padding-top:5px; }
+      .review-title-row { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; }
+      .review-title-row h3 { margin:0 0 4px; font-size:18px; }
+      .entity-warning { margin-top:8px; color:var(--primary-text-color); font-weight:700; }
+      .missing-entity-list { margin-top:8px; color:var(--secondary-text-color); line-height:1.8; }
+      .missing-entity-list code { white-space:normal; }
+      .import-options-section { margin:12px 22px 0; }
+      .sticky-actions { position:sticky; bottom:0; background:var(--card-background-color); padding:16px 22px; margin:0; }
+      .empty-list { text-align:center; color:var(--secondary-text-color); padding:24px; }
+      @media(max-width: 800px){ .import-wizard-scrim { padding:0; } .import-wizard { min-height:100vh; border-radius:0; } .wizard-summary-grid { grid-template-columns:1fr 1fr; } .wizard-controls { flex-direction:column; align-items:stretch; } .review-list { max-height:none; } .modal-actions-bottom.sticky-actions { align-items:stretch; flex-direction:column; } .sticky-actions .right { justify-content:stretch; } .sticky-actions .right .btn { flex:1; } }
     `;
   }
 
@@ -460,7 +494,7 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
   }
 
   render() {
-    this.shadowRoot.innerHTML = `<style>${this.css()}</style><div class="page">${this.renderBody()}</div>${this.renderModal()}`;
+    this.shadowRoot.innerHTML = `<style>${this.css()}</style><div class="page">${this.renderBody()}</div>${this.renderModal()}${this.renderImportWizardModal()}`;
     this.bind();
   }
 
@@ -662,8 +696,8 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
         <p><label><input type="radio" name="import-mode" value="merge" ${this.importMode !== 'replace' ? 'checked' : ''}> Merge selected tasks</label></p>
         <p><label><input type="radio" name="import-mode" value="replace" ${this.importMode === 'replace' ? 'checked' : ''}> Replace with selected tasks</label></p>
         <input id="import-json-file" type="file" accept="application/json,.json">
-        <div class="task-actions" style="margin-top:12px;"><button class="btn" data-action="preview-import-json">Preview Import</button></div>
-        ${this.renderImportPreview()}
+        <div class="task-actions" style="margin-top:12px;"><button class="btn" data-action="preview-import-json">Open Import Review</button></div>
+        <div class="info-box">Choose a JSON file, then open the import review wizard. Nothing is saved until you review and confirm the import.</div>
         <p class="muted">Task Packs are treated as templates. Entity IDs are reviewed as mapping requirements instead of silently failing.</p>
       </div>
       <div class="card"><h2>Lookups</h2><p>Areas: ${this.metadata.areas.length}</p><p>Devices: ${this.metadata.devices.length}</p><p>Entities: ${this.metadata.entities.length}</p><p>Notify services: ${this.metadata.notify_services.length}</p><p>NFC tags: ${this.tags.length}</p><p>Categories: ${this.categories().length}</p></div>
@@ -671,32 +705,115 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
   }
 
 
-  renderImportPreview() {
+  renderImportWizardModal() {
+    if (!this.importWizardOpen || !this.importPreview) return '';
     const p = this.importPreview;
-    if (!p) return '<div class="info-box">Choose a JSON file, then click <b>Preview Import</b>. No data is changed during preview.</div>';
     const counts = p.counts || {};
     const entity = p.entity_counts || {};
-    const rows = (p.tasks || []).map(t => {
-      const entityText = (t.entities || []).length ? `${(t.entities || []).filter(e=>e.status==='missing').length} missing / ${(t.entities || []).length} refs` : 'No entity refs';
-      const checked = t.selected ? 'checked' : '';
-      const disabled = t.status === 'invalid' ? 'disabled' : '';
-      const warn = t.required_entity_missing ? '<br><span class="muted">Required entity missing; task will be paused unless remapped.</span>' : '';
-      return `<tr><td><input type="checkbox" class="import-task-select" data-task-id="${this.escape(t.id)}" ${checked} ${disabled}></td><td><b>${this.escape(t.name || '')}</b><br><span class="muted">${this.escape(t.category || '')}</span>${warn}</td><td><span class="pill ${t.status === 'new' ? 'ok' : ''}">${this.escape(t.status)}</span></td><td>${this.escape(entityText)}</td></tr>`;
-    }).join('');
-    const warnings = (p.warnings || []).map(w=>`<div class="info-box">${this.escape(w)}</div>`).join('');
-    return `<div class="schedule-card">
-      <h3>Import Preview</h3>
-      <p><b>${this.escape(p.pack_name || 'HMM Import')}</b> <span class="muted">(${this.escape(p.package_type || 'backup')})</span></p>
-      <p>New: ${counts.new||0} · Updates: ${counts.update||0} · Duplicates: ${counts.duplicate||0} · Deleted: ${counts.deleted||0} · Invalid: ${counts.invalid||0}</p>
-      <p>Entities found: ${entity.found||0} · Missing: ${entity.missing||0} · Required missing: ${entity.required_missing||0}</p>
-      ${warnings}
-      <div class="task-actions"><button class="btn small" data-action="select-all-import">Select all valid</button><button class="btn small" data-action="select-none-import">Select none</button></div>
-      <div style="overflow:auto;margin-top:10px;"><table class="task-table"><thead><tr><th>Import</th><th>Task</th><th>Status</th><th>Entities</th></tr></thead><tbody>${rows || '<tr><td colspan="4">No importable tasks found.</td></tr>'}</tbody></table></div>
-      <p><label><input type="checkbox" id="import-settings" ${p.package_type === 'task_pack' ? '' : 'checked'} ${p.package_type === 'task_pack' ? 'disabled' : ''}> Import settings from file</label></p>
-      <p><label><input type="checkbox" id="restore-deleted"> Allow restoring previously deleted tasks</label></p>
-      <div class="task-actions"><button class="btn primary" data-action="apply-import-json">Import Selected</button><button class="btn" data-action="clear-import-preview">Clear Preview</button></div>
+    const total = (p.tasks || []).length;
+    const selected = (p.tasks || []).filter(t => t.selected && t.status !== 'invalid').length;
+    const requiredMissing = Number(entity.required_missing || 0);
+    const missing = Number(entity.missing || 0);
+    const filters = [
+      ['all', `All (${total})`],
+      ['new', `New (${counts.new || 0})`],
+      ['update', `Updates (${counts.update || 0})`],
+      ['duplicate', `Duplicates (${counts.duplicate || 0})`],
+      ['deleted', `Deleted (${counts.deleted || 0})`],
+      ['invalid', `Invalid (${counts.invalid || 0})`],
+      ['missing_entities', `Missing entities (${missing || 0})`],
+    ];
+    const rows = (p.tasks || []).filter(t => {
+      const f = this.importStatusFilter || 'all';
+      if (f === 'all') return true;
+      if (f === 'missing_entities') return (t.entities || []).some(e => e.status === 'missing');
+      return t.status === f;
+    }).map(t => this.renderImportTaskReviewRow(t)).join('');
+    const warnings = (p.warnings || []).map(w=>`<div class="wizard-alert">${this.escape(w)}</div>`).join('');
+    const canApply = selected > 0;
+    return `<div class="modal-scrim import-wizard-scrim" data-action="import-wizard-scrim">
+      <div class="modal import-wizard" role="dialog" aria-modal="true" aria-label="Import review">
+        <div class="modal-head sticky-head">
+          <div>
+            <div class="muted">Import Review Wizard</div>
+            <h2>${this.escape(p.pack_name || 'HMM Import')}</h2>
+            <div class="muted">${this.escape(p.package_type || 'backup')} • ${this.importMode === 'replace' ? 'Replace mode' : 'Merge mode'} • Nothing has been saved yet</div>
+          </div>
+          <button class="btn" data-action="close-import-wizard">Close</button>
+        </div>
+
+        <div class="wizard-stepper">
+          <div class="step active"><b>1</b><span>Validated</span></div>
+          <div class="step active"><b>2</b><span>Review tasks</span></div>
+          <div class="step"><b>3</b><span>Confirm import</span></div>
+        </div>
+
+        <div class="wizard-summary-grid">
+          <div class="summary-tile"><div class="summary-value">${counts.new || 0}</div><div class="muted">New</div></div>
+          <div class="summary-tile"><div class="summary-value">${counts.update || 0}</div><div class="muted">Updates</div></div>
+          <div class="summary-tile"><div class="summary-value">${counts.duplicate || 0}</div><div class="muted">Duplicates</div></div>
+          <div class="summary-tile ${requiredMissing ? 'attention' : ''}"><div class="summary-value">${requiredMissing}</div><div class="muted">Required entities missing</div></div>
+        </div>
+
+        ${warnings}
+        ${requiredMissing ? `<div class="wizard-warning"><b>Action needed:</b> ${requiredMissing} required runtime/counter entity reference${requiredMissing === 1 ? ' is' : 's are'} missing. Affected runtime/counter tasks will be imported paused so they do not calculate incorrect due dates.</div>` : ''}
+
+        <div class="wizard-controls">
+          <div>
+            <label>Show</label>
+            <div class="chip-row">${filters.map(([id,label]) => `<button class="chip ${this.importStatusFilter === id ? 'active' : ''}" data-import-filter="${id}">${this.escape(label)}</button>`).join('')}</div>
+          </div>
+          <div class="wizard-bulk-actions">
+            <button class="btn small" data-action="select-all-import">Select all valid</button>
+            <button class="btn small" data-action="select-none-import">Select none</button>
+          </div>
+        </div>
+
+        <div class="review-list">${rows || '<div class="empty-list">No tasks match this filter.</div>'}</div>
+
+        <div class="form-section import-options-section">
+          <h3>Import options</h3>
+          <div class="two">
+            <label class="check-row"><input type="checkbox" id="import-settings" ${p.package_type === 'task_pack' ? '' : 'checked'} ${p.package_type === 'task_pack' ? 'disabled' : ''}> Import settings from file</label>
+            <label class="check-row"><input type="checkbox" id="restore-deleted"> Allow restoring previously deleted tasks</label>
+          </div>
+          <p class="section-note">Task Packs do not import system settings. Missing entity references are kept as unresolved mappings for later setup.</p>
+        </div>
+
+        <div class="modal-actions-bottom sticky-actions">
+          <div><b>${selected}</b> selected of ${total} task${total === 1 ? '' : 's'}</div>
+          <div class="right">
+            <button class="btn" data-action="close-import-wizard">Cancel</button>
+            <button class="btn primary" data-action="apply-import-json" ${canApply ? '' : 'disabled'}>${this.importMode === 'replace' ? 'Replace with selected' : 'Import selected'}</button>
+          </div>
+        </div>
+      </div>
     </div>`;
   }
+
+  renderImportTaskReviewRow(t) {
+    const entities = t.entities || [];
+    const missingEntities = entities.filter(e => e.status === 'missing');
+    const entityStatus = entities.length
+      ? `${entities.length - missingEntities.length} found • ${missingEntities.length} missing`
+      : 'No entity references';
+    const checked = t.selected ? 'checked' : '';
+    const disabled = t.status === 'invalid' ? 'disabled' : '';
+    const statusClass = t.status === 'new' ? 'ok' : t.status === 'invalid' || t.required_entity_missing ? 'warn' : '';
+    const pauseNote = t.required_entity_missing ? '<div class="entity-warning">Required entity missing. This task will be imported paused unless remapped in a future mapping step.</div>' : '';
+    const entityList = missingEntities.slice(0, 3).map(e => `<code>${this.escape(e.entity_id || e.id || '')}</code>`).join(' ');
+    return `<div class="review-row ${disabled ? 'disabled' : ''}">
+      <div class="review-check"><input type="checkbox" class="import-task-select" data-task-id="${this.escape(t.id)}" ${checked} ${disabled}></div>
+      <div class="review-main">
+        <div class="review-title-row"><h3>${this.escape(t.name || 'Unnamed task')}</h3><span class="pill ${statusClass}">${this.escape(t.status || 'unknown')}</span></div>
+        <div class="muted">${this.escape(t.category || 'General')} • ${this.escape(entityStatus)}</div>
+        ${pauseNote}
+        ${entityList ? `<div class="missing-entity-list">Missing: ${entityList}${missingEntities.length > 3 ? ` +${missingEntities.length - 3} more` : ''}</div>` : ''}
+      </div>
+    </div>`;
+  }
+
+  renderImportPreview() { return ''; }
 
   async exportJson() {
     try {
@@ -722,13 +839,27 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
       const text = await file.text();
       this.importPackage = JSON.parse(text);
       this.importPreview = await this._hass.callWS({ type: 'home_maintenance_manager/import_preview', mode: this.importMode, data: this.importPackage });
+      this.importStatusFilter = 'all';
+      this.importWizardOpen = true;
       this.render();
     } catch (err) {
       alert(`Import preview failed: ${err?.message || err}`);
     }
   }
 
+  captureImportSelections() {
+    if (!this.importPreview?.tasks) return;
+    const checked = new Set(Array.from(this.shadowRoot.querySelectorAll('.import-task-select')).filter(el=>el.checked).map(el=>el.dataset.taskId));
+    for (const task of this.importPreview.tasks) {
+      if (task.status !== 'invalid') task.selected = checked.has(task.id);
+    }
+  }
+
   selectedImportIds() {
+    this.captureImportSelections();
+    if (this.importPreview?.tasks) {
+      return this.importPreview.tasks.filter(t => t.selected && t.status !== 'invalid').map(t => t.id);
+    }
     return Array.from(this.shadowRoot.querySelectorAll('.import-task-select')).filter(el=>el.checked).map(el=>el.dataset.taskId);
   }
 
@@ -743,7 +874,7 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
       const restore_deleted = !!this.shadowRoot.getElementById('restore-deleted')?.checked;
       const result = await this._hass.callWS({ type: 'home_maintenance_manager/import_apply', mode: this.importMode, data: this.importPackage, selected_ids, import_settings, restore_deleted, entity_mapping: {} });
       alert(`Import complete. Imported: ${result.imported}. Skipped: ${result.skipped}. Tasks now: ${result.after_tasks}.`);
-      this.importPackage = null; this.importPreview = null;
+      this.importPackage = null; this.importPreview = null; this.importWizardOpen = false;
       await this.loadData();
     } catch (err) {
       alert(`Import failed: ${err?.message || err}`);
@@ -1335,9 +1466,13 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     this.shadowRoot.querySelectorAll('[data-action="import-json"]').forEach(el=>el.onclick=()=>this.importJson());
     this.shadowRoot.querySelectorAll('[data-action="preview-import-json"]').forEach(el=>el.onclick=()=>this.previewImportJson());
     this.shadowRoot.querySelectorAll('[data-action="apply-import-json"]').forEach(el=>el.onclick=()=>this.applyImportJson());
-    this.shadowRoot.querySelectorAll('[data-action="clear-import-preview"]').forEach(el=>el.onclick=()=>{this.importPackage=null;this.importPreview=null;this.render();});
-    this.shadowRoot.querySelectorAll('[data-action="select-all-import"]').forEach(el=>el.onclick=()=>{this.shadowRoot.querySelectorAll('.import-task-select:not(:disabled)').forEach(cb=>cb.checked=true);});
-    this.shadowRoot.querySelectorAll('[data-action="select-none-import"]').forEach(el=>el.onclick=()=>{this.shadowRoot.querySelectorAll('.import-task-select').forEach(cb=>cb.checked=false);});
+    this.shadowRoot.querySelectorAll('[data-action="clear-import-preview"]').forEach(el=>el.onclick=()=>{this.importPackage=null;this.importPreview=null;this.importWizardOpen=false;this.render();});
+    this.shadowRoot.querySelectorAll('[data-action="close-import-wizard"]').forEach(el=>el.onclick=()=>{this.importWizardOpen=false;this.render();});
+    this.shadowRoot.querySelectorAll('[data-action="import-wizard-scrim"]').forEach(el=>el.onclick=(ev)=>{ if (ev.target === el) { this.importWizardOpen=false; this.render(); } });
+    this.shadowRoot.querySelectorAll('[data-import-filter]').forEach(el=>el.onclick=()=>{ this.captureImportSelections(); this.importStatusFilter=el.dataset.importFilter; this.render(); });
+    this.shadowRoot.querySelectorAll('[data-action="select-all-import"]').forEach(el=>el.onclick=()=>{this.shadowRoot.querySelectorAll('.import-task-select:not(:disabled)').forEach(cb=>cb.checked=true); this.captureImportSelections(); this.render();});
+    this.shadowRoot.querySelectorAll('[data-action="select-none-import"]').forEach(el=>el.onclick=()=>{this.shadowRoot.querySelectorAll('.import-task-select').forEach(cb=>cb.checked=false); this.captureImportSelections(); this.render();});
+    this.shadowRoot.querySelectorAll('.import-task-select').forEach(el=>el.onchange=()=>this.captureImportSelections());
     this.shadowRoot.querySelectorAll('[data-preview-title],[data-preview-body]').forEach(el=>el.oninput=()=>this.updateNotificationPreview());
     this.shadowRoot.querySelectorAll('[data-action="new-task"]').forEach(el=>el.onclick=()=>{ this._modalSnapshot=null; this.modal={task:{}}; this.render(); });
     this.shadowRoot.querySelectorAll('[data-action="close-modal"]').forEach(el=>el.onclick=()=>this.requestCloseModal());

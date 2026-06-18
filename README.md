@@ -114,3 +114,8 @@ https://github.com/MOBTrips/home-maintenance-manager/issues
 ## Release notes
 
 See [CHANGELOG.md](CHANGELOG.md).
+
+
+### Import Review Wizard
+
+HMM includes a dedicated JSON import review wizard. Upload a HMM export or task-pack-style JSON file, review new/update/duplicate/deleted/invalid tasks, check missing entity warnings, select only the tasks you want, then confirm the import.
