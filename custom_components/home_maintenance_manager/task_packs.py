@@ -32,7 +32,21 @@ TASK_PACK_STRIPPED_FIELDS = RUNTIME_HISTORY_FIELDS | {
     "nfc_tags",
     "linked_device_id",
     "mobile_notify_service",
+    "mobile_notify_services",
+    "notification_targets",
+    "deleted",
+    "deleted_at",
 }
+
+
+def enforce_task_pack_merge_mode(mode: str | None) -> str:
+    """Return merge mode for Task Packs or reject destructive modes."""
+    normalized = str(mode or "merge").lower()
+    if normalized == "replace":
+        raise ValueError("Task Packs always use merge mode. Replace is only available for full HMM backup exports.")
+    if normalized != "merge":
+        raise ValueError("Task Pack import mode must be merge")
+    return "merge"
 
 
 def is_task_pack_package(package: dict[str, Any]) -> bool:
@@ -168,7 +182,7 @@ def _template_tasks_with_entity_requirements(
             domain = entity.split(".", 1)[0] if "." in entity else ""
             by_entity[entity] = {
                 "id": req_id,
-                "name": entity,
+                "name": req_id.replace("_", " ").title(),
                 "description": "",
                 "domain": domain,
                 "role": role or "entity",
@@ -271,12 +285,14 @@ def validate_task_pack(package: dict[str, Any]) -> dict[str, Any]:
         raise ValueError("Task Pack requires a tasks list")
     metadata = normalize_pack_metadata(package)
     requirements = normalize_entity_requirements(package)
-    tasks = []
     for idx, item in enumerate(raw_tasks):
         if not isinstance(item, dict):
             raise ValueError(f"Task Pack task {idx + 1} must be an object")
         if not item.get("id") or not item.get("name"):
             raise ValueError(f"Task Pack task {idx + 1} requires id and name")
+    templated_tasks, requirements = _template_tasks_with_entity_requirements(raw_tasks, requirements)
+    tasks = []
+    for idx, item in enumerate(templated_tasks):
         tasks.append(sanitize_task_pack_task(item, metadata, requirements))
     return {
         "package_type": TASK_PACK_TYPE,
@@ -295,6 +311,8 @@ def build_task_pack_package(
     entity_requirements: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Build and validate a formal Task Pack package from selected tasks."""
+    if not tasks:
+        raise ValueError("Select at least one task to export as a Task Pack")
     templated_tasks, requirements = _template_tasks_with_entity_requirements(tasks, entity_requirements)
     package = {
         "format": TASK_PACK_FORMAT,
@@ -342,3 +360,18 @@ def installed_pack_record(
         "imported_task_ids": sorted(set(str(task_id) for task_id in imported_task_ids)),
         "package_hash": package_hash_value,
     }
+
+
+def merge_installed_pack_record(
+    existing_record: dict[str, Any] | None,
+    pack_metadata: dict[str, Any],
+    imported_task_ids: list[str],
+    package_hash_value: str,
+) -> dict[str, Any]:
+    """Return an installed-pack record updated without duplicating repeat imports."""
+    existing_record = existing_record if isinstance(existing_record, dict) else {}
+    merged_task_ids = sorted(set((existing_record.get("imported_task_ids") or []) + list(imported_task_ids or [])))
+    record = installed_pack_record(pack_metadata, merged_task_ids, package_hash_value)
+    if existing_record.get("installed_at"):
+        record["installed_at"] = existing_record["installed_at"]
+    return record

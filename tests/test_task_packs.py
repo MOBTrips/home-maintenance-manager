@@ -16,7 +16,10 @@ assert SPEC and SPEC.loader
 SPEC.loader.exec_module(task_packs)
 TASK_PACK_FORMAT = task_packs.TASK_PACK_FORMAT
 build_task_pack_package = task_packs.build_task_pack_package
+enforce_task_pack_merge_mode = task_packs.enforce_task_pack_merge_mode
 installed_pack_record = task_packs.installed_pack_record
+is_task_pack_package = task_packs.is_task_pack_package
+merge_installed_pack_record = task_packs.merge_installed_pack_record
 validate_task_pack = task_packs.validate_task_pack
 
 
@@ -46,7 +49,21 @@ class TaskPackTests(unittest.TestCase):
                     "nfc_tags": ["tag-1"],
                     "nfc_action": "complete",
                     "mobile_notify_service": "notify.private_phone",
+                    "mobile_notify_services": ["notify.private_phone"],
+                    "notification_targets": ["notify.private_phone"],
+                    "deleted": True,
+                    "deleted_at": "2026-01-01T00:00:00+00:00",
                     "runtime_seconds": {"sensor.test": 100},
+                    "totalized_usage": {"counter": 10},
+                    "last_seen_states": {"sensor.test": {"state": "on"}},
+                    "last_completed": "2026-01-01T00:00:00+00:00",
+                    "last_completed_by": "private-user",
+                    "last_completion_method": "panel",
+                    "baseline_method": "specific_date",
+                    "baseline_ago_value": 2,
+                    "baseline_ago_unit": "weeks",
+                    "late_count": 3,
+                    "snoozed_until": "2026-01-02T00:00:00+00:00",
                     "completion_history": [{"completed_at": "2026-01-01T00:00:00+00:00"}],
                     "activity_history": [{"at": "2026-01-01T00:00:00+00:00"}],
                     "rules": [{"id": "time_1", "type": "time", "value": 1, "unit": "months"}],
@@ -58,7 +75,21 @@ class TaskPackTests(unittest.TestCase):
         self.assertEqual(task["nfc_tags"], [])
         self.assertEqual(task["nfc_action"], "disabled")
         self.assertIsNone(task["mobile_notify_service"])
+        self.assertNotIn("mobile_notify_services", task)
+        self.assertNotIn("notification_targets", task)
+        self.assertNotIn("deleted", task)
+        self.assertNotIn("deleted_at", task)
         self.assertNotIn("runtime_seconds", task)
+        self.assertNotIn("totalized_usage", task)
+        self.assertNotIn("last_seen_states", task)
+        self.assertNotIn("last_completed", task)
+        self.assertNotIn("last_completed_by", task)
+        self.assertNotIn("last_completion_method", task)
+        self.assertNotIn("baseline_method", task)
+        self.assertNotIn("baseline_ago_value", task)
+        self.assertNotIn("baseline_ago_unit", task)
+        self.assertNotIn("late_count", task)
+        self.assertNotIn("snoozed_until", task)
         self.assertNotIn("completion_history", task)
         self.assertNotIn("activity_history", task)
         self.assertEqual(task["provenance"]["origin"], "task_pack")
@@ -74,6 +105,27 @@ class TaskPackTests(unittest.TestCase):
         self.assertEqual(record["imported_task_ids"], ["task_a", "task_b"])
         self.assertEqual(record["package_hash"], "abc123")
         self.assertTrue(record["installed_at"])
+
+    def test_installed_pack_record_repeat_import_updates_without_duplicate(self) -> None:
+        existing = {
+            "id": "hmm.test",
+            "name": "Test Pack",
+            "version": "1.0.0",
+            "installed_at": "2026-01-01T00:00:00+00:00",
+            "imported_task_ids": ["task_a", "task_b"],
+            "package_hash": "old",
+        }
+        record = merge_installed_pack_record(
+            existing,
+            {"id": "hmm.test", "name": "Test Pack", "version": "1.0.1", "source": "bundled"},
+            ["task_b", "task_c"],
+            "new",
+        )
+        self.assertEqual(record["id"], "hmm.test")
+        self.assertEqual(record["version"], "1.0.1")
+        self.assertEqual(record["installed_at"], "2026-01-01T00:00:00+00:00")
+        self.assertEqual(record["imported_task_ids"], ["task_a", "task_b", "task_c"])
+        self.assertEqual(record["package_hash"], "new")
 
     def test_build_task_pack_package_templates_local_entities(self) -> None:
         package = build_task_pack_package(
@@ -107,6 +159,7 @@ class TaskPackTests(unittest.TestCase):
         self.assertEqual(len(package["entity_requirements"]), 1)
         requirement = package["entity_requirements"][0]
         self.assertEqual(requirement["id"], "sensor_hvac_runtime")
+        self.assertEqual(requirement["name"], "Sensor Hvac Runtime")
         self.assertTrue(requirement["required"])
         self.assertEqual(requirement["role"], "runtime")
         task = package["tasks"][0]
@@ -116,6 +169,60 @@ class TaskPackTests(unittest.TestCase):
         self.assertEqual(task["nfc_tags"], [])
         self.assertIsNone(task["mobile_notify_service"])
         self.assertNotIn("completion_history", task)
+        self.assertNotIn("sensor.hvac_runtime", json.dumps(package))
+
+    def test_selected_task_export_rejects_empty_selection(self) -> None:
+        with self.assertRaisesRegex(ValueError, "Select at least one task"):
+            build_task_pack_package(
+                {"id": "hmm.empty", "name": "Empty", "version": "1.0.0"},
+                [],
+            )
+
+    def test_validate_task_pack_templates_raw_local_entity_ids(self) -> None:
+        package = {
+            "format": TASK_PACK_FORMAT,
+            "format_version": 1,
+            "type": "task_pack",
+            "pack": {"id": "hmm.raw", "name": "Raw Pack", "version": "1.0.0"},
+            "entity_requirements": [],
+            "tasks": [
+                {
+                    "id": "runtime_task",
+                    "name": "Runtime task",
+                    "linked_entities": ["sensor.local_runtime"],
+                    "rules": [
+                        {"id": "runtime", "type": "runtime", "entity": "sensor.local_runtime", "value": 10, "unit": "hours"}
+                    ],
+                }
+            ],
+        }
+        normalized = validate_task_pack(package)
+        self.assertEqual(len(normalized["entity_requirements"]), 1)
+        requirement = normalized["entity_requirements"][0]
+        self.assertEqual(requirement["id"], "sensor_local_runtime")
+        self.assertEqual(requirement["name"], "Sensor Local Runtime")
+        self.assertEqual(requirement["role"], "runtime")
+        self.assertEqual(requirement["task_ids"], ["runtime_task"])
+        task = normalized["tasks"][0]
+        self.assertEqual(task["linked_entities"], ["hmm://entity/sensor_local_runtime"])
+        self.assertEqual(task["rules"][0]["entity"], "hmm://entity/sensor_local_runtime")
+        self.assertNotIn("sensor.local_runtime", json.dumps(normalized))
+
+    def test_task_pack_import_mode_rejects_replace(self) -> None:
+        self.assertEqual(enforce_task_pack_merge_mode("merge"), "merge")
+        with self.assertRaisesRegex(ValueError, "Replace is only available"):
+            enforce_task_pack_merge_mode("replace")
+        with self.assertRaisesRegex(ValueError, "must be merge"):
+            enforce_task_pack_merge_mode("invalid")
+
+    def test_normal_backup_export_is_not_task_pack(self) -> None:
+        backup = {
+            "format": "home_maintenance_manager_export",
+            "format_version": 1,
+            "tasks": [{"id": "backup_task", "name": "Backup task"}],
+            "settings": {"notification_settings": {"mobile_notify_services": ["notify.phone"]}},
+        }
+        self.assertFalse(is_task_pack_package(backup))
 
 
 if __name__ == "__main__":

@@ -16,8 +16,9 @@ from .task_packs import (
     TASK_PACK_FORMAT,
     TASK_PACK_TYPE,
     build_task_pack_package,
-    installed_pack_record,
+    enforce_task_pack_merge_mode,
     is_task_pack_package,
+    merge_installed_pack_record,
     validate_task_pack,
 )
 
@@ -367,7 +368,9 @@ class MaintenanceCoordinator:
             raise ValueError("Import data must be a JSON object")
         is_task_pack = is_task_pack_package(package)
         normalized_pack: dict[str, Any] | None = None
+        requested_mode = str(mode or "merge").lower()
         if is_task_pack:
+            mode = enforce_task_pack_merge_mode(requested_mode)
             normalized_pack = validate_task_pack(package)
             package = {
                 "type": TASK_PACK_TYPE,
@@ -377,9 +380,8 @@ class MaintenanceCoordinator:
                 "entity_requirements": normalized_pack["entity_requirements"],
                 "tasks": normalized_pack["tasks"],
             }
-        mode = str(mode or "merge").lower()
-        if is_task_pack:
-            mode = "merge"
+        else:
+            mode = requested_mode
         if mode not in {"merge", "replace"}:
             raise ValueError("Import mode must be merge or replace")
 
@@ -470,7 +472,10 @@ class MaintenanceCoordinator:
         if normalized_pack:
             installed = self.storage_settings.setdefault("installed_task_packs", {})
             if isinstance(installed, dict):
-                record = installed_pack_record(
+                pack_id = str(normalized_pack["pack"].get("id"))
+                existing_record = installed.get(pack_id) if isinstance(installed.get(pack_id), dict) else {}
+                record = merge_installed_pack_record(
+                    existing_record,
                     normalized_pack["pack"],
                     list(imported.keys()),
                     normalized_pack["package_hash"],
@@ -674,7 +679,7 @@ class MaintenanceCoordinator:
         """Apply a reviewed import selection."""
         package_type, raw_tasks, parsed = self._package_tasks(package)
         if package_type == TASK_PACK_TYPE:
-            mode = "merge"
+            mode = enforce_task_pack_merge_mode(mode)
             import_settings = False
             restore_deleted = False
         selected = {str(x) for x in (selected_ids or [])}
