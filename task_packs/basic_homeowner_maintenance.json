@@ -1,0 +1,111 @@
+{
+  "format": "home_maintenance_manager_task_pack",
+  "format_version": 1,
+  "type": "task_pack",
+  "pack": {
+    "id": "hmm.basic_homeowner_maintenance",
+    "name": "Basic Homeowner Maintenance",
+    "version": "1.0.0",
+    "description": "A starter set of recurring maintenance tasks for common household systems.",
+    "author": "Home Maintenance Manager",
+    "license": "MIT",
+    "source": "bundled",
+    "source_url": "https://github.com/MOBTrips/home-maintenance-manager",
+    "min_hmm_version": "0.7.0",
+    "categories": ["General", "HVAC", "Plumbing", "Safety", "Appliance"],
+    "tags": ["starter", "homeowner", "seasonal", "safety"],
+    "provenance": {
+      "kind": "community",
+      "source": "bundled"
+    }
+  },
+  "entity_requirements": [],
+  "tasks": [
+    {
+      "id": "pack_basic_replace_hvac_filter",
+      "name": "Replace HVAC filter",
+      "description": "Replace or clean the main HVAC return filter.",
+      "category": "HVAC",
+      "equipment_name": "HVAC system",
+      "rules": [
+        {
+          "id": "time_1",
+          "type": "time",
+          "name": "Every 3 months",
+          "value": 3,
+          "unit": "months",
+          "days": 91.3125
+        }
+      ],
+      "rule_logic": "any",
+      "instructions": "Turn off the HVAC fan, remove the old filter, confirm airflow direction, install the new filter, then restart the system.",
+      "checklist": ["Confirm filter size", "Replace filter", "Write date on filter frame"],
+      "parts": [{"name": "HVAC filter", "quantity": 1}],
+      "tools": []
+    },
+    {
+      "id": "pack_basic_test_smoke_alarms",
+      "name": "Test smoke and CO alarms",
+      "description": "Test smoke and carbon monoxide alarms and replace batteries when needed.",
+      "category": "Safety",
+      "equipment_name": "Smoke and CO alarms",
+      "rules": [
+        {
+          "id": "time_1",
+          "type": "time",
+          "name": "Every 6 months",
+          "value": 6,
+          "unit": "months",
+          "days": 182.625
+        }
+      ],
+      "rule_logic": "any",
+      "instructions": "Press each alarm test button, confirm audible alerts, replace batteries if the alarm reports low battery, and replace expired alarms.",
+      "checklist": ["Test each alarm", "Check expiration dates", "Replace weak batteries"],
+      "parts": [{"name": "Alarm batteries", "quantity": 1}],
+      "tools": ["Step stool"]
+    },
+    {
+      "id": "pack_basic_flush_water_heater",
+      "name": "Flush water heater",
+      "description": "Drain sediment from the water heater to improve efficiency and extend service life.",
+      "category": "Plumbing",
+      "equipment_name": "Water heater",
+      "rules": [
+        {
+          "id": "time_1",
+          "type": "time",
+          "name": "Every 12 months",
+          "value": 12,
+          "unit": "months",
+          "days": 365.25
+        }
+      ],
+      "rule_logic": "any",
+      "instructions": "Follow the water heater manual. Turn power or gas to the safe service setting, attach a drain hose, flush sediment, refill, and restore operation.",
+      "checklist": ["Review manual", "Attach drain hose", "Flush sediment", "Confirm tank is full before restoring heat"],
+      "tools": ["Garden hose", "Bucket"]
+    },
+    {
+      "id": "pack_basic_clean_dryer_vent",
+      "name": "Clean dryer vent",
+      "description": "Remove lint buildup from the dryer vent path.",
+      "category": "Appliance",
+      "equipment_name": "Dryer",
+      "rules": [
+        {
+          "id": "time_1",
+          "type": "time",
+          "name": "Every 12 months",
+          "value": 12,
+          "unit": "months",
+          "days": 365.25
+        }
+      ],
+      "rule_logic": "any",
+      "instructions": "Unplug the dryer, disconnect the vent, remove lint from the duct and exterior vent, reconnect securely, and run a short test cycle.",
+      "checklist": ["Unplug dryer", "Clean duct", "Clean exterior vent", "Confirm airflow"],
+      "tools": ["Vacuum", "Dryer vent brush"]
+    }
+  ]
+}

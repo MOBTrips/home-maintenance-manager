@@ -140,7 +140,7 @@ class MaintenanceSensor(SensorEntity):
             "name": task.name,
             "manufacturer": "Home Maintenance Manager",
             "model": "Maintenance Task",
-            "sw_version": "0.6.8",
+            "sw_version": "0.7.0",
         }
         if task.area:
             info["suggested_area"] = task.area

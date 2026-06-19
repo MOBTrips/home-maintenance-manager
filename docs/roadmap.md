@@ -23,12 +23,13 @@ This roadmap is a planning guide, not a fixed commitment. Use GitHub issues and 
 
 ## v0.7.x focus: task packs foundation
 
-- Define task-pack JSON schema.
-- Support task-pack metadata: name, author, version, description, compatible HMM version, categories, tags, and source.
-- Add task-pack import mode that always merges.
-- Add safe defaults for imported task packs.
-- Add missing entity mapping for task packs.
-- Add example packs, such as HVAC, water softener, pool, hot tub, appliances, vehicles, and seasonal equipment.
+- Define task-pack JSON schema. Initial support added in v0.7.0.
+- Support task-pack metadata: name, author, version, description, compatible HMM version, categories, tags, and source. Initial support added in v0.7.0.
+- Add task-pack import mode that always merges. Initial support added in v0.7.0.
+- Add safe defaults for imported task packs. Initial support added in v0.7.0.
+- Add missing entity mapping for task packs. Initial support added in v0.7.0.
+- Add example packs, such as HVAC, water softener, pool, hot tub, appliances, vehicles, and seasonal equipment. Basic homeowner and hot tub examples added in v0.7.0.
+- Future work: add an optional online pack index, update/reinstall flows, and richer asset-generated recommendations.
 
 ## v0.8.x focus: task experience and automation
 

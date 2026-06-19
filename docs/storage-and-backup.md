@@ -1,6 +1,6 @@
 # Storage and Backup
 
-Home Maintenance Manager v0.6.8 uses Home Assistant's storage framework as the system of record.
+Home Maintenance Manager v0.7.0 uses Home Assistant's storage framework as the system of record.
 
 ## Primary storage file
 
@@ -18,6 +18,7 @@ This file contains:
 - NFC tag assignments
 - snooze state
 - HMM-owned settings, including notification settings
+- installed Task Pack metadata
 - storage migration metadata
 
 ## Home Assistant backups
@@ -81,7 +82,7 @@ The HMM panel includes a Backup & Restore section under Settings showing:
 
 ## JSON export and import
 
-v0.6.8 includes a portable JSON export/import workflow under:
+v0.7.0 includes a portable JSON export/import workflow under:
 
 ```text
 Maintenance panel → Settings → Export / Import JSON
@@ -109,6 +110,6 @@ Use Home Assistant full backups for complete recovery of a Home Assistant instan
 
 ## Import Review and Task Pack Foundation
 
-v0.6.8 includes a reviewed import flow. HMM previews backup-style exports and task-pack-style JSON before changing storage. The preview classifies tasks as new, update, duplicate, deleted, or invalid and reports entity references as found or missing. Runtime and counter rule entities are treated as required references; when they cannot be resolved, the task is imported safely instead of silently running against a bad entity.
+v0.7.0 includes a reviewed import flow. HMM previews backup-style exports and Task Pack JSON before changing storage. The preview classifies tasks as new, update, duplicate, deleted, or invalid and reports entity references as found or missing. Runtime and counter rule entities are treated as required references; when they cannot be resolved, the task is imported safely instead of silently running against a bad entity.
 
-Task packs should be templates, not system backups. They should avoid Home Assistant-specific entity IDs, device IDs, NFC tag IDs, completion history, and runtime history. Future task packs can use entity roles/requirements and the same preview/apply engine can map those roles to local Home Assistant entities.
+Task Packs are templates, not system backups. HMM strips Home Assistant-specific device IDs, NFC tag IDs, completion history, runtime history, deleted tombstones, settings, and private notification targets during Task Pack import. Task Packs always merge and cannot replace full storage or delete existing user tasks.

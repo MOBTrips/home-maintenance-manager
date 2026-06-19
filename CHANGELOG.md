@@ -1,3 +1,14 @@
+## 0.7.0
+
+- Added formal Task Pack JSON schema support using `home_maintenance_manager_task_pack`.
+- Enforced Task Pack safety in the backend: Task Packs always merge, never import settings, never replace full storage, and never delete existing tasks.
+- Added Task Pack template sanitization for runtime/history, NFC tag IDs, Home Assistant device IDs, deleted tombstones, and private notification targets.
+- Added installed Task Pack metadata tracking with pack ID, version, source, installed time, imported task IDs, provenance, and package hash.
+- Added task provenance metadata for Task Pack imports.
+- Added bundled example Task Packs for Basic Homeowner Maintenance and Hot Tub Maintenance.
+- Updated the import wizard to show Task Pack metadata, entity requirements, task counts, and merge-only behavior.
+- Added Task Pack documentation and schema reference.
+
 ## 0.6.8
 
 - Added `AGENTS.md` as shared repository guidance for Codex, ChatGPT-authored prompts, and human contributors.

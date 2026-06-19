@@ -50,6 +50,7 @@ HMM supports these schedule types:
 - Backup import may support Merge and Replace modes.
 - Replace mode must be clearly marked as destructive and intended for backup recovery.
 - Task-pack import must merge and must not delete existing user tasks.
+- Task packs must use the formal `home_maintenance_manager_task_pack` schema and be sanitized as templates before saving.
 - Missing entities must be reviewed with task context.
 - Required runtime/meter entities unresolved during import must be imported safely, usually paused.
 
@@ -79,6 +80,6 @@ HMM supports these schedule types:
 
 1. Stabilize task lifecycle, deletion, import/export, and NFC cleanup.
 2. Improve the import wizard and entity mapping experience.
-3. Build the foundation for curated task packs.
+3. Expand the v0.7.0 task-pack foundation with repository/update workflows and more curated packs.
 4. Improve documentation and release discipline.
 5. Add automated validation in GitHub Actions.

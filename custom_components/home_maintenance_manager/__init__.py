@@ -55,6 +55,7 @@ TASK_SCHEMA = vol.Schema({
     vol.Optional("baseline_method", default=""): vol.Any(cv.string, None),
     vol.Optional("baseline_ago_value", default=""): vol.Any(cv.string, vol.Coerce(float), None),
     vol.Optional("baseline_ago_unit", default="days"): vol.Any(cv.string, None),
+    vol.Optional("provenance", default={}): dict,
 })
 
 CONFIG_SCHEMA = vol.Schema({

@@ -1,0 +1,122 @@
+{
+  "format": "home_maintenance_manager_task_pack",
+  "format_version": 1,
+  "type": "task_pack",
+  "pack": {
+    "id": "hmm.hot_tub_maintenance",
+    "name": "Hot Tub Maintenance",
+    "version": "1.0.0",
+    "description": "Recurring hot tub care tasks for water quality, filters, and seasonal upkeep.",
+    "author": "Home Maintenance Manager",
+    "license": "MIT",
+    "source": "bundled",
+    "source_url": "https://github.com/MOBTrips/home-maintenance-manager",
+    "min_hmm_version": "0.7.0",
+    "categories": ["Hot Tub"],
+    "tags": ["hot-tub", "water-care", "filters"],
+    "provenance": {
+      "kind": "community",
+      "source": "bundled"
+    }
+  },
+  "entity_requirements": [
+    {
+      "id": "hot_tub_pump_runtime",
+      "name": "Hot tub pump runtime",
+      "description": "Optional runtime or power source that indicates when the circulation or jet pump is running.",
+      "domain": "sensor",
+      "role": "runtime",
+      "required": false,
+      "task_ids": ["pack_hot_tub_clean_filter_runtime"]
+    }
+  ],
+  "tasks": [
+    {
+      "id": "pack_hot_tub_test_water",
+      "name": "Test hot tub water",
+      "description": "Test sanitizer, pH, alkalinity, and other water balance values.",
+      "category": "Hot Tub",
+      "equipment_name": "Hot tub",
+      "rules": [
+        {
+          "id": "time_1",
+          "type": "time",
+          "name": "Every 7 days",
+          "value": 7,
+          "unit": "days",
+          "days": 7
+        }
+      ],
+      "rule_logic": "any",
+      "instructions": "Use test strips or a liquid test kit, then adjust sanitizer and balance chemicals according to product directions.",
+      "checklist": ["Test sanitizer", "Test pH", "Test alkalinity", "Record adjustments"],
+      "parts": [{"name": "Water test strips", "quantity": 1}],
+      "tools": []
+    },
+    {
+      "id": "pack_hot_tub_clean_filter",
+      "name": "Rinse hot tub filter",
+      "description": "Rinse debris from the hot tub filter cartridge.",
+      "category": "Hot Tub",
+      "equipment_name": "Hot tub filter",
+      "rules": [
+        {
+          "id": "time_1",
+          "type": "time",
+          "name": "Every 30 days",
+          "value": 30,
+          "unit": "days",
+          "days": 30
+        }
+      ],
+      "rule_logic": "any",
+      "instructions": "Turn off pumps, remove the filter, rinse between pleats with a hose, inspect for damage, and reinstall.",
+      "checklist": ["Turn off pumps", "Rinse filter", "Inspect cartridge", "Reinstall filter"],
+      "tools": ["Garden hose"]
+    },
+    {
+      "id": "pack_hot_tub_clean_filter_runtime",
+      "name": "Deep clean hot tub filter",
+      "description": "Soak the filter cartridge in cleaner after regular use.",
+      "category": "Hot Tub",
+      "equipment_name": "Hot tub filter",
+      "rules": [
+        {
+          "id": "runtime_1",
+          "type": "runtime",
+          "name": "Every 250 runtime hours",
+          "entity": "hmm://entity/hot_tub_pump_runtime",
+          "value": 250,
+          "unit": "hours",
+          "hours": 250
+        }
+      ],
+      "rule_logic": "any",
+      "instructions": "Soak the cartridge in filter cleaner according to product instructions, rinse thoroughly, and let it dry before reinstalling if possible.",
+      "checklist": ["Remove filter", "Soak in cleaner", "Rinse thoroughly", "Dry and reinstall"],
+      "parts": [{"name": "Filter cleaner", "quantity": 1}],
+      "tools": ["Filter soaking bucket"]
+    },
+    {
+      "id": "pack_hot_tub_drain_refill",
+      "name": "Drain and refill hot tub",
+      "description": "Drain, clean, and refill the hot tub.",
+      "category": "Hot Tub",
+      "equipment_name": "Hot tub",
+      "rules": [
+        {
+          "id": "time_1",
+          "type": "time",
+          "name": "Every 4 months",
+          "value": 4,
+          "unit": "months",
+          "days": 121.75
+        }
+      ],
+      "rule_logic": "any",
+      "instructions": "Follow the manufacturer's drain procedure. Turn off power before draining, clean shell surfaces, refill, restore power only when filled, then balance water.",
+      "checklist": ["Turn off power", "Drain tub", "Clean shell", "Refill", "Balance water"],
+      "tools": ["Submersible pump", "Garden hose", "Shell-safe cleaner"]
+    }
+  ]
+}

@@ -732,6 +732,7 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     const selected = (p.tasks || []).filter(t => t.selected && t.status !== 'invalid').length;
     const requiredMissing = Number(entity.required_missing || 0);
     const missing = Number(entity.missing || 0);
+    const requirements = Array.isArray(p.entity_requirements) ? p.entity_requirements : [];
     const step = this.importWizardStep || 1;
     const warnings = (p.warnings || []).map(w=>`<div class="wizard-alert">${this.escape(w)}</div>`).join('');
     const canApply = selected > 0;
@@ -751,6 +752,7 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
         <div class="wizard-summary-grid">
           <div class="summary-tile"><div class="summary-value">${total}</div><div class="muted">Tasks in file</div></div>
           <div class="summary-tile"><div class="summary-value">${selected}</div><div class="muted">Selected</div></div>
+          <div class="summary-tile"><div class="summary-value">${requirements.length}</div><div class="muted">Requirements</div></div>
           <div class="summary-tile"><div class="summary-value">${missing}</div><div class="muted">Missing entities</div></div>
           <div class="summary-tile ${requiredMissing ? 'attention' : ''}"><div class="summary-value">${requiredMissing}</div><div class="muted">Required missing</div></div>
         </div>
@@ -774,6 +776,9 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
 
   renderImportWizardAnalyzeStep(p, counts, entity) {
     const exported = p.exported_at ? new Date(p.exported_at).toLocaleString() : 'Not provided';
+    const isPack = p.package_type === 'task_pack';
+    const pack = p.pack || {};
+    const requirements = Array.isArray(p.entity_requirements) ? p.entity_requirements : [];
     return `<div class="wizard-panel">
       <div class="wizard-section-card"><h3>File analysis</h3>
         <p><b>Type:</b> ${this.escape(p.package_type || 'backup')}</p>
@@ -781,6 +786,20 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
         <p><b>Exported:</b> ${this.escape(exported)}</p>
         <p><b>Settings included:</b> ${p.settings_present ? 'Yes' : 'No'}</p>
       </div>
+      ${isPack ? `<div class="wizard-section-card"><h3>Task Pack metadata</h3>
+        <div class="summary-list">
+          <div class="summary-line"><span>Pack ID</span><b>${this.escape(pack.id || 'Not provided')}</b></div>
+          <div class="summary-line"><span>Name</span><b>${this.escape(pack.name || p.pack_name || 'Task Pack')}</b></div>
+          <div class="summary-line"><span>Pack version</span><b>${this.escape(pack.version || 'Not provided')}</b></div>
+          <div class="summary-line"><span>Author</span><b>${this.escape(pack.author || 'Not provided')}</b></div>
+          <div class="summary-line"><span>Source</span><b>${this.escape(pack.source || pack.source_url || 'Not provided')}</b></div>
+          <div class="summary-line"><span>Provenance</span><b>${this.escape(pack.provenance?.kind || 'community')}</b></div>
+        </div>
+        ${pack.description ? `<p class="muted">${this.escape(pack.description)}</p>` : ''}
+      </div>
+      <div class="wizard-section-card"><h3>Template safety</h3>
+        <p class="muted">Task Packs always merge. They cannot replace full storage, remove existing tasks, import settings, or restore deleted tombstones. Runtime/history, NFC tag IDs, Home Assistant device IDs, and private notification targets are ignored.</p>
+      </div>` : ''}
       <div class="wizard-section-card"><h3>Impact preview</h3>
         <div class="summary-list">
           <div class="summary-line"><span>New tasks</span><b>${counts.new || 0}</b></div>
@@ -790,9 +809,20 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
           <div class="summary-line"><span>Invalid</span><b>${counts.invalid || 0}</b></div>
           <div class="summary-line"><span>Entities found</span><b>${entity.found || 0}</b></div>
           <div class="summary-line"><span>Entities missing</span><b>${entity.missing || 0}</b></div>
+          ${isPack ? `<div class="summary-line"><span>Entity requirements</span><b>${requirements.length}</b></div>` : ''}
         </div>
       </div>
+      ${isPack ? this.renderTaskPackRequirements(requirements) : ''}
       ${(entity.required_missing || 0) ? `<div class="wizard-warning"><b>Entity mapping recommended:</b> required runtime/counter entities are missing. Map them in step 3 or those tasks will be imported paused.</div>` : ''}
+    </div>`;
+  }
+
+  renderTaskPackRequirements(requirements) {
+    if (!requirements.length) return `<div class="wizard-section-card"><h3>Entity requirements</h3><p class="muted">This Task Pack does not declare entity requirements.</p></div>`;
+    return `<div class="wizard-section-card"><h3>Entity requirements</h3>
+      <div class="summary-list">
+        ${requirements.map(req => `<div class="summary-line"><span>${this.escape(req.name || req.id)}</span><b>${this.escape(req.required ? 'Required' : 'Optional')}</b></div><p class="muted">${this.escape([req.role, req.domain, req.description].filter(Boolean).join(' • ') || req.id)}</p>`).join('')}
+      </div>
     </div>`;
   }
 
@@ -918,7 +948,7 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
         <p class="muted"><b>Merge</b> is safest for normal imports. It adds new selected tasks and updates selected matching tasks without deleting your other HMM tasks.</p>
         <label class="option-card"><input type="radio" name="wizard-import-mode" value="merge" ${this.importMode !== 'replace' ? 'checked' : ''}> <span><b>Merge selected tasks</b><br><span class="muted">Keep existing HMM data. Add/update only the tasks selected in this wizard.</span></span></label>
         <label class="option-card danger-option"><input type="radio" name="wizard-import-mode" value="replace" ${this.importMode === 'replace' ? 'checked' : ''}> <span><b>Replace HMM tasks with selected tasks</b><br><span class="muted">Recovery/migration mode. Existing HMM tasks not selected here will be removed.</span></span></label>
-      </div>` : `<div class="wizard-section-card"><h3>Apply mode</h3><p class="muted">Task Packs are templates, so they always use merge mode. They add selected tasks without replacing your existing HMM data.</p></div>`}
+      </div>` : `<div class="wizard-section-card"><h3>Apply mode</h3><p class="muted">Task Packs are templates, so they always use merge mode. They add selected tasks without replacing your existing HMM data, importing settings, or restoring deleted tasks.</p></div>`}
       <div class="wizard-section-card"><h3>Settings and deleted tasks</h3>
         <label class="check-row"><input type="checkbox" id="import-settings" ${isPack ? '' : 'checked'} ${isPack ? 'disabled' : ''}> Import HMM settings from this backup</label>
         <p class="muted">Use this when restoring your own backup. Leave it off when you only want tasks.</p>

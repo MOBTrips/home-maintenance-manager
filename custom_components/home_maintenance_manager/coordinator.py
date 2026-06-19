@@ -12,6 +12,13 @@ from homeassistant.util import dt as dt_util
 
 from .const import DOMAIN, STORAGE_KEY, STORAGE_VERSION, LEGACY_STORAGE_KEY, LEGACY_STORAGE_VERSION, EVENT_ACTIVITY, EVENT_COMPLETION, EVENT_NFC_SCAN
 from .models import MaintenanceTask
+from .task_packs import (
+    TASK_PACK_FORMAT,
+    TASK_PACK_TYPE,
+    installed_pack_record,
+    is_task_pack_package,
+    validate_task_pack,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -166,6 +173,7 @@ class MaintenanceCoordinator:
     def backup_status(self) -> dict[str, Any]:
         history_count = sum(len(task.completion_history or []) for task in self.tasks.values())
         activity_count = sum(len(task.activity_history or []) for task in self.tasks.values())
+        installed_packs = self.storage_settings.get("installed_task_packs") or {}
         return {
             "storage_key": STORAGE_KEY,
             "storage_version": STORAGE_VERSION,
@@ -178,6 +186,7 @@ class MaintenanceCoordinator:
             "included_in_ha_backup": True,
             "migration": self.migration_info,
             "deleted_task_ids": sorted(self.deleted_task_ids),
+            "installed_task_packs": len(installed_packs) if isinstance(installed_packs, dict) else 0,
         }
 
     def _normalize_nfc_config(self, task_data: dict[str, Any]) -> dict[str, Any]:
@@ -215,6 +224,12 @@ class MaintenanceCoordinator:
                 if not cleaned:
                     task.nfc_action = "disabled"
         return removed_from
+
+    def _ensure_task_provenance(self, task_data: dict[str, Any], origin: str, kind: str | None = None) -> dict[str, Any]:
+        data = dict(task_data)
+        if not isinstance(data.get("provenance"), dict) or not data.get("provenance"):
+            data["provenance"] = {"origin": origin, "kind": kind or origin}
+        return data
 
     async def _cleanup_nfc_notifications(self, task_ids: list[str]) -> None:
         """Dismiss stale NFC persistent/mobile notifications for changed assignments."""
@@ -269,6 +284,12 @@ class MaintenanceCoordinator:
         task_data = self._normalize_nfc_config(task_data)
         task_id = str(task_data["id"])
         task_data["id"] = task_id
+        if not isinstance(task_data.get("provenance"), dict) or not task_data.get("provenance"):
+            existing_provenance = self.tasks.get(task_id).provenance if task_id in self.tasks else None
+            if existing_provenance:
+                task_data["provenance"] = dict(existing_provenance)
+            else:
+                task_data = self._ensure_task_provenance(task_data, "manual", "manual")
         # If a user intentionally recreates/imports a task with the same ID,
         # clear the tombstone that prevented legacy migration resurrection.
         self.deleted_task_ids.discard(task_id)
@@ -313,7 +334,7 @@ class MaintenanceCoordinator:
         return {
             "format": "home_maintenance_manager_export",
             "format_version": 1,
-            "integration_version": "0.6.8",
+            "integration_version": "0.7.0",
             "exported_at": dt_util.utcnow().isoformat(),
             "storage_version": STORAGE_VERSION,
             "tasks": [task.as_dict() for task in self.tasks.values()],
@@ -332,7 +353,21 @@ class MaintenanceCoordinator:
         """
         if not isinstance(package, dict):
             raise ValueError("Import data must be a JSON object")
+        is_task_pack = is_task_pack_package(package)
+        normalized_pack: dict[str, Any] | None = None
+        if is_task_pack:
+            normalized_pack = validate_task_pack(package)
+            package = {
+                "type": TASK_PACK_TYPE,
+                "format": TASK_PACK_FORMAT,
+                "format_version": normalized_pack["format_version"],
+                "pack": normalized_pack["pack"],
+                "entity_requirements": normalized_pack["entity_requirements"],
+                "tasks": normalized_pack["tasks"],
+            }
         mode = str(mode or "merge").lower()
+        if is_task_pack:
+            mode = "merge"
         if mode not in {"merge", "replace"}:
             raise ValueError("Import mode must be merge or replace")
 
@@ -349,6 +384,8 @@ class MaintenanceCoordinator:
                 skipped += 1
                 continue
             task_data = self._normalize_nfc_config(dict(item))
+            if not is_task_pack:
+                task_data = self._ensure_task_provenance(task_data, "imported", "imported")
             task_id = str(task_data["id"])
             task_data["id"] = task_id
             imported[task_id] = MaintenanceTask.from_dict(task_data)
@@ -357,6 +394,8 @@ class MaintenanceCoordinator:
         changed_nfc_task_ids: list[str] = []
 
         if mode == "replace":
+            if is_task_pack:
+                raise ValueError("Task Packs cannot replace full HMM storage")
             removed_ids = before_ids - set(imported)
             self.deleted_task_ids.update(removed_ids)
             self.tasks = imported
@@ -367,8 +406,13 @@ class MaintenanceCoordinator:
                 self.deleted_task_ids.discard(task_id)
                 old_tags = list(self.tasks.get(task_id).nfc_tags or []) if task_id in self.tasks else []
                 old_action = self.tasks.get(task_id).nfc_action if task_id in self.tasks else None
-                self.tasks[task_id] = imported_task
-                if old_tags != list(imported_task.nfc_tags or []) or old_action != imported_task.nfc_action:
+                if is_task_pack and task_id in self.tasks:
+                    self.tasks[task_id].update_config_from_dict(imported_task.as_dict())
+                    current_task = self.tasks[task_id]
+                else:
+                    self.tasks[task_id] = imported_task
+                    current_task = imported_task
+                if old_tags != list(current_task.nfc_tags or []) or old_action != current_task.nfc_action:
                     changed_nfc_task_ids.append(task_id)
 
         # Enforce one owner per NFC tag after import. Later tasks win so a user
@@ -388,11 +432,21 @@ class MaintenanceCoordinator:
                 clean_tags.append(tag)
             task.nfc_tags = clean_tags
 
-        if isinstance(package.get("settings"), dict):
+        if isinstance(package.get("settings"), dict) and not is_task_pack:
             if mode == "replace":
                 self.storage_settings = dict(package.get("settings") or {})
             else:
                 self.storage_settings.update(dict(package.get("settings") or {}))
+
+        if normalized_pack:
+            installed = self.storage_settings.setdefault("installed_task_packs", {})
+            if isinstance(installed, dict):
+                record = installed_pack_record(
+                    normalized_pack["pack"],
+                    list(imported.keys()),
+                    normalized_pack["package_hash"],
+                )
+                installed[str(record["id"])] = record
 
         await self.async_save()
         if changed_nfc_task_ids:
@@ -426,6 +480,30 @@ class MaintenanceCoordinator:
                 })
         return refs
 
+    def _requirement_reference(self, entity_id: str, requirements: list[dict[str, Any]]) -> dict[str, Any] | None:
+        for requirement in requirements:
+            req_id = str(requirement.get("id") or "")
+            if entity_id in {req_id, f"hmm://entity/{req_id}"}:
+                return requirement
+        return None
+
+    def _task_entity_references_with_requirements(self, task_data: dict[str, Any], requirements: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        refs = []
+        for ref in self._task_entity_references(task_data):
+            requirement = self._requirement_reference(str(ref.get("entity_id") or ""), requirements)
+            if requirement:
+                ref = {
+                    **ref,
+                    "entity_requirement_id": requirement.get("id"),
+                    "entity_requirement_name": requirement.get("name"),
+                    "description": requirement.get("description"),
+                    "domain": requirement.get("domain"),
+                    "required": bool(requirement.get("required", ref.get("required"))),
+                    "role": requirement.get("role") or ref.get("role"),
+                }
+            refs.append(ref)
+        return refs
+
     def _apply_entity_mapping_to_task_data(self, task_data: dict[str, Any], entity_mapping: dict[str, Any] | None = None) -> dict[str, Any]:
         mapping = entity_mapping or {}
         data = dict(task_data)
@@ -447,7 +525,11 @@ class MaintenanceCoordinator:
             new_rule = dict(rule)
             if new_rule.get("entity"):
                 original = str(new_rule.get("entity"))
-                action = mapping.get(original, original)
+                action = mapping.get(original)
+                if action is None and original.startswith("hmm://entity/"):
+                    action = "__unresolved__"
+                elif action is None:
+                    action = original
                 if action in (None, "", "__clear__"):
                     new_rule.pop("entity", None)
                     if new_rule.get("type") in ("runtime", "counter"):
@@ -466,6 +548,18 @@ class MaintenanceCoordinator:
         """Parse a backup export or task-pack shaped package."""
         if not isinstance(package, dict):
             raise ValueError("Import data must be a JSON object")
+        if is_task_pack_package(package):
+            normalized = validate_task_pack(package)
+            return TASK_PACK_TYPE, normalized["tasks"], {
+                **package,
+                "type": TASK_PACK_TYPE,
+                "format": TASK_PACK_FORMAT,
+                "format_version": normalized["format_version"],
+                "pack": normalized["pack"],
+                "entity_requirements": normalized["entity_requirements"],
+                "tasks": normalized["tasks"],
+                "package_hash": normalized["package_hash"],
+            }
         package_type = str(package.get("type") or package.get("format") or "backup")
         if package_type == "home_maintenance_manager_export":
             package_type = "backup"
@@ -480,8 +574,11 @@ class MaintenanceCoordinator:
         """Preview an import without changing HMM storage."""
         package_type, raw_tasks, parsed = self._package_tasks(package)
         mode = str(mode or "merge").lower()
+        if package_type == TASK_PACK_TYPE:
+            mode = "merge"
         existing_by_name = {((t.name or "").strip().lower(), (t.category or "General").strip().lower()): tid for tid, t in self.tasks.items()}
         entity_ids = set(self.hass.states.async_entity_ids())
+        requirements = parsed.get("entity_requirements") if isinstance(parsed.get("entity_requirements"), list) else []
         preview_tasks = []
         counts = {"new": 0, "update": 0, "duplicate": 0, "deleted": 0, "invalid": 0, "conflict": 0}
         entity_counts = {"found": 0, "missing": 0, "required_missing": 0}
@@ -502,14 +599,16 @@ class MaintenanceCoordinator:
             counts[status] += 1
             refs = []
             required_missing = False
-            for ref in self._task_entity_references(item):
-                found = ref["entity_id"] in entity_ids
+            for ref in self._task_entity_references_with_requirements(item, requirements):
+                entity_ref = str(ref["entity_id"])
+                found = entity_ref in entity_ids
                 ref = dict(ref)
                 ref["status"] = "found" if found else "missing"
                 ref["suggestions"] = []
                 if not found:
-                    domain = ref["entity_id"].split('.',1)[0] if '.' in ref["entity_id"] else ''
-                    suffix = ref["entity_id"].split('.',1)[-1].replace('_',' ')[:30].lower()
+                    domain = str(ref.get("domain") or "")
+                    if not domain:
+                        domain = entity_ref.split('.',1)[0] if '.' in entity_ref else ''
                     suggestions = [e for e in sorted(entity_ids) if (not domain or e.startswith(domain+'.'))][:8]
                     ref["suggestions"] = suggestions
                     entity_counts["missing"] += 1
@@ -525,20 +624,27 @@ class MaintenanceCoordinator:
             preview_tasks.append({"index": idx, "id": task_id, "name": item.get("name"), "category": item.get("category", "General"), "status": status, "selected": selected, "required_entity_missing": required_missing, "entities": refs})
         return {
             "package_type": package_type,
-            "pack_name": parsed.get("pack_name") or parsed.get("name") or parsed.get("format") or "HMM Import",
+            "pack_name": (parsed.get("pack") or {}).get("name") if isinstance(parsed.get("pack"), dict) else parsed.get("pack_name") or parsed.get("name") or parsed.get("format") or "HMM Import",
+            "pack": parsed.get("pack") if isinstance(parsed.get("pack"), dict) else None,
+            "entity_requirements": requirements,
+            "package_hash": parsed.get("package_hash"),
             "format_version": parsed.get("format_version") or parsed.get("version"),
             "exported_at": parsed.get("exported_at"),
             "mode": mode,
             "counts": counts,
             "entity_counts": entity_counts,
             "tasks": preview_tasks,
-            "settings_present": isinstance(parsed.get("settings"), dict),
-            "warnings": ["Required missing entities will pause affected runtime/counter tasks unless remapped."] if entity_counts["required_missing"] else [],
+            "settings_present": isinstance(parsed.get("settings"), dict) and package_type != TASK_PACK_TYPE,
+            "warnings": (["Task Packs are templates and always merge. Settings, history, NFC tags, device IDs, tombstones, and private notification targets are ignored."] if package_type == TASK_PACK_TYPE else []) + (["Required missing entities will pause affected runtime/counter tasks unless remapped."] if entity_counts["required_missing"] else []),
         }
 
     async def async_apply_import_preview(self, package: dict[str, Any], selected_ids: list[str] | None = None, mode: str = "merge", entity_mapping: dict[str, Any] | None = None, import_settings: bool = True, restore_deleted: bool = False) -> dict[str, Any]:
         """Apply a reviewed import selection."""
         package_type, raw_tasks, parsed = self._package_tasks(package)
+        if package_type == TASK_PACK_TYPE:
+            mode = "merge"
+            import_settings = False
+            restore_deleted = False
         selected = {str(x) for x in (selected_ids or [])}
         if selected_ids is None:
             preview = self.import_preview(package, mode)
@@ -552,7 +658,7 @@ class MaintenanceCoordinator:
                     continue
                 tasks.append(data)
         filtered_package["tasks"] = tasks
-        if not import_settings or package_type == "task_pack":
+        if not import_settings or package_type == TASK_PACK_TYPE:
             filtered_package.pop("settings", None)
         return await self.async_import_data(filtered_package, mode)
 

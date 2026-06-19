@@ -14,6 +14,7 @@ HMM is designed to feel like a native Home Assistant tool: tasks can be tied to 
 - **Seasonal active windows** so pool, lawn, snow, and outdoor tasks only appear when relevant.
 - **NFC tag workflows** to open, complete, confirm, or log tasks by scanning equipment tags.
 - **Maintenance history** for each task.
+- **Task Packs** for safely importing curated maintenance templates.
 - **Home Assistant dashboard panel** for day-to-day task management.
 
 ## Installation
@@ -65,6 +66,8 @@ HMM is designed to feel like a native Home Assistant tool: tasks can be tied to 
 - [Seasonal Tasks](docs/seasonal-tasks.md)
 - [NFC Tags](docs/nfc-tags.md)
 - [Storage and Backup](docs/storage-and-backup.md)
+- [Task Packs](docs/task-packs.md)
+- [Task Pack Schema](docs/task-pack-schema.md)
 - [HACS Readiness](docs/hacs-readiness.md)
 - [FAQ](docs/faq.md)
 - [Changelog](CHANGELOG.md)
@@ -138,3 +141,7 @@ HMM includes a dedicated JSON import review wizard. Upload a HMM export or task-
 ### Entity Mapping During Import
 
 The import wizard includes a mapping step for missing Home Assistant entities. You can map a missing entity to a current entity, clear it from the imported task, or keep it unresolved for later setup. Required runtime and meter entities that remain unresolved are imported paused so due dates are not calculated from the wrong source.
+
+### Task Packs
+
+HMM v0.7.0 supports Task Pack JSON files for importing reusable maintenance templates. Task Packs always merge, never replace existing tasks, never import settings, and strip user-specific data such as history, NFC tag IDs, device IDs, and notification targets before saving.
