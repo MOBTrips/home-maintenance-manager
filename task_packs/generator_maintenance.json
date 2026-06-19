@@ -11,7 +11,7 @@
     "license": "MIT",
     "source": "bundled",
     "source_url": "https://github.com/MOBTrips/home-maintenance-manager",
-    "min_hmm_version": "0.7.2",
+    "min_hmm_version": "0.7.3",
     "categories": ["Electrical", "Safety"],
     "tags": ["generator", "power", "safety"],
     "provenance": {"kind": "community", "source": "bundled"}
@@ -22,6 +22,10 @@
       "name": "Generator runtime",
       "description": "Optional runtime or power source that indicates the generator is running.",
       "domain": "sensor",
+      "device_class": "duration",
+      "state_class": "total_increasing",
+      "unit_of_measurement": "h",
+      "suggested_keywords": ["generator", "genset", "runtime", "run"],
       "role": "runtime",
       "required": false,
       "task_ids": ["pack_generator_runtime_service"]

@@ -68,6 +68,7 @@ HMM is designed to feel like a native Home Assistant tool: tasks can be tied to 
 - [Storage and Backup](docs/storage-and-backup.md)
 - [Task Packs](docs/task-packs.md)
 - [Task Pack Schema](docs/task-pack-schema.md)
+- [v0.7.3 Entity Mapping Live Test Checklist](docs/testing/v0.7.3-entity-mapping-live-test.md)
 - [HACS Readiness](docs/hacs-readiness.md)
 - [FAQ](docs/faq.md)
 - [Changelog](CHANGELOG.md)
@@ -140,11 +141,11 @@ HMM includes a dedicated JSON import review wizard. Upload a HMM export or task-
 
 ### Entity Mapping During Import
 
-The import wizard includes a mapping step for missing Home Assistant entities. You can map a missing entity to a current entity, clear it from the imported task, or keep it unresolved for later setup. Required runtime and meter entities that remain unresolved are imported paused so due dates are not calculated from the wrong source.
+The import wizard includes a queue-based mapping step for missing Home Assistant entities. You can review each requirement, filter by required or optional entities, choose a ranked suggestion, open the full Home Assistant entity picker, clear optional references, or keep placeholders unresolved for later setup. Required runtime and meter entities that remain unresolved are imported paused so due dates are not calculated from the wrong source.
 
 ### Task Packs
 
-HMM v0.7.2 supports Task Pack JSON files for importing and exporting reusable maintenance templates. Task Packs always merge, never replace existing tasks, never import settings, and strip user-specific data such as history, NFC tag IDs, device IDs, and notification targets before saving.
+HMM v0.7.3 supports Task Pack JSON files for importing and exporting reusable maintenance templates. Task Packs always merge, never replace existing tasks, never import settings, and strip user-specific data such as history, NFC tag IDs, device IDs, and notification targets before saving.
 
 From Settings, use **Export selected tasks as Task Pack** to choose tasks, enter pack metadata, and download a shareable template. Exported packs replace local Home Assistant entity IDs with mapping requirements so another home can map those placeholders during import. Settings also shows installed Task Packs with their version, install date, and imported task count.
 

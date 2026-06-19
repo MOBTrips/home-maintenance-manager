@@ -11,7 +11,7 @@
     "license": "MIT",
     "source": "bundled",
     "source_url": "https://github.com/MOBTrips/home-maintenance-manager",
-    "min_hmm_version": "0.7.2",
+    "min_hmm_version": "0.7.3",
     "categories": ["HVAC"],
     "tags": ["hvac", "filters", "seasonal"],
     "provenance": {"kind": "community", "source": "bundled"}
@@ -22,6 +22,10 @@
       "name": "HVAC runtime",
       "description": "Optional runtime or power source for the main HVAC blower or condenser.",
       "domain": "sensor",
+      "device_class": "duration",
+      "state_class": "total_increasing",
+      "unit_of_measurement": "h",
+      "suggested_keywords": ["hvac", "furnace", "blower", "air", "handler", "runtime"],
       "role": "runtime",
       "required": false,
       "task_ids": ["pack_hvac_runtime_filter_check"]

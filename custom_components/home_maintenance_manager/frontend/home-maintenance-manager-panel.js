@@ -13,6 +13,8 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     this.importWizardOpen = false;
     this.importWizardStep = 1;
     this.importStatusFilter = "all";
+    this.importEntityFilter = "all";
+    this.importEntityQueueIndex = 0;
     this.importEntityMapping = {};
     this.taskPackExportOpen = false;
     this.notificationSettings = { enabled: true, default_mode: "automation_only", mobile_notify_services: [], notify_upcoming: true, notify_due: true, notify_overdue: true, notify_completed: false, notify_snoozed: false, repeat_mode: "once", repeat_days: 1, quiet_start: "", quiet_end: "", title_template: "[{category}] {task_name}", body_template: "{task_name} is {status}." };
@@ -264,6 +266,20 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
       .entity-map-row .entity-original { word-break:break-word; }
       .entity-map-actions { display:grid; gap:8px; }
       .entity-map-actions ha-entity-picker { display:block; width:100%; }
+      .entity-queue-layout { display:grid; grid-template-columns:minmax(230px, .75fr) minmax(0, 1.5fr); gap:14px; align-items:start; }
+      .entity-queue-list { display:grid; gap:8px; }
+      .entity-queue-item { text-align:left; border:1px solid var(--divider-color); border-radius:12px; padding:10px; background:var(--card-background-color); color:var(--primary-text-color); cursor:pointer; }
+      .entity-queue-item.active { border-color:var(--primary-color); box-shadow:0 0 0 1px var(--primary-color); }
+      .entity-queue-item.mapped { border-color:#0b6b20; }
+      .entity-queue-panel { border:1px solid var(--divider-color); border-radius:16px; padding:16px; background:var(--secondary-background-color); }
+      .entity-meta-grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(150px, 1fr)); gap:8px; margin:12px 0; }
+      .entity-meta-tile { border:1px solid var(--divider-color); border-radius:12px; padding:10px; background:var(--card-background-color); }
+      .entity-meta-tile .key { color:var(--secondary-text-color); font-size:12px; margin-bottom:2px; }
+      .suggestion-list { display:grid; gap:8px; margin-top:8px; }
+      .suggestion-card { text-align:left; border:1px solid var(--divider-color); border-radius:12px; padding:10px; background:var(--card-background-color); color:var(--primary-text-color); cursor:pointer; }
+      .suggestion-card:hover { border-color:var(--primary-color); }
+      .suggestion-card .score { float:right; color:var(--secondary-text-color); font-size:12px; }
+      details.entity-picker-fallback { border:1px dashed var(--divider-color); border-radius:12px; padding:10px; background:var(--card-background-color); }
       .entity-map-context { margin-top:12px; display:grid; gap:8px; }
       .entity-context-card { border:1px solid var(--divider-color); border-radius:12px; padding:10px; background:var(--card-background-color); }
       .entity-context-title { display:flex; align-items:flex-start; justify-content:space-between; gap:8px; font-weight:800; }
@@ -274,7 +290,7 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
       .summary-line { display:flex; justify-content:space-between; gap:12px; border-bottom:1px solid var(--divider-color); padding:8px 0; }
       .sticky-actions { position:sticky; bottom:0; background:var(--card-background-color); padding:16px 22px; margin:0; }
       .empty-list { text-align:center; color:var(--secondary-text-color); padding:24px; }
-      @media(max-width: 800px){ .entity-map-row { grid-template-columns:1fr; } .import-wizard-scrim { padding:0; } .import-wizard { min-height:100vh; border-radius:0; } .wizard-summary-grid { grid-template-columns:1fr 1fr; } .wizard-controls { flex-direction:column; align-items:stretch; } .review-list { max-height:none; } .modal-actions-bottom.sticky-actions { align-items:stretch; flex-direction:column; } .sticky-actions .right { justify-content:stretch; } .sticky-actions .right .btn { flex:1; } }
+      @media(max-width: 800px){ .entity-map-row, .entity-queue-layout { grid-template-columns:1fr; } .import-wizard-scrim { padding:0; } .import-wizard { min-height:100vh; border-radius:0; } .wizard-summary-grid { grid-template-columns:1fr 1fr; } .wizard-controls { flex-direction:column; align-items:stretch; } .review-list { max-height:none; } .modal-actions-bottom.sticky-actions { align-items:stretch; flex-direction:column; } .sticky-actions .right { justify-content:stretch; } .sticky-actions .right .btn { flex:1; } }
     `;
   }
 
@@ -981,24 +997,76 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
   renderImportWizardEntityStep(p) {
     const refs = this.importMissingEntityRefs();
     if (!refs.length) return `<div class="wizard-panel"><div class="wizard-section-card"><h3>Entity mapping</h3><p class="muted">No missing entities were found for the selected tasks.</p></div></div>`;
+    const mapped = refs.filter(ref => {
+      const value = this.importEntityMapping?.[ref.entity_id];
+      return value && !['__unresolved__','__clear__'].includes(value);
+    }).length;
+    const cleared = refs.filter(ref => this.importEntityMapping?.[ref.entity_id] === '__clear__').length;
+    const required = refs.filter(ref => ref.required).length;
+    const optional = refs.length - required;
+    const filter = this.importEntityFilter || 'all';
+    const visibleRefs = refs.filter(ref => filter === 'all' || (filter === 'required' ? ref.required : !ref.required));
+    const index = Math.max(0, Math.min(Number(this.importEntityQueueIndex || 0), Math.max(visibleRefs.length - 1, 0)));
+    this.importEntityQueueIndex = index;
+    const current = visibleRefs[index] || visibleRefs[0] || refs[0];
+    const currentPosition = refs.findIndex(ref => ref.entity_id === current.entity_id) + 1;
     return `<div class="wizard-panel">
-      <div class="wizard-section-card"><h3>Map missing entities</h3><p class="muted">Choose a replacement Home Assistant entity, keep the original unresolved reference, or clear it from the imported task. Required runtime/counter entities left unresolved or cleared will pause affected tasks.</p></div>
-      ${refs.map(ref => this.renderEntityMapRow(ref)).join('')}
+      <div class="wizard-section-card"><h3>Map entity requirements</h3><p class="muted">Review each unresolved Task Pack requirement. Required runtime and meter requirements may stay unresolved, but affected tasks will import paused until mapped.</p></div>
+      <div class="wizard-summary-grid" style="padding:0 0 12px;">
+        <div class="summary-tile"><div class="summary-value">${refs.length}</div><div class="muted">Total unresolved</div></div>
+        <div class="summary-tile ${required ? 'attention' : ''}"><div class="summary-value">${required}</div><div class="muted">Required</div></div>
+        <div class="summary-tile"><div class="summary-value">${optional}</div><div class="muted">Optional</div></div>
+        <div class="summary-tile"><div class="summary-value">${mapped}</div><div class="muted">Mapped</div></div>
+      </div>
+      <div class="wizard-controls">
+        <div><label>Queue</label><div class="chip-row">${[['all','All'],['required','Required'],['optional','Optional']].map(([id,label]) => `<button class="chip ${filter===id?'active':''}" data-entity-filter="${id}">${label}</button>`).join('')}</div></div>
+        <div class="muted">Entity ${currentPosition || 1} of ${refs.length} • ${cleared} cleared</div>
+      </div>
+      <div class="entity-queue-layout">
+        <div class="entity-queue-list">
+          ${visibleRefs.map((ref, idx) => this.renderEntityQueueItem(ref, idx, current.entity_id)).join('')}
+        </div>
+        ${this.renderEntityMapRow(current, currentPosition, refs.length)}
+      </div>
     </div>`;
   }
 
-  renderEntityMapRow(ref) {
+  renderEntityQueueItem(ref, idx, activeId) {
+    const value = this.importEntityMapping?.[ref.entity_id] || '__unresolved__';
+    const mapped = value && !['__unresolved__','__clear__'].includes(value);
+    const status = mapped ? 'Mapped' : value === '__clear__' ? 'Cleared' : 'Unresolved';
+    const label = ref.entity_requirement_label || ref.entity_requirement_name || ref.name || ref.entity_id;
+    return `<button class="entity-queue-item ${activeId === ref.entity_id ? 'active' : ''} ${mapped ? 'mapped' : ''}" data-entity-queue-index="${idx}">
+      <b>${this.escape(label)}</b>
+      <div class="muted">${this.escape(ref.required ? 'Required' : 'Optional')} • ${this.escape(ref.role || 'entity')} • ${this.escape(status)}</div>
+    </button>`;
+  }
+
+  renderEntityMapRow(ref, position=1, total=1) {
     const current = this.importEntityMapping?.[ref.entity_id] || '__unresolved__';
-    const suggestions = (ref.suggestions || []).slice(0,6);
-    const requirementName = ref.entity_requirement_name || ref.name || '';
+    const suggestions = (ref.suggestions || []).slice(0,6).map(item => typeof item === 'string' ? {entity_id:item, name:item, reasons:[], score:0} : item);
+    const requirementName = ref.entity_requirement_label || ref.entity_requirement_name || ref.name || '';
     const title = requirementName || ref.entity_id;
-    const detailBits = [ref.domain ? `${ref.domain} entity` : '', ref.description || '', ref.entity_requirement_id ? `Requirement: ${ref.entity_requirement_id}` : ''].filter(Boolean);
-    return `<div class="entity-map-row">
+    const expected = [
+      ['Domain', ref.domain],
+      ['Device class', ref.device_class],
+      ['State class', ref.state_class],
+      ['Unit', ref.unit_of_measurement],
+    ];
+    const requiredHelp = ref.required
+      ? 'If left unresolved or cleared, affected runtime/meter tasks will be imported paused.'
+      : 'Optional references can be kept for later, cleared, or mapped now.';
+    return `<div class="entity-queue-panel">
       <div>
+        <div class="muted">Entity ${position} of ${total}</div>
         <div class="pill ${ref.required ? 'warn' : ''}">${ref.required ? 'Required' : 'Optional'} ${this.escape(ref.role || 'entity')}</div>
         <h3 class="entity-original">${this.escape(title)}</h3>
-        <div class="muted"><code>${this.escape(ref.entity_id)}</code></div>
-        ${detailBits.length ? `<div class="muted">${this.escape(detailBits.join(' • '))}</div>` : ''}
+        <div class="muted">Placeholder: <code>${this.escape(ref.entity_id)}</code></div>
+        ${ref.description ? `<p>${this.escape(ref.description)}</p>` : '<p class="muted">No description was provided by this pack.</p>'}
+        <div class="entity-meta-grid">
+          ${expected.map(([label,value]) => `<div class="entity-meta-tile"><div class="key">${label}</div><div>${this.escape(value || 'Any')}</div></div>`).join('')}
+        </div>
+        <div class="info-box">${this.escape(requiredHelp)}</div>
         <div class="muted">Used by ${ref.tasks?.length || 0} selected imported task${(ref.tasks?.length || 0) === 1 ? '' : 's'}</div>
         <div class="entity-map-context">
           ${(ref.tasks || []).slice(0,4).map(t => this.renderEntityMapTaskContext(t)).join('')}
@@ -1006,13 +1074,16 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
         </div>
       </div>
       <div class="entity-map-actions">
-        <label><input type="radio" name="map-${this.escape(ref.entity_id)}" data-map-entity="${this.escape(ref.entity_id)}" value="__unresolved__" ${current==='__unresolved__'?'checked':''}> Keep unresolved and pause affected runtime/meter tasks</label>
-        <div class="help">Use this when you plan to map the entity later from the task editor.</div>
+        <label><input type="radio" name="map-${this.escape(ref.entity_id)}" data-map-entity="${this.escape(ref.entity_id)}" value="__unresolved__" ${current==='__unresolved__'?'checked':''}> ${ref.required ? 'Keep unresolved and pause affected tasks' : 'Keep unresolved and map later'}</label>
         <label><input type="radio" name="map-${this.escape(ref.entity_id)}" data-map-entity="${this.escape(ref.entity_id)}" value="__clear__" ${current==='__clear__'?'checked':''}> Clear this reference from imported tasks</label>
-        <div class="help">Best for optional linked entities. Required runtime or meter schedules will be imported paused.</div>
-        <label><input type="radio" name="map-${this.escape(ref.entity_id)}" data-map-entity="${this.escape(ref.entity_id)}" value="__manual__" ${current && !['__unresolved__','__clear__'].includes(current)?'checked':''}> Map to a local Home Assistant entity</label>
-        <ha-entity-picker data-map-picker="${this.escape(ref.entity_id)}" allow-custom-entity></ha-entity-picker>
-        ${suggestions.length ? `<div class="chip-row">${suggestions.map(x=>`<button class="chip" data-map-suggestion="${this.escape(ref.entity_id)}" data-map-value="${this.escape(x)}">${this.escape(x)}</button>`).join('')}</div>` : '<div class="muted">No close suggestions found. Use the picker above.</div>'}
+        <h4>Suggested entities</h4>
+        ${suggestions.length ? `<div class="suggestion-list">${suggestions.map(x=>`<button class="suggestion-card" data-map-suggestion="${this.escape(ref.entity_id)}" data-map-value="${this.escape(x.entity_id)}"><span class="score">${this.escape((x.reasons || []).join(', ') || 'match')}</span><b>${this.escape(x.name || x.entity_id)}</b><div class="muted">${this.escape(x.entity_id)}${x.unit_of_measurement ? ' • '+this.escape(x.unit_of_measurement) : ''}${x.device_class ? ' • '+this.escape(x.device_class) : ''}</div></button>`).join('')}</div>` : '<div class="muted">No relevant suggestions found.</div>'}
+        <details class="entity-picker-fallback">
+          <summary class="btn small">Open Entity Picker</summary>
+          <label><input type="radio" name="map-${this.escape(ref.entity_id)}" data-map-entity="${this.escape(ref.entity_id)}" value="__manual__" ${current && !['__unresolved__','__clear__'].includes(current)?'checked':''}> Use selected entity from picker</label>
+          <ha-entity-picker data-map-picker="${this.escape(ref.entity_id)}" allow-custom-entity></ha-entity-picker>
+        </details>
+        <div class="task-actions"><button class="btn small" data-action="entity-queue-prev">Previous</button><button class="btn small primary" data-action="entity-queue-next">Next</button></div>
       </div>
     </div>`;
   }
@@ -1047,21 +1118,48 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
   }
 
   renderImportWizardSummaryStep(p, selected) {
-    const mapped = Object.values(this.importEntityMapping || {}).filter(v => v && !['__unresolved__','__clear__'].includes(v)).length;
-    const cleared = Object.values(this.importEntityMapping || {}).filter(v => v === '__clear__').length;
-    const unresolved = this.importMissingEntityRefs().filter(r => !this.importEntityMapping?.[r.entity_id] || this.importEntityMapping?.[r.entity_id] === '__unresolved__').length;
+    const entitySummary = this.importEntityMappingSummary();
+    const normalTasks = Math.max(0, selected - entitySummary.pausedTasks);
     return `<div class="wizard-panel">
       <div class="wizard-section-card"><h3>Ready to import</h3>
         <div class="summary-list">
           <div class="summary-line"><span>Selected tasks</span><b>${selected}</b></div>
           <div class="summary-line"><span>Mode</span><b>${p.package_type === 'task_pack' ? 'Merge' : (this.importMode === 'replace' ? 'Replace' : 'Merge')}</b></div>
-          <div class="summary-line"><span>Mapped entities</span><b>${mapped}</b></div>
-          <div class="summary-line"><span>Cleared entities</span><b>${cleared}</b></div>
-          <div class="summary-line"><span>Unresolved missing entities</span><b>${unresolved}</b></div>
+          <div class="summary-line"><span>Mapped entities</span><b>${entitySummary.mapped}</b></div>
+          <div class="summary-line"><span>Cleared optional references</span><b>${entitySummary.clearedOptional}</b></div>
+          <div class="summary-line"><span>Skipped optional references</span><b>${entitySummary.skipped}</b></div>
+          <div class="summary-line"><span>Unresolved required entities</span><b>${entitySummary.requiredUnresolved}</b></div>
+          <div class="summary-line"><span>Tasks imported paused</span><b>${entitySummary.pausedTasks}</b></div>
+          <div class="summary-line"><span>Tasks imported normally</span><b>${normalTasks}</b></div>
+          <div class="summary-line"><span>Unresolved missing entities</span><b>${entitySummary.unresolved}</b></div>
         </div>
-        ${unresolved ? '<div class="wizard-warning"><b>Note:</b> tasks with unresolved required runtime/counter entities will be imported paused.</div>' : ''}
+        ${entitySummary.pausedTasks ? '<div class="wizard-warning"><b>Note:</b> tasks with unresolved or cleared required runtime/meter entities will import paused instead of calculating due status from the wrong source.</div>' : ''}
       </div>
     </div>`;
+  }
+
+  importEntityMappingSummary() {
+    const refs = this.importMissingEntityRefs();
+    const pausedTaskIds = new Set();
+    let mapped = 0, cleared = 0, clearedOptional = 0, clearedRequired = 0, skipped = 0, unresolved = 0, requiredUnresolved = 0;
+    for (const ref of refs) {
+      const action = this.importEntityMapping?.[ref.entity_id] || '__unresolved__';
+      if (action && !['__unresolved__','__clear__'].includes(action)) mapped += 1;
+      else if (action === '__clear__') {
+        cleared += 1;
+        if (ref.required) clearedRequired += 1;
+        else clearedOptional += 1;
+      }
+      else {
+        unresolved += 1;
+        if (ref.required) requiredUnresolved += 1;
+        else skipped += 1;
+      }
+      if (ref.required && (action === '__unresolved__' || action === '__clear__')) {
+        for (const task of ref.tasks || []) pausedTaskIds.add(task.id);
+      }
+    }
+    return { mapped, cleared, clearedOptional, clearedRequired, skipped, unresolved, requiredUnresolved, pausedTasks: pausedTaskIds.size };
   }
 
   renderImportTaskReviewRow(t) {
@@ -1123,7 +1221,7 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
       description: q('task-pack-description'),
       tags,
       source: 'manual_export',
-      min_hmm_version: '0.7.2',
+      min_hmm_version: '0.7.3',
       provenance: { kind: 'manual', source: 'export' },
     };
   }
@@ -1175,6 +1273,8 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
       this.importPreview = await this._hass.callWS({ type: 'home_maintenance_manager/import_preview', mode: this.importMode, data: this.importPackage });
       if (this.importPreview?.package_type === 'task_pack') this.importMode = 'merge';
       this.importStatusFilter = 'all';
+      this.importEntityFilter = 'all';
+      this.importEntityQueueIndex = 0;
       this.importEntityMapping = {};
       this.importWizardStep = 1;
       this.importWizardOpen = true;
@@ -1191,6 +1291,8 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
       this.importPackage = pack;
       this.importPreview = await this._hass.callWS({ type: 'home_maintenance_manager/import_preview', mode: 'merge', data: pack });
       this.importStatusFilter = 'all';
+      this.importEntityFilter = 'all';
+      this.importEntityQueueIndex = 0;
       this.importEntityMapping = {};
       this.importWizardStep = 1;
       this.importWizardOpen = true;
@@ -1235,6 +1337,27 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     });
     this.importEntityMapping = mapping;
     return mapping;
+  }
+
+  filteredImportEntityRefs() {
+    const filter = this.importEntityFilter || 'all';
+    return this.importMissingEntityRefs().filter(ref => filter === 'all' || (filter === 'required' ? ref.required : !ref.required));
+  }
+
+  advanceEntityQueue(delta=1) {
+    const refs = this.filteredImportEntityRefs();
+    if (!refs.length) return;
+    this.importEntityQueueIndex = Math.max(0, Math.min((this.importEntityQueueIndex || 0) + delta, refs.length - 1));
+  }
+
+  autoAdvanceEntityQueue() {
+    const before = this.importEntityQueueIndex || 0;
+    this.advanceEntityQueue(1);
+    if ((this.importEntityQueueIndex || 0) === before) {
+      this.render();
+      return;
+    }
+    this.render();
   }
 
   captureImportWizardOptions() {
@@ -1862,9 +1985,13 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     this.shadowRoot.querySelectorAll('[data-import-step]').forEach(el=>el.onclick=()=>{ this.captureImportSelections(); this.captureImportWizardOptions(); this.importWizardStep=Number(el.dataset.importStep||1); this.render(); });
     this.shadowRoot.querySelectorAll('[data-action="import-step-next"]').forEach(el=>el.onclick=()=>{ this.captureImportSelections(); this.captureImportWizardOptions(); this.importWizardStep=Math.min(5,(this.importWizardStep||1)+1); this.render(); });
     this.shadowRoot.querySelectorAll('[data-action="import-step-prev"]').forEach(el=>el.onclick=()=>{ this.captureImportSelections(); this.captureImportWizardOptions(); this.importWizardStep=Math.max(1,(this.importWizardStep||1)-1); this.render(); });
-    this.shadowRoot.querySelectorAll('[data-map-entity]').forEach(el=>el.onchange=()=>{ this.captureEntityMapping(); });
-    this.shadowRoot.querySelectorAll('[data-map-suggestion]').forEach(el=>el.onclick=()=>{ const id=el.dataset.mapSuggestion; this.importEntityMapping[id]=el.dataset.mapValue; this.render(); });
-    this.shadowRoot.querySelectorAll('ha-entity-picker[data-map-picker]').forEach(el=>{ el.hass=this._hass; const id=el.dataset.mapPicker; const v=this.importEntityMapping?.[id]; if (v && !['__unresolved__','__clear__'].includes(v)) el.value=v; el.addEventListener('value-changed', ev=>{ this.importEntityMapping[id]=ev.detail?.value || '__unresolved__'; const radio=this.shadowRoot.querySelector(`input[data-map-entity="${CSS.escape(id)}"][value="__manual__"]`); if (radio) radio.checked=true; }); });
+    this.shadowRoot.querySelectorAll('[data-entity-filter]').forEach(el=>el.onclick=()=>{ this.captureEntityMapping(); this.importEntityFilter=el.dataset.entityFilter; this.importEntityQueueIndex=0; this.render(); });
+    this.shadowRoot.querySelectorAll('[data-entity-queue-index]').forEach(el=>el.onclick=()=>{ this.captureEntityMapping(); this.importEntityQueueIndex=Number(el.dataset.entityQueueIndex||0); this.render(); });
+    this.shadowRoot.querySelectorAll('[data-action="entity-queue-next"]').forEach(el=>el.onclick=()=>{ this.captureEntityMapping(); this.advanceEntityQueue(1); this.render(); });
+    this.shadowRoot.querySelectorAll('[data-action="entity-queue-prev"]').forEach(el=>el.onclick=()=>{ this.captureEntityMapping(); this.advanceEntityQueue(-1); this.render(); });
+    this.shadowRoot.querySelectorAll('[data-map-entity]').forEach(el=>el.onchange=()=>{ this.captureEntityMapping(); if (el.value !== '__manual__') this.render(); });
+    this.shadowRoot.querySelectorAll('[data-map-suggestion]').forEach(el=>el.onclick=()=>{ const id=el.dataset.mapSuggestion; this.importEntityMapping[id]=el.dataset.mapValue; this.autoAdvanceEntityQueue(); });
+    this.shadowRoot.querySelectorAll('ha-entity-picker[data-map-picker]').forEach(el=>{ el.hass=this._hass; const id=el.dataset.mapPicker; const v=this.importEntityMapping?.[id]; if (v && !['__unresolved__','__clear__'].includes(v)) el.value=v; el.addEventListener('value-changed', ev=>{ const value=ev.detail?.value; this.importEntityMapping[id]=value || '__unresolved__'; const radio=this.shadowRoot.querySelector(`input[data-map-entity="${CSS.escape(id)}"][value="__manual__"]`); if (radio) radio.checked=true; if (value) this.autoAdvanceEntityQueue(); }); });
     this.shadowRoot.querySelectorAll('[data-action="select-all-import"]').forEach(el=>el.onclick=()=>{this.shadowRoot.querySelectorAll('.import-task-select:not(:disabled)').forEach(cb=>cb.checked=true); this.captureImportSelections(); this.render();});
     this.shadowRoot.querySelectorAll('[data-action="select-none-import"]').forEach(el=>el.onclick=()=>{this.shadowRoot.querySelectorAll('.import-task-select').forEach(cb=>cb.checked=false); this.captureImportSelections(); this.render();});
     this.shadowRoot.querySelectorAll('.import-task-select').forEach(el=>el.onchange=()=>this.captureImportSelections());

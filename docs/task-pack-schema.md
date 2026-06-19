@@ -19,7 +19,7 @@ Task Packs use JSON and must declare this top-level shape:
 | Field | Required | Description |
 |---|---:|---|
 | `format` | Yes | Must be `home_maintenance_manager_task_pack`. |
-| `format_version` | Yes | Schema version number. v0.7.2 uses `1`. |
+| `format_version` | Yes | Schema version number. v0.7.3 uses `1`. |
 | `type` | Yes | Must be `task_pack`. |
 | `pack` | Yes | Metadata about the pack. |
 | `entity_requirements` | Yes | Entity requirements used by task templates. May be empty. |
@@ -56,7 +56,7 @@ Example:
   "description": "Recurring hot tub care tasks.",
   "author": "Home Maintenance Manager",
   "source": "bundled",
-  "min_hmm_version": "0.7.2",
+  "min_hmm_version": "0.7.3",
   "provenance": {
     "kind": "community",
     "source": "bundled"
@@ -76,11 +76,28 @@ Entity requirements describe Home Assistant entities a template can use. Use pla
   "domain": "sensor",
   "role": "runtime",
   "required": false,
+  "device_class": "duration",
+  "state_class": "total_increasing",
+  "unit_of_measurement": "h",
+  "suggested_keywords": ["hot tub", "pump", "runtime"],
   "task_ids": ["pack_hot_tub_clean_filter_runtime"]
 }
 ```
 
 When exporting selected local tasks as a Task Pack, HMM converts task entity IDs such as `sensor.pool_pump_power` into placeholders such as `hmm://entity/sensor_pool_pump_power` and adds a matching requirement record.
+
+Recommended entity requirement metadata:
+
+| Field | Description |
+|---|---|
+| `key` | Stable placeholder key. Defaults to `id` when omitted. |
+| `label` | Human-readable name shown in the mapping queue. |
+| `description` | Purpose of the entity and why the task uses it. |
+| `domain` | Expected Home Assistant domain, such as `sensor`. |
+| `device_class` | Expected Home Assistant device class, such as `duration`. |
+| `state_class` | Expected state class, such as `total_increasing`. |
+| `unit_of_measurement` | Expected unit, such as `h`. |
+| `suggested_keywords` | Words used to rank local entity suggestions by name, entity ID, area, or device context. |
 
 ## Task Templates
 

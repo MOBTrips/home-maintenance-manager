@@ -1,3 +1,12 @@
+## 0.7.3
+
+- Reworked Task Pack missing-entity mapping into a queue workflow with progress counts, Required/Optional/All filters, and per-requirement review cards.
+- Added richer entity requirement metadata display in the import wizard, including placeholder key, purpose, expected domain, device class, state class, unit, and affected task context.
+- Added ranked local entity suggestions using requirement metadata, friendly names, entity IDs, and available area/device context instead of generic recent sensor chips.
+- Added final import summary counts for mapped entities, cleared references, skipped optional references, unresolved requirements, and tasks that will import paused.
+- Extended bundled Task Pack entity requirements with metadata used by the improved mapper.
+- Hardened Task Pack entity imports so required unresolved tasks stay selected for review, key-based placeholders are recognized, sparse suggestions avoid domain-only noise, and pause reasons are persisted in task provenance.
+
 ## 0.7.2
 
 - Added a local built-in Task Pack library in Settings with pack name, description, task count, tags/categories, and installed status.

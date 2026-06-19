@@ -11,7 +11,7 @@
     "license": "MIT",
     "source": "bundled",
     "source_url": "https://github.com/MOBTrips/home-maintenance-manager",
-    "min_hmm_version": "0.7.2",
+    "min_hmm_version": "0.7.3",
     "categories": ["Hot Tub"],
     "tags": ["hot-tub", "water-care", "filters"],
     "provenance": {
@@ -25,6 +25,10 @@
       "name": "Hot tub pump runtime",
       "description": "Optional runtime or power source that indicates when the circulation or jet pump is running.",
       "domain": "sensor",
+      "device_class": "duration",
+      "state_class": "total_increasing",
+      "unit_of_measurement": "h",
+      "suggested_keywords": ["hot", "tub", "spa", "pump", "jets", "runtime"],
       "role": "runtime",
       "required": false,
       "task_ids": ["pack_hot_tub_clean_filter_runtime"]

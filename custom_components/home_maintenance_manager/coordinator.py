@@ -348,7 +348,7 @@ class MaintenanceCoordinator:
         return {
             "format": "home_maintenance_manager_export",
             "format_version": 1,
-            "integration_version": "0.7.2",
+            "integration_version": "0.7.3",
             "exported_at": dt_util.utcnow().isoformat(),
             "storage_version": STORAGE_VERSION,
             "tasks": [task.as_dict() for task in self.tasks.values()],
@@ -420,6 +420,9 @@ class MaintenanceCoordinator:
                 for rule in task_data.get("rules") or []
             ):
                 task_data["paused"] = True
+                provenance = dict(task_data.get("provenance") or {})
+                provenance["pause_reason"] = "unresolved_required_entity"
+                task_data["provenance"] = provenance
             task_id = str(task_data["id"])
             task_data["id"] = task_id
             if task_data.get("paused") and any(
@@ -532,7 +535,11 @@ class MaintenanceCoordinator:
     def _requirement_reference(self, entity_id: str, requirements: list[dict[str, Any]]) -> dict[str, Any] | None:
         for requirement in requirements:
             req_id = str(requirement.get("id") or "")
-            if entity_id in {req_id, f"hmm://entity/{req_id}"}:
+            req_key = str(requirement.get("key") or "")
+            refs = {req_id, f"hmm://entity/{req_id}"}
+            if req_key:
+                refs.update({req_key, f"hmm://entity/{req_key}"})
+            if entity_id in refs:
                 return requirement
         return None
 
@@ -545,13 +552,97 @@ class MaintenanceCoordinator:
                     **ref,
                     "entity_requirement_id": requirement.get("id"),
                     "entity_requirement_name": requirement.get("name"),
+                    "entity_requirement_label": requirement.get("label") or requirement.get("name"),
                     "description": requirement.get("description"),
                     "domain": requirement.get("domain"),
+                    "device_class": requirement.get("device_class") or requirement.get("suggested_device_class"),
+                    "state_class": requirement.get("state_class"),
+                    "unit_of_measurement": requirement.get("unit_of_measurement") or requirement.get("unit"),
+                    "suggested_keywords": requirement.get("suggested_keywords") or [],
                     "required": bool(requirement.get("required", ref.get("required"))),
                     "role": requirement.get("role") or ref.get("role"),
                 }
             refs.append(ref)
         return refs
+
+    def _entity_registry_context(self) -> tuple[dict[str, Any], dict[str, str], dict[str, str]]:
+        """Return registry metadata used for ranked import suggestions."""
+        try:
+            from homeassistant.helpers import area_registry as ar, device_registry as dr, entity_registry as er
+
+            entity_registry = er.async_get(self.hass)
+            device_registry = dr.async_get(self.hass)
+            area_registry = ar.async_get(self.hass)
+            entities = {entry.entity_id: entry for entry in entity_registry.entities.values()}
+            devices = {device.id: (device.name_by_user or device.name or device.model or device.id or "") for device in device_registry.devices.values()}
+            areas = {area.id: area.name for area in area_registry.async_list_areas()}
+            return entities, devices, areas
+        except Exception:
+            return {}, {}, {}
+
+    def _rank_entity_suggestions(self, ref: dict[str, Any], task_data: dict[str, Any], entity_ids: set[str], registry_context: tuple[dict[str, Any], dict[str, str], dict[str, str]]) -> list[dict[str, Any]]:
+        """Return ranked local HA entities for one missing Task Pack requirement."""
+        expected_domain = str(ref.get("domain") or "")
+        expected_device_class = str(ref.get("device_class") or "")
+        expected_state_class = str(ref.get("state_class") or "")
+        expected_unit = str(ref.get("unit_of_measurement") or "")
+        keywords = {str(k).lower() for k in (ref.get("suggested_keywords") or []) if str(k).strip()}
+        for source in (ref.get("entity_requirement_name"), ref.get("entity_requirement_label"), ref.get("entity_requirement_id"), task_data.get("name"), task_data.get("category"), task_data.get("equipment_name")):
+            for token in str(source or "").replace("_", " ").replace("-", " ").split():
+                if len(token) >= 3:
+                    keywords.add(token.lower())
+        registry_entities, devices, areas = registry_context
+        suggestions: list[dict[str, Any]] = []
+        for entity_id in sorted(entity_ids):
+            state = self.hass.states.get(entity_id)
+            attrs = state.attributes if state else {}
+            registry_entry = registry_entities.get(entity_id)
+            domain = entity_id.split(".", 1)[0] if "." in entity_id else ""
+            device_name = devices.get(getattr(registry_entry, "device_id", None), "") if registry_entry else ""
+            area_name = areas.get(getattr(registry_entry, "area_id", None), "") if registry_entry else ""
+            friendly = str(attrs.get("friendly_name") or getattr(registry_entry, "name", None) or getattr(registry_entry, "original_name", None) or entity_id)
+            haystack = " ".join([entity_id, friendly, device_name, area_name]).lower().replace("_", " ")
+            score = 0
+            reasons: list[str] = []
+            specific_match = False
+            if expected_domain and domain == expected_domain:
+                score += 50
+                reasons.append("domain")
+            elif expected_domain:
+                continue
+            if expected_device_class and attrs.get("device_class") == expected_device_class:
+                score += 30
+                reasons.append("device class")
+                specific_match = True
+            if expected_state_class and attrs.get("state_class") == expected_state_class:
+                score += 20
+                reasons.append("state class")
+                specific_match = True
+            if expected_unit and attrs.get("unit_of_measurement") == expected_unit:
+                score += 16
+                reasons.append("unit")
+                specific_match = True
+            keyword_hits = [keyword for keyword in keywords if keyword and keyword in haystack]
+            if keyword_hits:
+                score += min(30, 8 * len(keyword_hits))
+                reasons.append("keyword")
+                specific_match = True
+            if score <= 0 or (expected_domain and not specific_match):
+                continue
+            suggestions.append({
+                "entity_id": entity_id,
+                "name": friendly,
+                "score": score,
+                "reasons": reasons,
+                "domain": domain,
+                "device_class": attrs.get("device_class"),
+                "state_class": attrs.get("state_class"),
+                "unit_of_measurement": attrs.get("unit_of_measurement"),
+                "area": area_name,
+                "device": device_name,
+            })
+        suggestions.sort(key=lambda item: (-item["score"], item["entity_id"]))
+        return suggestions[:8]
 
     def _apply_entity_mapping_to_task_data(self, task_data: dict[str, Any], entity_mapping: dict[str, Any] | None = None) -> dict[str, Any]:
         mapping = entity_mapping or {}
@@ -627,6 +718,7 @@ class MaintenanceCoordinator:
             mode = "merge"
         existing_by_name = {((t.name or "").strip().lower(), (t.category or "General").strip().lower()): tid for tid, t in self.tasks.items()}
         entity_ids = set(self.hass.states.async_entity_ids())
+        registry_context = self._entity_registry_context()
         requirements = parsed.get("entity_requirements") if isinstance(parsed.get("entity_requirements"), list) else []
         preview_tasks = []
         counts = {"new": 0, "update": 0, "duplicate": 0, "deleted": 0, "invalid": 0, "conflict": 0}
@@ -655,11 +747,7 @@ class MaintenanceCoordinator:
                 ref["status"] = "found" if found else "missing"
                 ref["suggestions"] = []
                 if not found:
-                    domain = str(ref.get("domain") or "")
-                    if not domain:
-                        domain = entity_ref.split('.',1)[0] if '.' in entity_ref else ''
-                    suggestions = [e for e in sorted(entity_ids) if (not domain or e.startswith(domain+'.'))][:8]
-                    ref["suggestions"] = suggestions
+                    ref["suggestions"] = self._rank_entity_suggestions(ref, item, entity_ids, registry_context)
                     entity_counts["missing"] += 1
                     if ref.get("required"):
                         required_missing = True
@@ -667,10 +755,11 @@ class MaintenanceCoordinator:
                 else:
                     entity_counts["found"] += 1
                 refs.append(ref)
-            selected = status in {"new", "update"} and not required_missing
+            selected = status in {"new", "update"} and (package_type == TASK_PACK_TYPE or not required_missing)
             if package_type == "task_pack" and status == "deleted":
                 selected = False
-            preview_tasks.append({"index": idx, "id": task_id, "name": item.get("name"), "category": item.get("category", "General"), "status": status, "selected": selected, "required_entity_missing": required_missing, "entities": refs})
+            schedule_type = " + ".join(dict.fromkeys(str(rule.get("type") or "rule") for rule in (item.get("rules") or []) if isinstance(rule, dict)))
+            preview_tasks.append({"index": idx, "id": task_id, "name": item.get("name"), "category": item.get("category", "General"), "status": status, "selected": selected, "required_entity_missing": required_missing, "schedule_type": schedule_type, "entities": refs})
         return {
             "package_type": package_type,
             "pack_name": (parsed.get("pack") or {}).get("name") if isinstance(parsed.get("pack"), dict) else parsed.get("pack_name") or parsed.get("name") or parsed.get("format") or "HMM Import",

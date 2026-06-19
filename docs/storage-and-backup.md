@@ -1,6 +1,6 @@
 # Storage and Backup
 
-Home Maintenance Manager v0.7.2 uses Home Assistant's storage framework as the system of record.
+Home Maintenance Manager v0.7.3 uses Home Assistant's storage framework as the system of record.
 
 ## Primary storage file
 
@@ -82,7 +82,7 @@ The HMM panel includes a Backup & Restore section under Settings showing:
 
 ## JSON export and import
 
-v0.7.2 includes a portable JSON export/import workflow under:
+v0.7.3 includes a portable JSON export/import workflow under:
 
 ```text
 Maintenance panel → Settings → Export / Import JSON
@@ -114,6 +114,6 @@ Settings also includes a local **Browse built-in packs** library. Built-in packs
 
 ## Import Review and Task Pack Foundation
 
-v0.7.2 includes a reviewed import flow. HMM previews backup-style exports and Task Pack JSON before changing storage. The preview classifies tasks as new, update, duplicate, deleted, or invalid and reports entity references as found or missing. Runtime and counter rule entities are treated as required references; when they cannot be resolved, the task is imported safely instead of silently running against a bad entity.
+v0.7.3 includes a reviewed import flow. HMM previews backup-style exports and Task Pack JSON before changing storage. The preview classifies tasks as new, update, duplicate, deleted, or invalid and reports entity references as found or missing. Task Pack missing entities are reviewed in a queue with required/optional filters, ranked suggestions, and a final summary of mapped, cleared, skipped, unresolved, and paused-task outcomes. Runtime and counter rule entities are treated as required references; when they cannot be resolved, the task is imported safely instead of silently running against a bad entity.
 
 Task Packs are templates, not system backups. HMM strips Home Assistant-specific device IDs, NFC tag IDs, completion history, runtime history, deleted tombstones, settings, and private notification targets during Task Pack import. Task Packs always merge and cannot replace full storage or delete existing user tasks.

@@ -25,6 +25,21 @@ Task Packs are always handled as templates:
 
 Required runtime or metered entity references that remain unresolved during import are imported paused so due status is not calculated from the wrong source.
 
+## Entity Mapping Queue
+
+Task Pack imports treat missing entity requirements as a normal review queue. The mapping step shows total unresolved requirements, required count, optional count, mapped count, and an "Entity X of Y" position indicator. Use the All, Required, and Optional filters to focus the queue.
+
+Each requirement shows:
+
+- label and placeholder key
+- required or optional status
+- description or purpose
+- expected domain, device class, state class, and unit
+- affected tasks with task name, category, and schedule type
+- ranked local entity suggestions
+
+Required runtime and meter requirements may be left unresolved, but affected tasks import paused. Optional requirements may be kept unresolved for later mapping, cleared from imported tasks, or mapped to a local entity.
+
 ## Exporting a Pack
 
 Use **Settings → Export / Import JSON → Export selected tasks as Task Pack** to create a Task Pack from existing HMM tasks.
@@ -42,7 +57,7 @@ The export workflow sanitizes selected tasks the same way imports do. It strips 
 
 ## Installed Packs
 
-Settings shows installed Task Packs from HMM storage, including pack name, version, installed date, and imported task count. This is local metadata only; v0.7.2 does not contact an online repository or check for updates.
+Settings shows installed Task Packs from HMM storage, including pack name, version, installed date, and imported task count. This is local metadata only; v0.7.3 does not contact an online repository or check for updates.
 
 ## Built-In Library
 
@@ -56,7 +71,7 @@ Installing a built-in pack loads the same import review wizard used by JSON file
 - Apply as merge-only.
 - Review the completion summary.
 
-Built-in packs are local files. v0.7.2 does not add online repositories, remote downloads, update checks, or automatic installs.
+Built-in packs are local files. v0.7.3 does not add online repositories, remote downloads, update checks, or automatic installs.
 
 ## Provenance
 
@@ -89,4 +104,4 @@ Use the Maintenance panel import wizard to review an example pack before importi
 
 ## Future Repository Support
 
-The v0.7.2 schema is designed so a future online repository can publish pack manifests, source URLs, package hashes, categories, tags, and compatibility metadata. Import should remain user-reviewed and local-first even when packs eventually come from an online index.
+The v0.7.3 schema is designed so a future online repository can publish pack manifests, source URLs, package hashes, categories, tags, and compatibility metadata. Import should remain user-reviewed and local-first even when packs eventually come from an online index.

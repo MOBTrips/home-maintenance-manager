@@ -22,6 +22,7 @@ is_task_pack_package = task_packs.is_task_pack_package
 list_built_in_task_pack_metadata = task_packs.list_built_in_task_pack_metadata
 load_built_in_task_pack = task_packs.load_built_in_task_pack
 merge_installed_pack_record = task_packs.merge_installed_pack_record
+normalize_entity_requirements = task_packs.normalize_entity_requirements
 validate_task_pack = task_packs.validate_task_pack
 
 
@@ -60,6 +61,12 @@ class TaskPackTests(unittest.TestCase):
         self.assertEqual(normalized["pack"]["id"], "hmm.hvac_maintenance")
         self.assertEqual(package["package_hash"], library_pack["package_hash"])
         self.assertGreater(len(package["tasks"]), 0)
+        runtime_requirement = next(req for req in normalized["entity_requirements"] if req["id"] == "hvac_runtime")
+        self.assertEqual(runtime_requirement["label"], "HVAC runtime")
+        self.assertEqual(runtime_requirement["device_class"], "duration")
+        self.assertEqual(runtime_requirement["state_class"], "total_increasing")
+        self.assertEqual(runtime_requirement["unit_of_measurement"], "h")
+        self.assertIn("blower", runtime_requirement["suggested_keywords"])
 
     def test_load_built_in_task_pack_rejects_unknown_id(self) -> None:
         with self.assertRaisesRegex(ValueError, "not found"):
@@ -125,6 +132,59 @@ class TaskPackTests(unittest.TestCase):
         self.assertNotIn("activity_history", task)
         self.assertEqual(task["provenance"]["origin"], "task_pack")
         self.assertEqual(task["provenance"]["pack_id"], "hmm.test")
+
+    def test_entity_requirement_metadata_preserved_and_hardened(self) -> None:
+        requirements = normalize_entity_requirements({
+            "entity_requirements": [
+                {
+                    "id": "furnace_runtime",
+                    "key": "furnace_runtime_sensor",
+                    "name": "Legacy name",
+                    "label": "Furnace Runtime Sensor",
+                    "description": "Runtime sensor used to calculate furnace filter due status.",
+                    "required": True,
+                    "domain": "sensor",
+                    "device_class": "duration",
+                    "state_class": "total_increasing",
+                    "unit_of_measurement": "h",
+                    "suggested_keywords": "furnace",
+                    "extra_future_field": "ignored",
+                }
+            ]
+        })
+        requirement = requirements[0]
+        self.assertEqual(requirement["id"], "furnace_runtime")
+        self.assertEqual(requirement["key"], "furnace_runtime_sensor")
+        self.assertEqual(requirement["label"], "Furnace Runtime Sensor")
+        self.assertEqual(requirement["description"], "Runtime sensor used to calculate furnace filter due status.")
+        self.assertTrue(requirement["required"])
+        self.assertEqual(requirement["domain"], "sensor")
+        self.assertEqual(requirement["device_class"], "duration")
+        self.assertEqual(requirement["state_class"], "total_increasing")
+        self.assertEqual(requirement["unit_of_measurement"], "h")
+        self.assertEqual(requirement["suggested_keywords"], ["furnace"])
+        self.assertNotIn("extra_future_field", requirement)
+
+    def test_older_entity_requirement_metadata_defaults_safely(self) -> None:
+        requirements = normalize_entity_requirements({
+            "entity_requirements": [
+                {
+                    "id": "legacy_runtime",
+                    "name": "Legacy runtime",
+                    "domain": "sensor",
+                    "role": "runtime",
+                    "required": True,
+                }
+            ]
+        })
+        requirement = requirements[0]
+        self.assertEqual(requirement["key"], "legacy_runtime")
+        self.assertEqual(requirement["label"], "Legacy runtime")
+        self.assertEqual(requirement["description"], "")
+        self.assertEqual(requirement["device_class"], "")
+        self.assertEqual(requirement["state_class"], "")
+        self.assertEqual(requirement["unit_of_measurement"], "")
+        self.assertEqual(requirement["suggested_keywords"], [])
 
     def test_installed_pack_record(self) -> None:
         record = installed_pack_record(
@@ -238,6 +298,36 @@ class TaskPackTests(unittest.TestCase):
         self.assertEqual(task["linked_entities"], ["hmm://entity/sensor_local_runtime"])
         self.assertEqual(task["rules"][0]["entity"], "hmm://entity/sensor_local_runtime")
         self.assertNotIn("sensor.local_runtime", json.dumps(normalized))
+
+    def test_validate_task_pack_accepts_key_based_placeholders(self) -> None:
+        package = {
+            "format": TASK_PACK_FORMAT,
+            "format_version": 1,
+            "type": "task_pack",
+            "pack": {"id": "hmm.keyed", "name": "Keyed Pack", "version": "1.0.0"},
+            "entity_requirements": [
+                {
+                    "id": "furnace_runtime",
+                    "key": "furnace_runtime_sensor",
+                    "label": "Furnace Runtime Sensor",
+                    "domain": "sensor",
+                    "role": "runtime",
+                    "required": True,
+                }
+            ],
+            "tasks": [
+                {
+                    "id": "runtime_task",
+                    "name": "Runtime task",
+                    "rules": [
+                        {"id": "runtime", "type": "runtime", "entity": "hmm://entity/furnace_runtime_sensor", "value": 10, "unit": "hours"}
+                    ],
+                }
+            ],
+        }
+        normalized = validate_task_pack(package)
+        self.assertEqual(normalized["entity_requirements"][0]["key"], "furnace_runtime_sensor")
+        self.assertEqual(normalized["tasks"][0]["rules"][0]["entity"], "hmm://entity/furnace_runtime_sensor")
 
     def test_task_pack_import_mode_rejects_replace(self) -> None:
         self.assertEqual(enforce_task_pack_merge_mode("merge"), "merge")

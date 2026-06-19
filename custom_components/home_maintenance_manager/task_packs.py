@@ -199,15 +199,26 @@ def normalize_entity_requirements(package: dict[str, Any]) -> list[dict[str, Any
         req_id = _clean_string(item.get("id"))
         if not req_id:
             raise ValueError(f"Task Pack entity requirement {idx + 1} requires id")
+        raw_keywords = item.get("suggested_keywords") or []
+        if isinstance(raw_keywords, str):
+            raw_keywords = [raw_keywords]
+        elif not isinstance(raw_keywords, list):
+            raw_keywords = []
         requirements.append({
             "id": req_id,
+            "key": _clean_string(item.get("key"), req_id),
             "name": _clean_string(item.get("name"), req_id),
+            "label": _clean_string(item.get("label") or item.get("name"), req_id),
             "description": _clean_string(item.get("description")),
             "domain": _clean_string(item.get("domain")),
             "role": _clean_string(item.get("role"), "entity"),
             "required": bool(item.get("required", False)),
+            "device_class": _clean_string(item.get("device_class") or item.get("suggested_device_class")),
+            "state_class": _clean_string(item.get("state_class")),
+            "unit_of_measurement": _clean_string(item.get("unit_of_measurement") or item.get("unit")),
             "suggested_device_class": _clean_string(item.get("suggested_device_class")),
             "unit": _clean_string(item.get("unit")),
+            "suggested_keywords": [str(keyword).strip().lower() for keyword in raw_keywords if str(keyword).strip()],
             "task_ids": [str(task_id).strip() for task_id in (item.get("task_ids") or []) if str(task_id).strip()],
         })
     return requirements
@@ -219,6 +230,10 @@ def _requirement_lookup(requirements: list[dict[str, Any]]) -> dict[str, dict[st
         req_id = requirement["id"]
         lookup[req_id] = requirement
         lookup[f"hmm://entity/{req_id}"] = requirement
+        req_key = str(requirement.get("key") or "").strip()
+        if req_key:
+            lookup[req_key] = requirement
+            lookup[f"hmm://entity/{req_key}"] = requirement
     return lookup
 
 
@@ -251,11 +266,19 @@ def _template_tasks_with_entity_requirements(
             domain = entity.split(".", 1)[0] if "." in entity else ""
             by_entity[entity] = {
                 "id": req_id,
+                "key": req_id,
                 "name": req_id.replace("_", " ").title(),
+                "label": req_id.replace("_", " ").title(),
                 "description": "",
                 "domain": domain,
                 "role": role or "entity",
                 "required": bool(required),
+                "device_class": "",
+                "state_class": "",
+                "unit_of_measurement": "",
+                "suggested_device_class": "",
+                "unit": "",
+                "suggested_keywords": [word for word in req_id.split("_") if word],
                 "task_ids": [],
             }
             requirements.append(by_entity[entity])
@@ -396,7 +419,7 @@ def build_task_pack_package(
             "license": pack_metadata.get("license", ""),
             "source": pack_metadata.get("source", "manual_export"),
             "source_url": pack_metadata.get("source_url", ""),
-            "min_hmm_version": pack_metadata.get("min_hmm_version", "0.7.2"),
+            "min_hmm_version": pack_metadata.get("min_hmm_version", "0.7.3"),
             "categories": pack_metadata.get("categories", []),
             "tags": pack_metadata.get("tags", []),
             "provenance": pack_metadata.get("provenance", {"kind": "manual", "source": "export"}),
