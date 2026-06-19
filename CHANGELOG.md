@@ -1,3 +1,12 @@
+## 0.6.8
+
+- Added `AGENTS.md` as shared repository guidance for Codex, ChatGPT-authored prompts, and human contributors.
+- Added development foundation docs for requirements, roadmap, UI guidelines, release checklist, and ChatGPT + Codex workflow.
+- Added GitHub issue templates for bug reports, feature requests, and scoped Codex implementation tasks.
+- Added pull request template with storage, testing, documentation, and release checks.
+- Added GitHub Actions validation workflow for Python compile, HACS validation, and Hassfest validation.
+- Updated README documentation links and development workflow overview.
+
 ## 0.6.7
 
 - Fixed import wizard task selections being cleared when moving from Entity Mapping to Import Options.

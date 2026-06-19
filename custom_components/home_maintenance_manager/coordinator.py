@@ -313,7 +313,7 @@ class MaintenanceCoordinator:
         return {
             "format": "home_maintenance_manager_export",
             "format_version": 1,
-            "integration_version": "0.6.7",
+            "integration_version": "0.6.8",
             "exported_at": dt_util.utcnow().isoformat(),
             "storage_version": STORAGE_VERSION,
             "tasks": [task.as_dict() for task in self.tasks.values()],

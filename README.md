@@ -53,14 +53,18 @@ HMM is designed to feel like a native Home Assistant tool: tasks can be tied to 
 
 ## Documentation
 
-- [Storage and Backup](docs/storage-and-backup.md)
-
 - [Getting Started](docs/getting-started.md)
+- [Requirements](docs/requirements.md)
+- [Roadmap](docs/roadmap.md)
 - [Architecture](docs/architecture.md)
+- [UI Guidelines](docs/ui-guidelines.md)
+- [Codex Workflow](docs/codex-workflow.md)
+- [Release Checklist](docs/release-checklist.md)
 - [Assets & Tasks](docs/assets-and-tasks.md)
 - [Scheduling](docs/scheduling.md)
 - [Seasonal Tasks](docs/seasonal-tasks.md)
 - [NFC Tags](docs/nfc-tags.md)
+- [Storage and Backup](docs/storage-and-backup.md)
 - [HACS Readiness](docs/hacs-readiness.md)
 - [FAQ](docs/faq.md)
 - [Changelog](CHANGELOG.md)
@@ -104,6 +108,17 @@ Depending on configuration and task state, HMM may create or manage:
 - Runtime and metered schedules depend on the quality and availability of the selected Home Assistant sensors.
 - NFC behavior can vary by phone, Home Assistant mobile app state, and tag registration status.
 - HACS validation should be run on every release before publishing.
+
+
+## Development workflow
+
+HMM is set up to support a ChatGPT + Codex + GitHub workflow:
+
+- `AGENTS.md` defines repository rules for Codex and contributors.
+- `docs/requirements.md` and `docs/roadmap.md` keep product direction visible.
+- `docs/codex-workflow.md` explains how to turn planning discussions into scoped GitHub issues and Codex implementation tasks.
+- `.github/ISSUE_TEMPLATE/` includes bug, feature, and Codex task templates.
+- `.github/workflows/validate.yml` runs Python compile, HACS validation, and Hassfest validation.
 
 ## Support
 
