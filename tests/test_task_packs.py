@@ -15,6 +15,7 @@ task_packs = importlib.util.module_from_spec(SPEC)
 assert SPEC and SPEC.loader
 SPEC.loader.exec_module(task_packs)
 TASK_PACK_FORMAT = task_packs.TASK_PACK_FORMAT
+apply_task_pack_entity_mapping = task_packs.apply_task_pack_entity_mapping
 build_task_pack_package = task_packs.build_task_pack_package
 enforce_task_pack_merge_mode = task_packs.enforce_task_pack_merge_mode
 installed_pack_record = task_packs.installed_pack_record
@@ -328,6 +329,74 @@ class TaskPackTests(unittest.TestCase):
         normalized = validate_task_pack(package)
         self.assertEqual(normalized["entity_requirements"][0]["key"], "furnace_runtime_sensor")
         self.assertEqual(normalized["tasks"][0]["rules"][0]["entity"], "hmm://entity/furnace_runtime_sensor")
+
+    def test_entity_mapping_replaces_meter_runtime_and_linked_placeholders(self) -> None:
+        requirements = [
+            {"id": "sensor_office_ups_power", "key": "office_ups_power", "required": True},
+            {"id": "hvac_runtime", "key": "furnace_runtime_sensor", "required": True},
+            {"id": "linked_context", "required": False},
+        ]
+        task = {
+            "id": "mapped_task",
+            "name": "Mapped task",
+            "linked_entities": ["hmm://entity/linked_context"],
+            "rules": [
+                {"id": "meter", "type": "counter", "entity": "hmm://entity/sensor_office_ups_power"},
+                {"id": "runtime", "type": "runtime", "entity": "hmm://entity/hvac_runtime"},
+            ],
+        }
+        mapped = apply_task_pack_entity_mapping(
+            task,
+            {
+                "hmm://entity/sensor_office_ups_power": "sensor.office_ups_power",
+                "hmm://entity/hvac_runtime": "sensor.furnace_runtime",
+                "hmm://entity/linked_context": "sensor.office_temperature",
+            },
+            requirements,
+        )
+        self.assertEqual(mapped["rules"][0]["entity"], "sensor.office_ups_power")
+        self.assertEqual(mapped["rules"][1]["entity"], "sensor.furnace_runtime")
+        self.assertEqual(mapped["linked_entities"], ["sensor.office_temperature"])
+        self.assertNotIn("hmm://entity/", json.dumps(mapped))
+
+    def test_entity_mapping_matches_requirement_id_and_key_aliases(self) -> None:
+        requirements = [{"id": "sensor_office_ups_power", "key": "office_ups_power", "required": True}]
+        by_id = apply_task_pack_entity_mapping(
+            {"id": "meter", "name": "Meter", "rules": [{"id": "meter", "type": "counter", "entity": "hmm://entity/sensor_office_ups_power"}]},
+            {"office_ups_power": "sensor.office_ups_power"},
+            requirements,
+        )
+        by_key = apply_task_pack_entity_mapping(
+            {"id": "meter", "name": "Meter", "rules": [{"id": "meter", "type": "counter", "entity": "hmm://entity/office_ups_power"}]},
+            {"sensor_office_ups_power": "sensor.office_ups_power"},
+            requirements,
+        )
+        self.assertEqual(by_id["rules"][0]["entity"], "sensor.office_ups_power")
+        self.assertEqual(by_key["rules"][0]["entity"], "sensor.office_ups_power")
+
+    def test_required_unresolved_placeholder_imports_paused_with_reason(self) -> None:
+        mapped = apply_task_pack_entity_mapping(
+            {"id": "runtime", "name": "Runtime", "rules": [{"id": "runtime", "type": "runtime", "entity": "hmm://entity/hvac_runtime"}]},
+            {},
+            [{"id": "hvac_runtime", "required": True}],
+        )
+        self.assertTrue(mapped["paused"])
+        self.assertEqual(mapped["provenance"]["pause_reason"], "unresolved_required_entity")
+        self.assertEqual(mapped["rules"][0]["entity"], "hmm://entity/hvac_runtime")
+
+    def test_optional_cleared_placeholder_is_removed(self) -> None:
+        mapped = apply_task_pack_entity_mapping(
+            {
+                "id": "linked",
+                "name": "Linked",
+                "linked_entities": ["hmm://entity/linked_context"],
+                "rules": [{"id": "time", "type": "time", "value": 1, "unit": "months"}],
+            },
+            {"hmm://entity/linked_context": "__clear__"},
+            [{"id": "linked_context", "required": False}],
+        )
+        self.assertEqual(mapped["linked_entities"], [])
+        self.assertNotIn("hmm://entity/", json.dumps(mapped))
 
     def test_task_pack_import_mode_rejects_replace(self) -> None:
         self.assertEqual(enforce_task_pack_merge_mode("merge"), "merge")

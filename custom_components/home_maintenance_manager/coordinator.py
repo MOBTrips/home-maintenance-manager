@@ -15,6 +15,7 @@ from .models import MaintenanceTask
 from .task_packs import (
     TASK_PACK_FORMAT,
     TASK_PACK_TYPE,
+    apply_task_pack_entity_mapping,
     build_task_pack_package,
     enforce_task_pack_merge_mode,
     is_task_pack_package,
@@ -383,15 +384,25 @@ class MaintenanceCoordinator:
         requested_mode = str(mode or "merge").lower()
         if is_task_pack:
             mode = enforce_task_pack_merge_mode(requested_mode)
-            normalized_pack = validate_task_pack(package)
-            package = {
-                "type": TASK_PACK_TYPE,
-                "format": TASK_PACK_FORMAT,
-                "format_version": normalized_pack["format_version"],
-                "pack": normalized_pack["pack"],
-                "entity_requirements": normalized_pack["entity_requirements"],
-                "tasks": normalized_pack["tasks"],
-            }
+            if package.get("_reviewed_task_pack_import"):
+                normalized_pack = {
+                    "format_version": package.get("format_version"),
+                    "pack": dict(package.get("pack") or {}),
+                    "entity_requirements": list(package.get("entity_requirements") or []),
+                    "tasks": list(package.get("tasks") or []),
+                    "package_hash": package.get("package_hash"),
+                }
+            else:
+                normalized_pack = validate_task_pack(package)
+                package = {
+                    "type": TASK_PACK_TYPE,
+                    "format": TASK_PACK_FORMAT,
+                    "format_version": normalized_pack["format_version"],
+                    "pack": normalized_pack["pack"],
+                    "entity_requirements": normalized_pack["entity_requirements"],
+                    "tasks": normalized_pack["tasks"],
+                    "package_hash": normalized_pack["package_hash"],
+                }
         else:
             mode = requested_mode
         if mode not in {"merge", "replace"}:
@@ -645,44 +656,7 @@ class MaintenanceCoordinator:
         return suggestions[:8]
 
     def _apply_entity_mapping_to_task_data(self, task_data: dict[str, Any], entity_mapping: dict[str, Any] | None = None) -> dict[str, Any]:
-        mapping = entity_mapping or {}
-        data = dict(task_data)
-        linked = []
-        for entity_id in data.get("linked_entities") or []:
-            original = str(entity_id)
-            action = mapping.get(original, original)
-            if action in (None, "", "__clear__"):
-                continue
-            if action == "__unresolved__":
-                linked.append(original)
-            else:
-                linked.append(str(action))
-        data["linked_entities"] = linked
-        rules = []
-        for rule in data.get("rules") or []:
-            if not isinstance(rule, dict):
-                continue
-            new_rule = dict(rule)
-            if new_rule.get("entity"):
-                original = str(new_rule.get("entity"))
-                action = mapping.get(original)
-                if action is None and original.startswith("hmm://entity/"):
-                    action = "__unresolved__"
-                elif action is None:
-                    action = original
-                if action in (None, "", "__clear__"):
-                    new_rule.pop("entity", None)
-                    if new_rule.get("type") in ("runtime", "counter"):
-                        data["paused"] = True
-                elif action == "__unresolved__":
-                    new_rule["entity"] = original
-                    if new_rule.get("type") in ("runtime", "counter"):
-                        data["paused"] = True
-                else:
-                    new_rule["entity"] = str(action)
-            rules.append(new_rule)
-        data["rules"] = rules
-        return data
+        return apply_task_pack_entity_mapping(task_data, entity_mapping)
 
     def _package_tasks(self, package: dict[str, Any]) -> tuple[str, list[dict[str, Any]], dict[str, Any]]:
         """Parse a backup export or task-pack shaped package."""
@@ -788,14 +762,17 @@ class MaintenanceCoordinator:
             preview = self.import_preview(package, mode)
             selected = {str(t["id"]) for t in preview.get("tasks", []) if t.get("selected")}
         filtered_package = dict(parsed)
+        requirements = parsed.get("entity_requirements") if isinstance(parsed.get("entity_requirements"), list) else []
         tasks = []
         for item in raw_tasks:
             if isinstance(item, dict) and str(item.get("id")) in selected:
-                data = self._apply_entity_mapping_to_task_data(dict(item), entity_mapping)
+                data = apply_task_pack_entity_mapping(dict(item), entity_mapping, requirements) if package_type == TASK_PACK_TYPE else self._apply_entity_mapping_to_task_data(dict(item), entity_mapping)
                 if str(data.get("id")) in self.deleted_task_ids and not restore_deleted and package_type != "backup":
                     continue
                 tasks.append(data)
         filtered_package["tasks"] = tasks
+        if package_type == TASK_PACK_TYPE:
+            filtered_package["_reviewed_task_pack_import"] = True
         if not import_settings or package_type == TASK_PACK_TYPE:
             filtered_package.pop("settings", None)
         return await self.async_import_data(filtered_package, mode)

@@ -237,6 +237,78 @@ def _requirement_lookup(requirements: list[dict[str, Any]]) -> dict[str, dict[st
     return lookup
 
 
+def _entity_mapping_aliases(entity_ref: str, requirements: list[dict[str, Any]] | None = None) -> set[str]:
+    aliases = {entity_ref}
+    if entity_ref.startswith("hmm://entity/"):
+        aliases.add(entity_ref.removeprefix("hmm://entity/"))
+    for requirement in requirements or []:
+        req_id = str(requirement.get("id") or "").strip()
+        req_key = str(requirement.get("key") or "").strip()
+        req_refs = {ref for ref in (req_id, req_key, f"hmm://entity/{req_id}" if req_id else "", f"hmm://entity/{req_key}" if req_key else "") if ref}
+        if entity_ref in req_refs:
+            aliases.update(req_refs)
+    return aliases
+
+
+def _entity_mapping_action(entity_ref: str, entity_mapping: dict[str, Any], requirements: list[dict[str, Any]] | None = None) -> Any:
+    for alias in _entity_mapping_aliases(entity_ref, requirements):
+        if alias in entity_mapping:
+            return entity_mapping[alias]
+    if entity_ref.startswith("hmm://entity/"):
+        return "__unresolved__"
+    return entity_ref
+
+
+def _mark_unresolved_entity_pause(task_data: dict[str, Any]) -> None:
+    task_data["paused"] = True
+    provenance = dict(task_data.get("provenance") or {})
+    provenance["pause_reason"] = "unresolved_required_entity"
+    task_data["provenance"] = provenance
+
+
+def apply_task_pack_entity_mapping(
+    task_data: dict[str, Any],
+    entity_mapping: dict[str, Any] | None = None,
+    requirements: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Apply reviewed entity mapping choices to a Task Pack task."""
+    mapping = entity_mapping or {}
+    data = deepcopy(task_data)
+    linked = []
+    for entity_id in data.get("linked_entities") or []:
+        original = str(entity_id)
+        action = _entity_mapping_action(original, mapping, requirements)
+        if action in (None, "", "__clear__"):
+            continue
+        if action == "__unresolved__":
+            linked.append(original)
+        else:
+            linked.append(str(action))
+    data["linked_entities"] = linked
+
+    rules = []
+    for rule in data.get("rules") or []:
+        if not isinstance(rule, dict):
+            continue
+        new_rule = dict(rule)
+        if new_rule.get("entity"):
+            original = str(new_rule.get("entity"))
+            action = _entity_mapping_action(original, mapping, requirements)
+            if action in (None, "", "__clear__"):
+                new_rule.pop("entity", None)
+                if new_rule.get("type") in ("runtime", "counter"):
+                    _mark_unresolved_entity_pause(data)
+            elif action == "__unresolved__":
+                new_rule["entity"] = original
+                if new_rule.get("type") in ("runtime", "counter"):
+                    _mark_unresolved_entity_pause(data)
+            else:
+                new_rule["entity"] = str(action)
+        rules.append(new_rule)
+    data["rules"] = rules
+    return data
+
+
 def _requirement_id_for_entity(entity_id: str, used_ids: set[str]) -> str:
     base = re.sub(r"[^a-z0-9]+", "_", entity_id.lower()).strip("_") or "entity"
     candidate = base

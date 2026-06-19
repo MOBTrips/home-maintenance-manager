@@ -1330,7 +1330,7 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
       const id = el.dataset.mapEntity;
       if (el.value === '__manual__') {
         const picker = this.shadowRoot.querySelector(`[data-map-picker="${CSS.escape(id)}"]`);
-        mapping[id] = picker?.value || '__unresolved__';
+        mapping[id] = picker?.value || mapping[id] || '__unresolved__';
       } else {
         mapping[id] = el.value;
       }
