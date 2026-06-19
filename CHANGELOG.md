@@ -6,6 +6,7 @@
 - Added pull request template with storage, testing, documentation, and release checks.
 - Added GitHub Actions validation workflow for Python compile, HACS validation, and Hassfest validation.
 - Updated README documentation links and development workflow overview.
+- Normalized documentation references to the current v0.6.8 development baseline.
 
 ## 0.6.7
 
