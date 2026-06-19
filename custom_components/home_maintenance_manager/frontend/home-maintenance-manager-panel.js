@@ -581,8 +581,20 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
   }
 
   render() {
-    this.shadowRoot.innerHTML = `<style>${this.css()}</style><div class="page">${this.renderBody()}</div>${this.renderModal()}${this.renderImportWizardModal()}${this.renderTaskPackExportModal()}`;
+    this.shadowRoot.innerHTML = `<style>${this.css()}</style><div class="page">${this.renderBody()}</div>${this.safeRenderModal()}${this.renderImportWizardModal()}${this.renderTaskPackExportModal()}`;
     this.bind();
+  }
+
+  safeRenderModal() {
+    try {
+      return this.renderModal();
+    } catch (err) {
+      console.error('Home Maintenance Manager modal render failed', err);
+      return `<div class="modal-scrim"><div class="modal" data-modal-content>
+        <div class="modal-head"><div><h2>Could not open editor</h2><div class="muted">The task editor hit a rendering error. Close this dialog and refresh HMM before trying again.</div></div><button class="btn" data-action="close-modal">Close</button></div>
+        <div class="info-box">${this.escape(err?.message || err || 'Unknown render error')}</div>
+      </div></div>`;
+    }
   }
 
   renderBody() {
@@ -1851,6 +1863,8 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     const counterSourceMode = counterRule.source_mode || 'cumulative';
     const sourceUnit = counterRule.source_unit || (counterRule.entity && this._hass?.states?.[counterRule.entity]?.attributes?.unit_of_measurement) || '';
     const counterUnit = counterRule.target_unit || counterRule.unit || (counterSourceMode === 'rate' ? this.totalizedTargetUnit(sourceUnit) : sourceUnit) || 'units';
+    const counterDisplayUnit = counterRule.target_display_unit || counterUnit;
+    const counterDisplayAmount = counterRule.target_display_value ?? this.convertUsageAmount(counterRule.amount || 1000, counterUnit, counterDisplayUnit);
     const categoryOptions = this.categories().map(c=>`<option value="${this.escape(c)}" ${this.category(t)===c?'selected':''}>${this.escape(c)}</option>`).join('');
     const calKind = calendarRule.calendar_kind || calendarRule.calendar_type || 'nth_weekday';
     const calNth = String(calendarRule.nth ?? 2);
