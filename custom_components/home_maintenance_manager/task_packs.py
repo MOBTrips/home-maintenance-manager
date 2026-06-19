@@ -4,6 +4,7 @@ from copy import deepcopy
 from datetime import datetime, timezone
 import hashlib
 import json
+import re
 from typing import Any
 
 TASK_PACK_FORMAT = "home_maintenance_manager_task_pack"
@@ -138,6 +139,75 @@ def _requirement_lookup(requirements: list[dict[str, Any]]) -> dict[str, dict[st
     return lookup
 
 
+def _requirement_id_for_entity(entity_id: str, used_ids: set[str]) -> str:
+    base = re.sub(r"[^a-z0-9]+", "_", entity_id.lower()).strip("_") or "entity"
+    candidate = base
+    idx = 2
+    while candidate in used_ids:
+        candidate = f"{base}_{idx}"
+        idx += 1
+    used_ids.add(candidate)
+    return candidate
+
+
+def _template_tasks_with_entity_requirements(
+    tasks: list[dict[str, Any]],
+    existing_requirements: list[dict[str, Any]] | None = None,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Replace local HA entity IDs with Task Pack requirement placeholders."""
+    requirements = [dict(req) for req in (existing_requirements or []) if isinstance(req, dict)]
+    by_entity: dict[str, dict[str, Any]] = {}
+    used_ids = {str(req.get("id")) for req in requirements if req.get("id")}
+
+    def requirement_for(entity_id: Any, task_id: str, role: str, required: bool) -> str:
+        entity = str(entity_id or "").strip()
+        if not entity or entity.startswith("hmm://entity/"):
+            return entity
+        if entity not in by_entity:
+            req_id = _requirement_id_for_entity(entity, used_ids)
+            domain = entity.split(".", 1)[0] if "." in entity else ""
+            by_entity[entity] = {
+                "id": req_id,
+                "name": entity,
+                "description": "",
+                "domain": domain,
+                "role": role or "entity",
+                "required": bool(required),
+                "task_ids": [],
+            }
+            requirements.append(by_entity[entity])
+        req = by_entity[entity]
+        req["required"] = bool(req.get("required") or required)
+        if role and (req.get("role") in {"entity", "linked_entity"} or required):
+            req["role"] = role
+        if task_id and task_id not in req["task_ids"]:
+            req["task_ids"].append(task_id)
+        return f"hmm://entity/{req['id']}"
+
+    templated_tasks: list[dict[str, Any]] = []
+    for item in tasks:
+        task = deepcopy(item)
+        task_id = str(task.get("id") or "")
+        task["linked_entities"] = [
+            requirement_for(entity_id, task_id, "linked_entity", False)
+            for entity_id in (task.get("linked_entities") or [])
+            if str(entity_id or "").strip()
+        ]
+        rules = []
+        for rule in task.get("rules") or []:
+            if not isinstance(rule, dict):
+                continue
+            new_rule = dict(rule)
+            if new_rule.get("entity"):
+                role = str(new_rule.get("type") or "rule_entity")
+                required = role in {"runtime", "counter"}
+                new_rule["entity"] = requirement_for(new_rule.get("entity"), task_id, role, required)
+            rules.append(new_rule)
+        task["rules"] = rules
+        templated_tasks.append(task)
+    return templated_tasks, requirements
+
+
 def sanitize_task_pack_task(
     task_data: dict[str, Any],
     pack_metadata: dict[str, Any],
@@ -217,6 +287,42 @@ def validate_task_pack(package: dict[str, Any]) -> dict[str, Any]:
         "tasks": tasks,
         "package_hash": package_hash(package),
     }
+
+
+def build_task_pack_package(
+    pack_metadata: dict[str, Any],
+    tasks: list[dict[str, Any]],
+    entity_requirements: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Build and validate a formal Task Pack package from selected tasks."""
+    templated_tasks, requirements = _template_tasks_with_entity_requirements(tasks, entity_requirements)
+    package = {
+        "format": TASK_PACK_FORMAT,
+        "format_version": 1,
+        "type": TASK_PACK_TYPE,
+        "pack": {
+            "id": pack_metadata.get("id"),
+            "name": pack_metadata.get("name"),
+            "version": pack_metadata.get("version"),
+            "description": pack_metadata.get("description", ""),
+            "author": pack_metadata.get("author", ""),
+            "license": pack_metadata.get("license", ""),
+            "source": pack_metadata.get("source", "manual_export"),
+            "source_url": pack_metadata.get("source_url", ""),
+            "min_hmm_version": pack_metadata.get("min_hmm_version", "0.7.1"),
+            "categories": pack_metadata.get("categories", []),
+            "tags": pack_metadata.get("tags", []),
+            "provenance": pack_metadata.get("provenance", {"kind": "manual", "source": "export"}),
+        },
+        "entity_requirements": requirements,
+        "tasks": templated_tasks,
+    }
+    normalized = validate_task_pack(package)
+    package["pack"] = normalized["pack"]
+    package["entity_requirements"] = normalized["entity_requirements"]
+    package["tasks"] = normalized["tasks"]
+    package["package_hash"] = normalized["package_hash"]
+    return package
 
 
 def installed_pack_record(

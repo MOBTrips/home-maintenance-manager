@@ -15,6 +15,7 @@ from .models import MaintenanceTask
 from .task_packs import (
     TASK_PACK_FORMAT,
     TASK_PACK_TYPE,
+    build_task_pack_package,
     installed_pack_record,
     is_task_pack_package,
     validate_task_pack,
@@ -186,7 +187,7 @@ class MaintenanceCoordinator:
             "included_in_ha_backup": True,
             "migration": self.migration_info,
             "deleted_task_ids": sorted(self.deleted_task_ids),
-            "installed_task_packs": len(installed_packs) if isinstance(installed_packs, dict) else 0,
+            "installed_task_packs": list(installed_packs.values()) if isinstance(installed_packs, dict) else [],
         }
 
     def _normalize_nfc_config(self, task_data: dict[str, Any]) -> dict[str, Any]:
@@ -334,13 +335,24 @@ class MaintenanceCoordinator:
         return {
             "format": "home_maintenance_manager_export",
             "format_version": 1,
-            "integration_version": "0.7.0",
+            "integration_version": "0.7.1",
             "exported_at": dt_util.utcnow().isoformat(),
             "storage_version": STORAGE_VERSION,
             "tasks": [task.as_dict() for task in self.tasks.values()],
             "settings": self.storage_settings,
             "migration": self.migration_info,
         }
+
+    def export_task_pack(self, task_ids: list[str], pack_metadata: dict[str, Any]) -> dict[str, Any]:
+        """Return selected tasks as a formal Task Pack template package."""
+        selected_ids = [str(task_id) for task_id in (task_ids or []) if str(task_id).strip()]
+        if not selected_ids:
+            raise ValueError("Select at least one task to export as a Task Pack")
+        missing = [task_id for task_id in selected_ids if task_id not in self.tasks]
+        if missing:
+            raise ValueError(f"Unknown task id(s): {', '.join(missing)}")
+        tasks = [self.tasks[task_id].as_dict() for task_id in selected_ids]
+        return build_task_pack_package(pack_metadata or {}, tasks)
 
     async def async_import_data(self, package: dict[str, Any], mode: str = "merge") -> dict[str, Any]:
         """Import a portable JSON export package.
@@ -379,6 +391,7 @@ class MaintenanceCoordinator:
 
         imported: dict[str, MaintenanceTask] = {}
         skipped = 0
+        paused_due_to_unresolved = 0
         for item in raw_tasks:
             if not isinstance(item, dict) or not item.get("id") or not item.get("name"):
                 skipped += 1
@@ -386,12 +399,28 @@ class MaintenanceCoordinator:
             task_data = self._normalize_nfc_config(dict(item))
             if not is_task_pack:
                 task_data = self._ensure_task_provenance(task_data, "imported", "imported")
+            elif any(
+                isinstance(rule, dict)
+                and rule.get("type") in ("runtime", "counter")
+                and str(rule.get("entity") or "").startswith("hmm://entity/")
+                for rule in task_data.get("rules") or []
+            ):
+                task_data["paused"] = True
             task_id = str(task_data["id"])
             task_data["id"] = task_id
+            if task_data.get("paused") and any(
+                isinstance(rule, dict)
+                and rule.get("type") in ("runtime", "counter")
+                and (not rule.get("entity") or str(rule.get("entity") or "").startswith("hmm://entity/"))
+                for rule in task_data.get("rules") or []
+            ):
+                paused_due_to_unresolved += 1
             imported[task_id] = MaintenanceTask.from_dict(task_data)
 
         before_ids = set(self.tasks)
         changed_nfc_task_ids: list[str] = []
+        new_task_ids = set(imported) - before_ids
+        updated_task_ids = set(imported) & before_ids
 
         if mode == "replace":
             if is_task_pack:
@@ -458,6 +487,9 @@ class MaintenanceCoordinator:
             "mode": mode,
             "imported": len(imported),
             "skipped": skipped,
+            "new_tasks": len(new_task_ids),
+            "updated_tasks": len(updated_task_ids),
+            "paused_due_to_unresolved_entities": paused_due_to_unresolved,
             "before_tasks": len(before_ids),
             "after_tasks": len(self.tasks),
             "replaced_removed": len(before_ids - set(imported)) if mode == "replace" else 0,

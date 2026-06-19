@@ -158,6 +158,27 @@ async def websocket_export_data(hass: HomeAssistant, connection, msg) -> None:
 
 
 @websocket_api.websocket_command({
+    vol.Required("type"): f"{DOMAIN}/export_task_pack",
+    vol.Required("task_ids"): [cv.string],
+    vol.Required("pack"): dict,
+})
+@websocket_api.async_response
+async def websocket_export_task_pack(hass: HomeAssistant, connection, msg) -> None:
+    """Return selected HMM tasks as a formal Task Pack package."""
+    coordinator = _coordinator_for_entry(hass)
+    if coordinator is None:
+        connection.send_error(msg["id"], "not_found", "Home Maintenance Manager coordinator was not found")
+        return
+    try:
+        connection.send_result(msg["id"], coordinator.export_task_pack(msg.get("task_ids") or [], msg.get("pack") or {}))
+    except ValueError as err:
+        connection.send_error(msg["id"], "invalid_task_pack", str(err))
+    except Exception as err:  # pragma: no cover
+        _LOGGER.exception("Home Maintenance Manager Task Pack export failed")
+        connection.send_error(msg["id"], "export_failed", str(err))
+
+
+@websocket_api.websocket_command({
     vol.Required("type"): f"{DOMAIN}/import_data",
     vol.Required("data"): dict,
     vol.Optional("mode", default="merge"): vol.In(["merge", "replace"]),
@@ -381,6 +402,7 @@ async def async_setup(hass: HomeAssistant, config: dict[str, Any]) -> bool:
     websocket_api.async_register_command(hass, websocket_get_metadata)
     websocket_api.async_register_command(hass, websocket_get_backup_status)
     websocket_api.async_register_command(hass, websocket_export_data)
+    websocket_api.async_register_command(hass, websocket_export_task_pack)
     websocket_api.async_register_command(hass, websocket_import_data)
     websocket_api.async_register_command(hass, websocket_import_preview)
     websocket_api.async_register_command(hass, websocket_import_apply)

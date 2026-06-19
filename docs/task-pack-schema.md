@@ -9,7 +9,8 @@ Task Packs use JSON and must declare this top-level shape:
   "type": "task_pack",
   "pack": {},
   "entity_requirements": [],
-  "tasks": []
+  "tasks": [],
+  "package_hash": "optional sha256 hash"
 }
 ```
 
@@ -18,11 +19,12 @@ Task Packs use JSON and must declare this top-level shape:
 | Field | Required | Description |
 |---|---:|---|
 | `format` | Yes | Must be `home_maintenance_manager_task_pack`. |
-| `format_version` | Yes | Schema version number. v0.7.0 uses `1`. |
+| `format_version` | Yes | Schema version number. v0.7.1 uses `1`. |
 | `type` | Yes | Must be `task_pack`. |
 | `pack` | Yes | Metadata about the pack. |
 | `entity_requirements` | Yes | Entity requirements used by task templates. May be empty. |
 | `tasks` | Yes | HMM task templates. |
+| `package_hash` | No | Stable hash added by HMM exports/import normalization when practical. |
 
 ## Pack Metadata
 
@@ -54,7 +56,7 @@ Example:
   "description": "Recurring hot tub care tasks.",
   "author": "Home Maintenance Manager",
   "source": "bundled",
-  "min_hmm_version": "0.7.0",
+  "min_hmm_version": "0.7.1",
   "provenance": {
     "kind": "community",
     "source": "bundled"
@@ -78,6 +80,8 @@ Entity requirements describe Home Assistant entities a template can use. Use pla
 }
 ```
 
+When exporting selected local tasks as a Task Pack, HMM converts task entity IDs such as `sensor.pool_pump_power` into placeholders such as `hmm://entity/sensor_pool_pump_power` and adds a matching requirement record.
+
 ## Task Templates
 
 Tasks use the normal HMM task shape, but packs should omit private or runtime fields. During import, HMM strips:
@@ -96,3 +100,7 @@ Tasks use the normal HMM task shape, but packs should omit private or runtime fi
 - `mobile_notify_service`
 
 HMM also sets imported Task Pack task provenance so the task can be traced back to its pack.
+
+## Exported Task Packs
+
+Task Packs exported from Settings use the same schema and include user-entered metadata. They are templates, not backups, so exported task bodies do not keep runtime history, completion history, activity history, NFC tag IDs, Home Assistant device IDs, private notification targets, or local entity IDs.

@@ -13,6 +13,7 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     this.importWizardStep = 1;
     this.importStatusFilter = "all";
     this.importEntityMapping = {};
+    this.taskPackExportOpen = false;
     this.notificationSettings = { enabled: true, default_mode: "automation_only", mobile_notify_services: [], notify_upcoming: true, notify_due: true, notify_overdue: true, notify_completed: false, notify_snoozed: false, repeat_mode: "once", repeat_days: 1, quiet_start: "", quiet_end: "", title_template: "[{category}] {task_name}", body_template: "{task_name} is {status}." };
     this.tags = [];
     this.tab = "dashboard";
@@ -110,6 +111,7 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
       .pill.ok { background:#e4f7e7; color:#0b6b20; }
       .pill.upcoming { background:#fff4d6; color:#7a5600; }
       .pill.due, .pill.overdue { background:#fde7e7; color:#9b1c1c; }
+      .pill.warn { background:#fff4d6; color:#7a5600; }
       .pill.paused, .pill.snoozed, .pill.season_paused { background:#e8e8e8; color:#555; }
       .category-pill { display:inline-block; border-radius:999px; padding:4px 9px; font-size:12px; background: var(--secondary-background-color); color: var(--secondary-text-color); margin:4px 6px 4px 0; }
       .progress { height:12px; background: var(--secondary-background-color); border-radius:999px; overflow:hidden; margin:12px 0; }
@@ -514,7 +516,7 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
   }
 
   render() {
-    this.shadowRoot.innerHTML = `<style>${this.css()}</style><div class="page">${this.renderBody()}</div>${this.renderModal()}${this.renderImportWizardModal()}`;
+    this.shadowRoot.innerHTML = `<style>${this.css()}</style><div class="page">${this.renderBody()}</div>${this.renderModal()}${this.renderImportWizardModal()}${this.renderTaskPackExportModal()}`;
     this.bind();
   }
 
@@ -692,13 +694,14 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
 
   renderSettings() {
     const b = this.backupStatus || {};
+    const installedPacks = Array.isArray(b.installed_task_packs) ? b.installed_task_packs : [];
     const migratedFrom = (b.migration?.migrated_from || []).join(', ') || 'No legacy migration needed';
     const migratedAt = b.migration?.migrated_at ? new Date(b.migration.migrated_at).toLocaleString() : 'Not recorded';
     return `<div class="grid">
       <div class="card"><h2>Settings</h2><p class="muted">General Home Maintenance Manager information and lookups.</p><p>Notification settings have moved to the <b>Notifications</b> tab.</p></div>
       <div class="card"><h2>Backup & Restore</h2>
         <p><span class="pill ok">Included in HA backups</span></p>
-        <p class="muted">HMM v0.6 stores task data, runtime history, NFC assignments, and HMM settings in one Home Assistant storage file. Full Home Assistant backups include this file automatically.</p>
+        <p class="muted">HMM v0.7 stores task data, runtime history, NFC assignments, Task Pack metadata, and HMM settings in one Home Assistant storage file. Full Home Assistant backups include this file automatically.</p>
         <p><b>Storage file:</b><br><code>${this.escape(b.storage_path || '/config/.storage/home_maintenance_manager')}</code></p>
         <p><b>Storage version:</b> ${this.escape(String(b.storage_version || 'unknown'))}</p>
         <p><b>Tasks:</b> ${b.tasks ?? this.tasks.length}</p>
@@ -710,7 +713,7 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
       </div>
       <div class="card"><h2>Export / Import JSON</h2>
         <p class="muted">Export creates a full backup-style JSON file. Import now uses a review step so you can validate tasks, detect duplicates, and see missing entities before anything is saved.</p>
-        <div class="task-actions"><button class="btn primary" data-action="export-json">Export JSON</button></div>
+        <div class="task-actions"><button class="btn primary" data-action="export-json">Export JSON</button><button class="btn" data-action="open-task-pack-export">Export selected tasks as Task Pack</button></div>
         <hr>
         <p><b>Import</b></p>
         <input id="import-json-file" type="file" accept="application/json,.json">
@@ -718,7 +721,55 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
         <div class="info-box">Choose a JSON file and review it in the import wizard. Merge/replace, task selection, and entity mapping are handled inside the wizard before anything is saved.</div>
         <p class="muted">Task Packs are treated as templates. Entity IDs become mapping requirements instead of silently failing.</p>
       </div>
+      <div class="card"><h2>Installed Task Packs</h2>
+        ${installedPacks.length ? `<div class="summary-list">${installedPacks.map(pack => {
+          const importedCount = Array.isArray(pack.imported_task_ids) ? pack.imported_task_ids.length : 0;
+          const installedAt = pack.installed_at ? new Date(pack.installed_at).toLocaleString() : 'Not recorded';
+          return `<div class="summary-line"><span><b>${this.escape(pack.name || pack.id || 'Task Pack')}</b><br><span class="muted">${this.escape(pack.id || '')}</span></span><span><b>${this.escape(pack.version || 'Unknown')}</b><br><span class="muted">${this.escape(installedAt)} • ${importedCount} task${importedCount === 1 ? '' : 's'}</span></span></div>`;
+        }).join('')}</div>` : `<p class="muted">No Task Packs have been imported yet.</p>`}
+      </div>
       <div class="card"><h2>Lookups</h2><p>Areas: ${this.metadata.areas.length}</p><p>Devices: ${this.metadata.devices.length}</p><p>Entities: ${this.metadata.entities.length}</p><p>Notify services: ${this.metadata.notify_services.length}</p><p>NFC tags: ${this.tags.length}</p><p>Categories: ${this.categories().length}</p></div>
+    </div>`;
+  }
+
+  renderTaskPackExportModal() {
+    if (!this.taskPackExportOpen) return '';
+    const defaultName = 'My Maintenance Task Pack';
+    const defaultId = `hmm.${this.slug(defaultName).replace(/_/g, '.')}`;
+    const taskRows = this.tasks.slice().sort((a,b)=>(a.name||'').localeCompare(b.name||'')).map(t => {
+      const schedule = (t.rules || []).map(r => this.ruleTypeLabel(r.type)).join(' + ') || 'No schedule';
+      return `<label class="review-row">
+        <span class="review-check"><input type="checkbox" class="task-pack-export-task" value="${this.escape(t.id)}" checked></span>
+        <span class="review-main"><span class="review-title-row"><h3>${this.escape(t.name || t.id)}</h3><span class="category-pill">${this.escape(this.category(t))}</span></span><span class="muted">${this.escape(schedule)}</span></span>
+      </label>`;
+    }).join('');
+    return `<div class="modal-scrim" data-action="task-pack-export-scrim">
+      <div class="modal import-wizard" role="dialog" aria-modal="true" aria-label="Export Task Pack">
+        <div class="modal-head sticky-head">
+          <div><div class="muted">Task Pack Export</div><h2>Export selected tasks as a Task Pack</h2><div class="muted">Task Packs are templates. Runtime history, NFC tags, device IDs, and private notification targets are stripped during export.</div></div>
+          <button class="btn" data-action="close-task-pack-export">Close</button>
+        </div>
+        <div class="wizard-panel">
+          <div class="wizard-section-card"><h3>Pack metadata</h3>
+            <div class="form-grid">
+              <div class="form-field span-6"><label>Pack name</label><input id="task-pack-name" value="${this.escape(defaultName)}"></div>
+              <div class="form-field span-6"><label>Pack ID</label><input id="task-pack-id" value="${this.escape(defaultId)}"><div class="help">Use a stable lowercase ID, for example <code>hmm.basic_homeowner</code>.</div></div>
+              <div class="form-field span-4"><label>Version</label><input id="task-pack-version" value="1.0.0"></div>
+              <div class="form-field span-4"><label>Author</label><input id="task-pack-author" placeholder="Optional"></div>
+              <div class="form-field span-4"><label>Tags</label><input id="task-pack-tags" placeholder="homeowner, hvac, seasonal"></div>
+              <div class="form-field span-12"><label>Description</label><textarea id="task-pack-description" placeholder="What this pack is for and when to use it."></textarea></div>
+            </div>
+          </div>
+          <div class="wizard-section-card"><h3>Tasks</h3><p class="muted">Select the tasks to include. The exported JSON can be shared or re-imported through the HMM import wizard.</p>
+            <div class="task-actions"><button class="btn small" type="button" data-action="select-all-task-pack-export">Select all</button><button class="btn small" type="button" data-action="select-none-task-pack-export">Select none</button></div>
+          </div>
+          <div class="review-list">${taskRows || '<div class="empty-list">No tasks are available to export.</div>'}</div>
+        </div>
+        <div class="modal-actions-bottom sticky-actions">
+          <div><span id="task-pack-export-count">${this.tasks.length}</span> selected</div>
+          <div class="right"><button class="btn" data-action="close-task-pack-export">Cancel</button><button class="btn primary" data-action="export-task-pack">Export Task Pack</button></div>
+        </div>
+      </div>
     </div>`;
   }
 
@@ -911,10 +962,15 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
   renderEntityMapRow(ref) {
     const current = this.importEntityMapping?.[ref.entity_id] || '__unresolved__';
     const suggestions = (ref.suggestions || []).slice(0,6);
+    const requirementName = ref.entity_requirement_name || ref.name || '';
+    const title = requirementName || ref.entity_id;
+    const detailBits = [ref.domain ? `${ref.domain} entity` : '', ref.description || '', ref.entity_requirement_id ? `Requirement: ${ref.entity_requirement_id}` : ''].filter(Boolean);
     return `<div class="entity-map-row">
       <div>
         <div class="pill ${ref.required ? 'warn' : ''}">${ref.required ? 'Required' : 'Optional'} ${this.escape(ref.role || 'entity')}</div>
-        <h3 class="entity-original">${this.escape(ref.entity_id)}</h3>
+        <h3 class="entity-original">${this.escape(title)}</h3>
+        <div class="muted"><code>${this.escape(ref.entity_id)}</code></div>
+        ${detailBits.length ? `<div class="muted">${this.escape(detailBits.join(' • '))}</div>` : ''}
         <div class="muted">Used by ${ref.tasks?.length || 0} selected imported task${(ref.tasks?.length || 0) === 1 ? '' : 's'}</div>
         <div class="entity-map-context">
           ${(ref.tasks || []).slice(0,4).map(t => this.renderEntityMapTaskContext(t)).join('')}
@@ -922,9 +978,11 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
         </div>
       </div>
       <div class="entity-map-actions">
-        <label><input type="radio" name="map-${this.escape(ref.entity_id)}" data-map-entity="${this.escape(ref.entity_id)}" value="__unresolved__" ${current==='__unresolved__'?'checked':''}> Keep unresolved for later</label>
-        <label><input type="radio" name="map-${this.escape(ref.entity_id)}" data-map-entity="${this.escape(ref.entity_id)}" value="__clear__" ${current==='__clear__'?'checked':''}> Clear this entity from imported tasks</label>
-        <label><input type="radio" name="map-${this.escape(ref.entity_id)}" data-map-entity="${this.escape(ref.entity_id)}" value="__manual__" ${current && !['__unresolved__','__clear__'].includes(current)?'checked':''}> Map to Home Assistant entity</label>
+        <label><input type="radio" name="map-${this.escape(ref.entity_id)}" data-map-entity="${this.escape(ref.entity_id)}" value="__unresolved__" ${current==='__unresolved__'?'checked':''}> Keep unresolved and pause affected runtime/meter tasks</label>
+        <div class="help">Use this when you plan to map the entity later from the task editor.</div>
+        <label><input type="radio" name="map-${this.escape(ref.entity_id)}" data-map-entity="${this.escape(ref.entity_id)}" value="__clear__" ${current==='__clear__'?'checked':''}> Clear this reference from imported tasks</label>
+        <div class="help">Best for optional linked entities. Required runtime or meter schedules will be imported paused.</div>
+        <label><input type="radio" name="map-${this.escape(ref.entity_id)}" data-map-entity="${this.escape(ref.entity_id)}" value="__manual__" ${current && !['__unresolved__','__clear__'].includes(current)?'checked':''}> Map to a local Home Assistant entity</label>
         <ha-entity-picker data-map-picker="${this.escape(ref.entity_id)}" allow-custom-entity></ha-entity-picker>
         ${suggestions.length ? `<div class="chip-row">${suggestions.map(x=>`<button class="chip" data-map-suggestion="${this.escape(ref.entity_id)}" data-map-value="${this.escape(x)}">${this.escape(x)}</button>`).join('')}</div>` : '<div class="muted">No close suggestions found. Use the picker above.</div>'}
       </div>
@@ -987,7 +1045,7 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     const checked = t.selected ? 'checked' : '';
     const disabled = t.status === 'invalid' ? 'disabled' : '';
     const statusClass = t.status === 'new' ? 'ok' : t.status === 'invalid' || t.required_entity_missing ? 'warn' : '';
-    const pauseNote = t.required_entity_missing ? '<div class="entity-warning">Required entity missing. This task will be imported paused unless remapped in a future mapping step.</div>' : '';
+    const pauseNote = t.required_entity_missing ? '<div class="entity-warning">Required entity missing. This task will be imported paused unless remapped in the entity mapping step.</div>' : '';
     const entityList = missingEntities.slice(0, 3).map(e => `<code>${this.escape(e.entity_id || e.id || '')}</code>`).join(' ');
     return `<div class="review-row ${disabled ? 'disabled' : ''}">
       <div class="review-check"><input type="checkbox" class="import-task-select" data-task-id="${this.escape(t.id)}" ${checked} ${disabled}></div>
@@ -1014,6 +1072,67 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
       URL.revokeObjectURL(link.href);
     } catch (err) {
       alert(`Export failed: ${err?.message || err}`);
+    }
+  }
+
+  openTaskPackExport() {
+    if (!this.tasks.length) {
+      alert('Create at least one maintenance task before exporting a Task Pack.');
+      return;
+    }
+    this.taskPackExportOpen = true;
+    this.render();
+  }
+
+  taskPackExportMetadata() {
+    const q = id => this.shadowRoot.getElementById(id)?.value?.trim() || '';
+    const tags = q('task-pack-tags').split(',').map(tag => tag.trim()).filter(Boolean);
+    return {
+      name: q('task-pack-name'),
+      id: q('task-pack-id'),
+      version: q('task-pack-version') || '1.0.0',
+      author: q('task-pack-author'),
+      description: q('task-pack-description'),
+      tags,
+      source: 'manual_export',
+      min_hmm_version: '0.7.1',
+      provenance: { kind: 'manual', source: 'export' },
+    };
+  }
+
+  selectedTaskPackExportIds() {
+    return Array.from(this.shadowRoot.querySelectorAll('.task-pack-export-task')).filter(el=>el.checked).map(el=>el.value);
+  }
+
+  updateTaskPackExportCount() {
+    const el = this.shadowRoot.getElementById('task-pack-export-count');
+    if (el) el.textContent = String(this.selectedTaskPackExportIds().length);
+  }
+
+  async exportTaskPack() {
+    const pack = this.taskPackExportMetadata();
+    if (!pack.name || !pack.id || !pack.version) {
+      alert('Pack name, Pack ID, and Version are required.');
+      return;
+    }
+    const task_ids = this.selectedTaskPackExportIds();
+    if (!task_ids.length) {
+      alert('Select at least one task to export.');
+      return;
+    }
+    try {
+      const data = await this._hass.callWS({ type: 'home_maintenance_manager/export_task_pack', task_ids, pack });
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(blob);
+      link.download = `${this.slug(pack.id || pack.name)}_${stamp}.json`;
+      link.click();
+      URL.revokeObjectURL(link.href);
+      this.taskPackExportOpen = false;
+      this.render();
+    } catch (err) {
+      alert(`Task Pack export failed: ${err?.message || err}`);
     }
   }
 
@@ -1091,7 +1210,7 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
       const import_settings = !!this.shadowRoot.getElementById('import-settings')?.checked;
       const restore_deleted = !!this.shadowRoot.getElementById('restore-deleted')?.checked;
       const result = await this._hass.callWS({ type: 'home_maintenance_manager/import_apply', mode: this.importMode, data: this.importPackage, selected_ids, import_settings, restore_deleted, entity_mapping: this.captureEntityMapping() });
-      alert(`Import complete. Imported: ${result.imported}. Skipped: ${result.skipped}. Tasks now: ${result.after_tasks}.`);
+      alert(`Import complete.\nNew tasks imported: ${result.new_tasks ?? 0}\nUpdated tasks: ${result.updated_tasks ?? 0}\nPaused due to unresolved entities: ${result.paused_due_to_unresolved_entities ?? 0}\nSkipped: ${result.skipped ?? 0}\nTasks now: ${result.after_tasks ?? 0}`);
       this.importPackage = null; this.importPreview = null; this.importWizardOpen = false; this.importEntityMapping = {}; this.importWizardStep = 1;
       await this.loadData();
     } catch (err) {
@@ -1681,6 +1800,13 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     this.shadowRoot.querySelectorAll('[data-action="save-notification-settings"]').forEach(el=>el.onclick=()=>this.saveNotificationSettings());
     this.shadowRoot.querySelectorAll('[data-action="test-notification"]').forEach(el=>el.onclick=()=>this.testNotification());
     this.shadowRoot.querySelectorAll('[data-action="export-json"]').forEach(el=>el.onclick=()=>this.exportJson());
+    this.shadowRoot.querySelectorAll('[data-action="open-task-pack-export"]').forEach(el=>el.onclick=()=>this.openTaskPackExport());
+    this.shadowRoot.querySelectorAll('[data-action="close-task-pack-export"]').forEach(el=>el.onclick=()=>{ this.taskPackExportOpen=false; this.render(); });
+    this.shadowRoot.querySelectorAll('[data-action="task-pack-export-scrim"]').forEach(el=>el.onclick=(ev)=>{ if (ev.target === el) { this.taskPackExportOpen=false; this.render(); } });
+    this.shadowRoot.querySelectorAll('[data-action="export-task-pack"]').forEach(el=>el.onclick=()=>this.exportTaskPack());
+    this.shadowRoot.querySelectorAll('[data-action="select-all-task-pack-export"]').forEach(el=>el.onclick=()=>{ this.shadowRoot.querySelectorAll('.task-pack-export-task').forEach(cb=>cb.checked=true); this.updateTaskPackExportCount(); });
+    this.shadowRoot.querySelectorAll('[data-action="select-none-task-pack-export"]').forEach(el=>el.onclick=()=>{ this.shadowRoot.querySelectorAll('.task-pack-export-task').forEach(cb=>cb.checked=false); this.updateTaskPackExportCount(); });
+    this.shadowRoot.querySelectorAll('.task-pack-export-task').forEach(el=>el.onchange=()=>this.updateTaskPackExportCount());
     this.shadowRoot.querySelectorAll('[data-action="import-json"]').forEach(el=>el.onclick=()=>this.importJson());
     this.shadowRoot.querySelectorAll('[data-action="preview-import-json"]').forEach(el=>el.onclick=()=>this.previewImportJson());
     this.shadowRoot.querySelectorAll('[data-action="apply-import-json"]').forEach(el=>el.onclick=()=>this.applyImportJson());

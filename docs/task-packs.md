@@ -6,6 +6,7 @@ Task Packs are reusable Home Maintenance Manager task templates. They are meant 
 
 - Add new maintenance tasks through the existing import review wizard.
 - Update matching task IDs when the user selects those tasks.
+- Export selected local tasks as a shareable Task Pack from Settings.
 - Declare metadata such as pack name, author, version, source, categories, tags, and provenance.
 - Declare entity requirements that can be mapped to local Home Assistant entities during import.
 - Track installed pack metadata in HMM storage for future update/reinstall workflows.
@@ -22,6 +23,25 @@ Task Packs are always handled as templates:
 - Runtime history, completion history, activity history, NFC tag IDs, Home Assistant device IDs, and private notification targets are stripped before saving.
 
 Required runtime or metered entity references that remain unresolved during import are imported paused so due status is not calculated from the wrong source.
+
+## Exporting a Pack
+
+Use **Settings → Export / Import JSON → Export selected tasks as Task Pack** to create a Task Pack from existing HMM tasks.
+
+Before export, enter:
+
+- Pack name
+- Pack ID
+- Version
+- Author
+- Description
+- Tags
+
+The export workflow sanitizes selected tasks the same way imports do. It strips runtime/history data, NFC tag IDs, Home Assistant device IDs, and private notification targets. Local Home Assistant entity IDs are replaced with `hmm://entity/...` placeholders and matching `entity_requirements` so the pack can be mapped safely in another home.
+
+## Installed Packs
+
+Settings shows installed Task Packs from HMM storage, including pack name, version, installed date, and imported task count. This is local metadata only; v0.7.1 does not contact an online repository or check for updates.
 
 ## Provenance
 
@@ -46,4 +66,4 @@ Use the Maintenance panel import wizard to review an example pack before importi
 
 ## Future Repository Support
 
-The v0.7.0 schema is designed so a future online repository can publish pack manifests, source URLs, package hashes, categories, tags, and compatibility metadata. Import should remain user-reviewed and local-first even when packs eventually come from an online index.
+The v0.7.1 schema is designed so a future online repository can publish pack manifests, source URLs, package hashes, categories, tags, and compatibility metadata. Import should remain user-reviewed and local-first even when packs eventually come from an online index.

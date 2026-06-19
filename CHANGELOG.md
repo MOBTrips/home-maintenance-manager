@@ -1,3 +1,11 @@
+## 0.7.1
+
+- Added a Settings workflow to export selected tasks as a formal Task Pack with user-entered pack metadata.
+- Task Pack exports now convert local Home Assistant entity IDs into template placeholders with `entity_requirements`.
+- Added an installed Task Packs view in Settings showing pack name, version, install date, and imported task count.
+- Improved import completion summaries with new tasks, updated tasks, skipped tasks, and tasks paused due to unresolved entities.
+- Clarified entity placeholder mapping labels and help text in the import wizard.
+
 ## 0.7.0
 
 - Added formal Task Pack JSON schema support using `home_maintenance_manager_task_pack`.

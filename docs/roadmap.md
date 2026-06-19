@@ -29,6 +29,7 @@ This roadmap is a planning guide, not a fixed commitment. Use GitHub issues and 
 - Add safe defaults for imported task packs. Initial support added in v0.7.0.
 - Add missing entity mapping for task packs. Initial support added in v0.7.0.
 - Add example packs, such as HVAC, water softener, pool, hot tub, appliances, vehicles, and seasonal equipment. Basic homeowner and hot tub examples added in v0.7.0.
+- Add selected-task Task Pack export, installed-pack visibility, import completion summaries, and clearer entity placeholder mapping. Added in v0.7.1.
 - Future work: add an optional online pack index, update/reinstall flows, and richer asset-generated recommendations.
 
 ## v0.8.x focus: task experience and automation
