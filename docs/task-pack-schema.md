@@ -99,6 +99,8 @@ Recommended entity requirement metadata:
 | `unit_of_measurement` | Expected unit, such as `h`. |
 | `suggested_keywords` | Words used to rank local entity suggestions by name, entity ID, area, or device context. |
 
+For metered `counter` requirements, `unit_of_measurement` is used as a compatibility contract. HMM rejects final mappings whose source unit belongs to a different family, such as mapping a W power sensor to a gal volume task. Compatible units in the same family can be mapped, and HMM replaces stale task-pack unit metadata with the mapped entity unit during import.
+
 ## Task Templates
 
 Tasks use the normal HMM task shape, but packs should omit private or runtime fields. During import, HMM strips:

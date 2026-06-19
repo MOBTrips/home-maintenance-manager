@@ -419,6 +419,48 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     return 'units';
   }
 
+  canonicalUsageUnit(unit) {
+    const u = String(unit || '').trim();
+    const l = u.toLowerCase();
+    const aliases = {sec:'s', second:'s', seconds:'s', minute:'min', minutes:'min', hour:'h', hours:'h', hr:'h', hrs:'h', day:'d', days:'d', week:'wk', weeks:'wk', month:'mo', months:'mo', year:'y', years:'y', wh:'Wh', kwh:'kWh', mwh:'MWh', gallon:'gal', gallons:'gal', liter:'L', liters:'L', litre:'L', litres:'L'};
+    return aliases[l] || u;
+  }
+
+  usageUnitFamily(unit) {
+    const u = this.canonicalUsageUnit(unit);
+    if (['s','min','h','d','wk','mo','y'].includes(u)) return 'time';
+    if (['Wh','kWh','MWh'].includes(u)) return 'energy';
+    if (['W','kW'].includes(u)) return 'power';
+    if (['gal','qt','oz','L','mL'].includes(u)) return 'volume';
+    if (['mi','ft','m','km'].includes(u)) return 'distance';
+    return '';
+  }
+
+  usageUnitOptions(sourceUnit, selected) {
+    const family = this.usageUnitFamily(sourceUnit);
+    const groups = {
+      time: [['s','seconds'],['min','minutes'],['h','hours'],['d','days'],['wk','weeks'],['mo','months'],['y','years']],
+      energy: [['Wh','Wh'],['kWh','kWh'],['MWh','MWh']],
+      volume: [['gal','gal'],['qt','qt'],['oz','oz'],['L','L'],['mL','mL']],
+      distance: [['mi','mi'],['ft','ft'],['m','m'],['km','km']],
+    };
+    const options = groups[family] || [[sourceUnit || 'units', sourceUnit || 'units']];
+    const current = selected || sourceUnit || 'units';
+    return options.map(([v,l]) => `<option value="${this.escape(v)}" ${this.canonicalUsageUnit(current)===this.canonicalUsageUnit(v)?'selected':''}>${this.escape(l)}</option>`).join('');
+  }
+
+  convertUsageAmount(value, fromUnit, toUnit) {
+    const n = Number(value || 0);
+    const from = this.canonicalUsageUnit(fromUnit);
+    const to = this.canonicalUsageUnit(toUnit);
+    if (!from || !to || from === to) return n;
+    if (this.usageUnitFamily(from) === 'time' && this.usageUnitFamily(to) === 'time') {
+      const factors = {s:1, min:60, h:3600, d:86400, wk:604800, mo:30.4375*86400, y:365.25*86400};
+      return n * factors[from] / factors[to];
+    }
+    return n;
+  }
+
 
   intervalUnits() { return [['minutes','Minutes'],['hours','Hours'],['days','Days'],['weeks','Weeks'],['months','Months'],['years','Years']]; }
   unitOptions(selected, allowed=null) {
@@ -637,6 +679,7 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
       <div class="task-actions">
         <button class="btn small primary" data-complete="${this.escape(t.id)}">Mark complete</button>
         <button class="btn small" data-snooze="${this.escape(t.id)}">Snooze 7 days</button>
+        ${this.taskGeneratedDeviceId(t) ? `<button class="btn small" data-open-task-device="${this.escape(t.id)}">Open HA Device</button>` : ''}
         <button class="btn small" data-view-task="${this.escape(t.id)}">View</button><button class="btn small" data-edit="${this.escape(t.id)}">Edit</button>
       </div>
     </div>`;
@@ -1502,6 +1545,21 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     window.dispatchEvent(new CustomEvent('location-changed'));
   }
 
+  taskGeneratedDeviceId(task) {
+    return task?.summary?.generated_device_id || task?.generated_device_id || '';
+  }
+
+  openTaskDevice(taskId) {
+    const task = this.tasks.find(t => t.id === taskId) || this.modal?.detail || this.modal?.task;
+    const deviceId = this.taskGeneratedDeviceId(task);
+    if (!deviceId) {
+      alert('Home Assistant has not registered this task device yet. Refresh or reload the integration after saving the task.');
+      return;
+    }
+    history.pushState(null, '', `/config/devices/device/${encodeURIComponent(deviceId)}`);
+    window.dispatchEvent(new CustomEvent('location-changed'));
+  }
+
   renderTaskDetailModal(t) {
     const status = this.taskStatus(t);
     const scan = this.lastNfcScan(t);
@@ -1540,14 +1598,14 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
           <div class="key">NFC action</div><div>${this.escape(this.nfcActionLabel(t.nfc_action))}</div>
           <div class="key">Last NFC scan</div><div>${scan ? `${this.dateShort(scan.at)}${scan.scanner_name ? ' by '+this.escape(scan.scanner_name) : ''}` : 'Never'}</div>
         </div>
-        <div class="task-actions"><button class="btn primary" data-complete="${this.escape(t.id)}">Mark complete</button><button class="btn" data-snooze="${this.escape(t.id)}">Snooze 7 days</button><button class="btn" data-edit-from-detail="${this.escape(t.id)}">Edit task</button></div></div>
+        <div class="task-actions"><button class="btn primary" data-complete="${this.escape(t.id)}">Mark complete</button><button class="btn" data-snooze="${this.escape(t.id)}">Snooze 7 days</button>${this.taskGeneratedDeviceId(t) ? `<button class="btn" data-open-task-device="${this.escape(t.id)}">Open HA Device</button>` : ''}<button class="btn" data-edit-from-detail="${this.escape(t.id)}">Edit task</button></div></div>
       </div>
       ${seasonalCard}
       ${trackingCard}
       ${t.instructions ? `<div class="form-section"><h3>Instructions</h3><div style="white-space:pre-wrap">${this.escape(t.instructions)}</div></div>` : ''}
       <div class="form-section"><h3>Completion history</h3>${completed.length ? completed.map(i=>`<div class="history-item"><b>${this.dateShort(i.completed_at || i.at)}</b><div class="muted">${this.escape(i.method || i.completed_by || i.activity || 'Completed')}${i.notes ? ' - '+this.escape(i.notes) : ''}</div></div>`).join('') : '<p class="muted">No completions yet.</p>'}</div>
       <div class="form-section"><h3>Recent activity</h3>${recent.length ? recent.map(i=>`<div class="history-item"><b>${this.escape(i.activity || i.type || 'activity')}</b><div class="muted">${this.dateShort(i.at)}${i.scanner_name ? ' • '+this.escape(i.scanner_name) : ''}${i.notes ? ' - '+this.escape(i.notes) : ''}</div></div>`).join('') : '<p class="muted">No activity yet.</p>'}</div>
-      <div class="modal-actions-bottom"><button class="btn" data-action="close-detail">Close</button><div class="right"><button class="btn primary" data-complete="${this.escape(t.id)}">Mark complete</button></div></div>
+      <div class="modal-actions-bottom"><button class="btn" data-action="close-detail">Close</button><div class="right">${this.taskGeneratedDeviceId(t) ? `<button class="btn" data-open-task-device="${this.escape(t.id)}">Open HA Device</button>` : ''}<button class="btn primary" data-complete="${this.escape(t.id)}">Mark complete</button></div></div>
     </div></div>`;
   }
 
@@ -1589,6 +1647,8 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     const counterSourceMode = counterRule.source_mode || 'cumulative';
     const sourceUnit = counterRule.source_unit || (counterRule.entity && this._hass?.states?.[counterRule.entity]?.attributes?.unit_of_measurement) || '';
     const counterUnit = counterRule.target_unit || counterRule.unit || (counterSourceMode === 'rate' ? this.totalizedTargetUnit(sourceUnit) : sourceUnit) || 'units';
+    const counterDisplayUnit = counterRule.target_display_unit || counterUnit;
+    const counterDisplayAmount = counterRule.target_display_value ?? this.convertUsageAmount(counterRule.amount || 1000, counterUnit, counterDisplayUnit);
     const categoryOptions = this.categories().map(c=>`<option value="${this.escape(c)}" ${this.category(t)===c?'selected':''}>${this.escape(c)}</option>`).join('');
     const calKind = calendarRule.calendar_kind || calendarRule.calendar_type || 'nth_weekday';
     const calNth = String(calendarRule.nth ?? 2);
@@ -1712,8 +1772,8 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
           <h4>Metered usage tracking</h4>
           <div class="form-grid">
             <div class="form-field span-6"><label>${this.label('Metered usage source','Choose either a cumulative meter, like total gallons/kWh/miles, or a rate sensor like gal/min that HMM can totalize.')}</label><div class="field-caption">If this sensor is a rate, Home Maintenance Manager can create its own internal totalizer.</div><ha-entity-picker id="task-meter-entity" allow-custom-entity></ha-entity-picker><div id="meter-source-hint" class="help"></div><div id="err-meter-entity" class="field-error">Choose a metered usage source.</div></div>
-            <div class="form-field span-6"><label>${this.label('Usage amount','The task becomes due after this amount of totalized usage since the last completion.')}</label><div class="input-row"><input id="task-meter-amount" type="number" min="0.1" step="0.1" value="${counterRule.amount || 1000}"><div class="field-caption">every <span id="task-meter-unit">${this.escape(counterUnit)}</span></div></div><div id="err-meter-amount" class="field-error">Enter a valid usage amount.</div></div>
-            <div class="form-field span-6"><label>${this.label('Meter source type','Cumulative meters already contain a total. Rate sensors such as gal/min must be totalized over time.')}</label><select id="task-meter-source-type"><option value="cumulative" ${counterSourceMode!=='rate'?'selected':''}>Cumulative meter - already total</option><option value="rate" ${counterSourceMode==='rate'?'selected':''}>Rate sensor - let HMM totalize it</option></select><div id="meter-type-hint" class="help"></div></div>
+            <div class="form-field span-6"><label>${this.label('Usage amount','The task becomes due after this amount of totalized usage since the last completion.')}</label><div class="input-row"><input id="task-meter-amount" type="number" min="0.1" step="0.1" value="${this.escape(counterDisplayAmount)}"><div class="field-caption">every <select id="task-meter-target-unit">${this.usageUnitOptions(counterUnit, counterDisplayUnit)}</select><span id="task-meter-unit" class="hidden">${this.escape(counterUnit)}</span></div></div><div id="err-meter-amount" class="field-error">Enter a valid usage amount.</div></div>
+            <div class="form-field span-6"><label>${this.label('Meter source type','Cumulative meters already contain a total. Rate sensors such as gal/min must be totalized over time. Reset/session counters increase during a session and then drop back to zero.')}</label><select id="task-meter-source-type"><option value="cumulative_total" ${!['rate','session_total','reset_counter'].includes(counterSourceMode)?'selected':''}>Cumulative meter - already total</option><option value="rate" ${counterSourceMode==='rate'?'selected':''}>Rate sensor - let HMM totalize it</option><option value="session_total" ${['session_total','reset_counter'].includes(counterSourceMode)?'selected':''}>Reset/session counter - add positive deltas</option></select><div id="meter-type-hint" class="help"></div></div>
             <div class="form-field span-6"><div class="info-box" id="meter-explain-box">Metered usage uses a baseline at task creation/completion. HMM subtracts that baseline from the current total to calculate usage used.</div></div>
           </div>
         </div>
@@ -1914,8 +1974,8 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
           <h4>Metered usage tracking</h4>
           <div class="form-grid">
             <div class="form-field span-6"><label>${this.label('Metered usage source','Choose either a cumulative meter, like total gallons/kWh/miles, or a rate sensor like gal/min that HMM can totalize.')}</label><div class="field-caption">If this sensor is a rate, Home Maintenance Manager can create its own internal totalizer.</div><ha-entity-picker id="task-meter-entity" allow-custom-entity></ha-entity-picker><div id="meter-source-hint" class="help"></div><div id="err-meter-entity" class="field-error">Choose a metered usage source.</div></div>
-            <div class="form-field span-6"><label>${this.label('Usage amount','The task becomes due after this amount of totalized usage since the last completion.')}</label><div class="input-row"><input id="task-meter-amount" type="number" min="0.1" step="0.1" value="${counterRule.amount || 1000}"><div class="field-caption">every <span id="task-meter-unit">${this.escape(counterUnit)}</span></div></div><div id="err-meter-amount" class="field-error">Enter a valid usage amount.</div></div>
-            <div class="form-field span-6"><label>${this.label('Meter source type','Cumulative meters already contain a total. Rate sensors such as gal/min must be totalized over time.')}</label><select id="task-meter-source-type"><option value="cumulative" ${counterSourceMode!=='rate'?'selected':''}>Cumulative meter - already total</option><option value="rate" ${counterSourceMode==='rate'?'selected':''}>Rate sensor - let HMM totalize it</option></select><div id="meter-type-hint" class="help"></div></div>
+            <div class="form-field span-6"><label>${this.label('Usage amount','The task becomes due after this amount of totalized usage since the last completion.')}</label><div class="input-row"><input id="task-meter-amount" type="number" min="0.1" step="0.1" value="${this.escape(counterDisplayAmount)}"><div class="field-caption">every <select id="task-meter-target-unit">${this.usageUnitOptions(counterUnit, counterDisplayUnit)}</select><span id="task-meter-unit" class="hidden">${this.escape(counterUnit)}</span></div></div><div id="err-meter-amount" class="field-error">Enter a valid usage amount.</div></div>
+            <div class="form-field span-6"><label>${this.label('Meter source type','Cumulative meters already contain a total. Rate sensors such as gal/min must be totalized over time. Reset/session counters increase during a session and then drop back to zero.')}</label><select id="task-meter-source-type"><option value="cumulative_total" ${!['rate','session_total','reset_counter'].includes(counterSourceMode)?'selected':''}>Cumulative meter - already total</option><option value="rate" ${counterSourceMode==='rate'?'selected':''}>Rate sensor - let HMM totalize it</option><option value="session_total" ${['session_total','reset_counter'].includes(counterSourceMode)?'selected':''}>Reset/session counter - add positive deltas</option></select><div id="meter-type-hint" class="help"></div></div>
             <div class="form-field span-6"><div class="info-box" id="meter-explain-box">Metered usage uses a baseline at task creation/completion. HMM subtracts that baseline from the current total to calculate usage used.</div></div>
           </div>
         </div>
@@ -1951,7 +2011,7 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
 
       <div class="modal-actions-bottom">
         <button class="btn" data-action="close-modal">Close</button>
-        <div class="right"><button class="btn primary" data-action="save-task" data-task-id="${this.escape(t.id || '')}">${isEdit ? 'Save changes' : 'Create task'}</button>${isEdit ? `<button class="btn danger" data-delete="${this.escape(t.id)}">Delete</button>` : ''}</div>
+        <div class="right">${isEdit && this.taskGeneratedDeviceId(t) ? `<button class="btn" type="button" data-open-task-device="${this.escape(t.id)}">Open HA Device</button>` : ''}<button class="btn primary" data-action="save-task" data-task-id="${this.escape(t.id || '')}">${isEdit ? 'Save changes' : 'Create task'}</button>${isEdit ? `<button class="btn danger" data-delete="${this.escape(t.id)}">Delete</button>` : ''}</div>
       </div>
     </div></div>`;
   }
@@ -2004,6 +2064,7 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     this.shadowRoot.querySelectorAll('[data-edit-from-detail]').forEach(el=>el.onclick=()=>{ const task=this.tasks.find(t=>t.id===el.dataset.editFromDetail); this._modalSnapshot=null; this.modal={task:JSON.parse(JSON.stringify(task||{}))}; this.render(); });
     this.shadowRoot.querySelectorAll('[data-complete]').forEach(el=>el.onclick=()=>this.callService('mark_complete',{task_id:el.dataset.complete, method:'panel'}));
     this.shadowRoot.querySelectorAll('[data-snooze]').forEach(el=>el.onclick=()=>this.callService('snooze',{task_id:el.dataset.snooze, days:7}));
+    this.shadowRoot.querySelectorAll('[data-open-task-device]').forEach(el=>el.onclick=()=>this.openTaskDevice(el.dataset.openTaskDevice));
     this.shadowRoot.querySelectorAll('[data-view-task]').forEach(el=>el.onclick=()=>this.openTaskDetail(el.dataset.viewTask));
     this.shadowRoot.querySelectorAll('[data-edit]').forEach(el=>el.onclick=()=>{ const task=this.tasks.find(t=>t.id===el.dataset.edit); this._modalSnapshot=null; this.modal={task:JSON.parse(JSON.stringify(task||{}))}; this.render(); });
     this.shadowRoot.querySelectorAll('[data-delete]').forEach(el=>el.onclick=()=>{ if(confirm('Delete this maintenance task?')) this.callService('delete_task',{task_id:el.dataset.delete}); });
@@ -2044,6 +2105,8 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     const notify = this.shadowRoot.getElementById('task-notify');
     const meterSourceType = this.shadowRoot.getElementById('task-meter-source-type');
     if (meterSourceType) meterSourceType.onchange = () => this.updateMeterUnit();
+    const meterTargetUnit = this.shadowRoot.getElementById('task-meter-target-unit');
+    if (meterTargetUnit) meterTargetUnit.onchange = () => this.updateMeterUnit();
     const notifyBehaviorEl = this.shadowRoot.getElementById('task-notify-behavior');
     const deviceEl = this.shadowRoot.getElementById('task-device');
     if (deviceEl) deviceEl.onchange = () => this.syncAreaFromDevice();
@@ -2094,7 +2157,7 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     const fields = [
       'task-name','task-category','task-description','task-area','task-device','task-equipment-name',
       'task-schedule','task-seasonal-enabled','task-seasonal-spring','task-seasonal-summer','task-seasonal-fall','task-seasonal-winter','task-seasonal-custom-enabled','task-seasonal-start-month','task-seasonal-start-day','task-seasonal-end-month','task-seasonal-end-day','task-seasonal-show-inactive','task-seasonal-pause-usage','task-time-value','task-time-unit','task-runtime-value','task-runtime-interval-unit','task-runtime-method','task-runtime-threshold','task-runtime-states',
-      'task-calendar-kind','task-calendar-nth','task-calendar-weekday','task-calendar-month','task-calendar-day','task-calendar-time','task-meter-amount','task-meter-source-type','task-baseline','task-baseline-datetime','task-baseline-ago-value','task-baseline-ago-unit','task-notify-behavior','task-notify','task-mobile','task-nfc','task-nfc-action','task-instructions'
+      'task-calendar-kind','task-calendar-nth','task-calendar-weekday','task-calendar-month','task-calendar-day','task-calendar-time','task-meter-amount','task-meter-target-unit','task-meter-source-type','task-baseline','task-baseline-datetime','task-baseline-ago-value','task-baseline-ago-unit','task-notify-behavior','task-notify','task-mobile','task-nfc','task-nfc-action','task-instructions'
     ];
     const data = {};
     for (const id of fields) data[id] = value(id);
@@ -2415,7 +2478,7 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     const sourceUnit = state?.attributes?.unit_of_measurement || '';
     const typeEl = this.shadowRoot.getElementById('task-meter-source-type');
     if (typeEl && meterEntity && !typeEl.dataset.userTouched) {
-      typeEl.value = this.isRateUnit(sourceUnit) ? 'rate' : 'cumulative';
+      typeEl.value = this.isRateUnit(sourceUnit) ? 'rate' : 'cumulative_total';
     }
     if (typeEl && !typeEl.dataset.bound) {
       typeEl.dataset.bound = '1';
@@ -2423,6 +2486,11 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     }
     const mode = typeEl?.value || 'cumulative';
     const targetUnit = mode === 'rate' ? this.totalizedTargetUnit(sourceUnit) : (sourceUnit || 'units');
+    const targetSelect = this.shadowRoot.getElementById('task-meter-target-unit');
+    if (targetSelect) {
+      const current = targetSelect.value || targetUnit;
+      targetSelect.innerHTML = this.usageUnitOptions(targetUnit, current);
+    }
     const el = this.shadowRoot.getElementById('task-meter-unit');
     if (el) el.textContent = targetUnit;
     const sourceHint = this.shadowRoot.getElementById('meter-source-hint');
@@ -2434,8 +2502,8 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
       else if (this.isLikelyInstantUnit(sourceUnit)) sourceHint.textContent = `Detected ${sourceUnit}. This may be an instant value; runtime threshold may be better unless this sensor is cumulative.`;
       else sourceHint.textContent = `Detected unit: ${sourceUnit || 'no unit'}. Use cumulative if this sensor only increases over time.`;
     }
-    if (typeHint) typeHint.textContent = mode === 'rate' ? `HMM will add ${sourceUnit || 'units/time'} over elapsed time and track total ${targetUnit}.` : 'Use this when the sensor is already a total, like total gallons, odometer miles, or lifetime kWh.';
-    if (explain) explain.textContent = mode === 'rate' ? `HMM will create an internal totalizer for this task. Mark Complete resets the maintenance baseline, not the original sensor.` : 'HMM stores the current sensor value as the baseline and tracks how much the total increases.';
+    if (typeHint) typeHint.textContent = mode === 'rate' ? `HMM will add ${sourceUnit || 'units/time'} over elapsed time and track total ${targetUnit}.` : mode === 'session_total' ? 'HMM will add only positive increases and ignore drops when the sensor resets between sessions.' : 'Use this when the sensor is already a total, like total gallons, odometer miles, or lifetime kWh.';
+    if (explain) explain.textContent = mode === 'rate' || mode === 'session_total' ? `HMM will create an internal totalizer for this task. Mark Complete resets the maintenance baseline, not the original sensor.` : 'HMM stores the current sensor value as the baseline and tracks how much the total increases.';
   }
 
 
@@ -2521,7 +2589,7 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     const runtimeValue = Number(q('task-runtime-value')?.value || 0);
     const runtimeUnit = q('task-runtime-interval-unit')?.value || 'hours';
     const meterEntity = q('task-meter-entity')?.value || '';
-    const meterAmount = Number(q('task-meter-amount')?.value || 0);
+    const meterDisplayAmount = Number(q('task-meter-amount')?.value || 0);
     const meterSourceType = q('task-meter-source-type')?.value || 'cumulative';
     const notifyBehavior = q('task-notify-behavior')?.value || 'global';
     const notify = notifyBehavior === 'custom' ? (q('task-notify')?.value || 'persistent') : notifyBehavior;
@@ -2538,7 +2606,7 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     this.setError('err-runtime-hours', needsRuntime && (!runtimeValue || runtimeValue <= 0)); hasError = hasError || (needsRuntime && (!runtimeValue || runtimeValue <= 0));
     this.setError('err-runtime-threshold', needsRuntime && runtimeMethod === 'above_threshold' && (runtimeThresholdRaw === '' || !Number.isFinite(runtimeThreshold))); hasError = hasError || (needsRuntime && runtimeMethod === 'above_threshold' && (runtimeThresholdRaw === '' || !Number.isFinite(runtimeThreshold)));
     this.setError('err-meter-entity', needsMeter && !meterEntity); hasError = hasError || (needsMeter && !meterEntity);
-    this.setError('err-meter-amount', needsMeter && (!meterAmount || meterAmount <= 0)); hasError = hasError || (needsMeter && (!meterAmount || meterAmount <= 0));
+    this.setError('err-meter-amount', needsMeter && (!meterDisplayAmount || meterDisplayAmount <= 0)); hasError = hasError || (needsMeter && (!meterDisplayAmount || meterDisplayAmount <= 0));
     const seasonalEnabledForValidation = !!q('task-seasonal-enabled')?.checked;
     const seasonalSeasonsForValidation = ['spring','summer','fall','winter'].filter(season => !!q(`task-seasonal-${season}`)?.checked);
     const seasonalCustomForValidation = !!q('task-seasonal-custom-enabled')?.checked;
@@ -2583,11 +2651,13 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
       }
       const sourceUnit = state?.attributes?.unit_of_measurement || existingCounter?.source_unit || existingCounter?.unit || '';
       const targetUnit = meterSourceType === 'rate' ? this.totalizedTargetUnit(sourceUnit) : (sourceUnit || existingCounter?.target_unit || existingCounter?.unit || '');
-      if (meterSourceType === 'rate') {
+      const displayUnit = q('task-meter-target-unit')?.value || targetUnit || 'units';
+      const meterAmount = this.convertUsageAmount(meterDisplayAmount, displayUnit, targetUnit);
+      if (meterSourceType === 'rate' || meterSourceType === 'session_total') {
         baseline = existingCounter?.baseline;
-        if (baseline === undefined || baseline === null || baseline === '') baseline = existingCounter?.source_mode === 'rate' ? (existing?.totalized_usage?.counter_1 || 0) : 0;
+        if (baseline === undefined || baseline === null || baseline === '') baseline = ['rate','session_total','reset_counter'].includes(existingCounter?.source_mode) ? (existing?.totalized_usage?.counter_1 || 0) : 0;
       }
-      rules.push({id:'counter_1', type:'counter', name:`Every ${meterAmount} ${targetUnit || 'units'}`, entity:meterEntity, amount:meterAmount, baseline, unit: targetUnit, source_unit: sourceUnit, target_unit: targetUnit, source_mode: meterSourceType});
+      rules.push({id:'counter_1', type:'counter', name:`Every ${meterDisplayAmount} ${displayUnit || targetUnit || 'units'}`, entity:meterEntity, amount:meterAmount, baseline, unit: targetUnit, source_unit: sourceUnit, target_unit: targetUnit, target_display_value: meterDisplayAmount, target_display_unit: displayUnit, source_mode: meterSourceType});
     }
     const entityValue = q('task-entities')?.value;
     const manualEntities = Array.isArray(entityValue) ? entityValue : (entityValue ? [entityValue] : []);

@@ -24,6 +24,14 @@ from .task_packs import (
     merge_installed_pack_record,
     validate_task_pack,
 )
+from .units import (
+    METER_SOURCE_RATE,
+    METER_SOURCE_SESSION,
+    meter_units_compatible,
+    normalize_counter_rule_units,
+    normalize_meter_source_mode,
+    rate_target_unit,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -540,6 +548,8 @@ class MaintenanceCoordinator:
                     "required": str(rule.get("type") or "") in {"runtime", "counter"},
                     "role": str(rule.get("type") or "rule_entity"),
                     "rule_id": str(rule.get("id") or idx),
+                    "source_mode": rule.get("source_mode"),
+                    "unit_of_measurement": rule.get("target_unit") or rule.get("unit") or rule.get("source_unit"),
                 })
         return refs
 
@@ -591,6 +601,20 @@ class MaintenanceCoordinator:
         except Exception:
             return {}, {}, {}
 
+    def _entity_metadata(self, entity_ids: set[str] | list[str] | tuple[str, ...]) -> dict[str, dict[str, Any]]:
+        metadata: dict[str, dict[str, Any]] = {}
+        for entity_id in entity_ids:
+            state = self.hass.states.get(entity_id)
+            if not state:
+                continue
+            metadata[str(entity_id)] = {
+                "domain": str(entity_id).split(".", 1)[0] if "." in str(entity_id) else "",
+                "device_class": state.attributes.get("device_class"),
+                "state_class": state.attributes.get("state_class"),
+                "unit_of_measurement": state.attributes.get("unit_of_measurement"),
+            }
+        return metadata
+
     def _rank_entity_suggestions(self, ref: dict[str, Any], task_data: dict[str, Any], entity_ids: set[str], registry_context: tuple[dict[str, Any], dict[str, str], dict[str, str]]) -> list[dict[str, Any]]:
         """Return ranked local HA entities for one missing Task Pack requirement."""
         expected_domain = str(ref.get("domain") or "")
@@ -633,6 +657,9 @@ class MaintenanceCoordinator:
                 score += 16
                 reasons.append("unit")
                 specific_match = True
+            elif expected_unit and ref.get("role") == "counter":
+                if not meter_units_compatible(expected_unit, attrs.get("unit_of_measurement"), ref.get("source_mode") or "cumulative_total"):
+                    continue
             keyword_hits = [keyword for keyword in keywords if keyword and keyword in haystack]
             if keyword_hits:
                 score += min(30, 8 * len(keyword_hits))
@@ -656,7 +683,8 @@ class MaintenanceCoordinator:
         return suggestions[:8]
 
     def _apply_entity_mapping_to_task_data(self, task_data: dict[str, Any], entity_mapping: dict[str, Any] | None = None) -> dict[str, Any]:
-        return apply_task_pack_entity_mapping(task_data, entity_mapping)
+        metadata = self._entity_metadata([str(v) for v in (entity_mapping or {}).values() if isinstance(v, str) and "." in v])
+        return apply_task_pack_entity_mapping(task_data, entity_mapping, entity_metadata=metadata, strict=True)
 
     def _package_tasks(self, package: dict[str, Any]) -> tuple[str, list[dict[str, Any]], dict[str, Any]]:
         """Parse a backup export or task-pack shaped package."""
@@ -763,10 +791,22 @@ class MaintenanceCoordinator:
             selected = {str(t["id"]) for t in preview.get("tasks", []) if t.get("selected")}
         filtered_package = dict(parsed)
         requirements = parsed.get("entity_requirements") if isinstance(parsed.get("entity_requirements"), list) else []
+        mapped_entities = [
+            str(value)
+            for value in (entity_mapping or {}).values()
+            if isinstance(value, str) and "." in value and not value.startswith("hmm://")
+        ]
+        entity_metadata = self._entity_metadata(mapped_entities)
         tasks = []
         for item in raw_tasks:
             if isinstance(item, dict) and str(item.get("id")) in selected:
-                data = apply_task_pack_entity_mapping(dict(item), entity_mapping, requirements) if package_type == TASK_PACK_TYPE else self._apply_entity_mapping_to_task_data(dict(item), entity_mapping)
+                data = apply_task_pack_entity_mapping(
+                    dict(item),
+                    entity_mapping,
+                    requirements,
+                    entity_metadata,
+                    strict=True,
+                ) if package_type == TASK_PACK_TYPE else self._apply_entity_mapping_to_task_data(dict(item), entity_mapping)
                 if str(data.get("id")) in self.deleted_task_ids and not restore_deleted and package_type != "backup":
                     continue
                 tasks.append(data)
@@ -989,22 +1029,7 @@ class MaintenanceCoordinator:
 
     def _rate_target_unit(self, unit: str | None) -> str:
         """Return the accumulated target unit for a rate sensor unit."""
-        if not unit:
-            return "units"
-        u = unit.strip()
-        lower = u.lower().replace(" ", "")
-        for sep in ("/min", "permin", "/minute", "perminute"):
-            if lower.endswith(sep):
-                return u[: -len(sep.replace("per", "/"))] if sep.startswith("/") else u.split("per", 1)[0]
-        for sep in ("/h", "/hr", "/hour", "perhour"):
-            if lower.endswith(sep):
-                return u.split("/", 1)[0] if "/" in u else u.split("per", 1)[0]
-        for sep in ("/s", "/sec", "/second", "persecond"):
-            if lower.endswith(sep):
-                return u.split("/", 1)[0] if "/" in u else u.split("per", 1)[0]
-        if lower == "w":
-            return "kWh"
-        return "units"
+        return rate_target_unit(unit)
 
     def _integrate_rate(self, value: float, source_unit: str | None, elapsed_seconds: float) -> tuple[float, str]:
         """Convert a rate value over elapsed seconds into accumulated usage."""
@@ -1030,7 +1055,8 @@ class MaintenanceCoordinator:
                     continue
                 entity_id = rule["entity"]
                 if getattr(task, "seasonal", None) and task.seasonal.get("enabled") and task.seasonal.get("pause_usage_when_inactive", True) and not task.season_active():
-                    key = f"counter_rate:{str(rule.get('id') or entity_id)}" if rule.get("type") == "counter" else entity_id
+                    source_mode = normalize_meter_source_mode(rule.get("source_mode"))
+                    key = f"counter_{source_mode}:{str(rule.get('id') or entity_id)}" if rule.get("type") == "counter" else entity_id
                     task.last_seen_states[key] = {"seen_at": now.isoformat(), "running": False}
                     continue
                 state = self.hass.states.get(entity_id)
@@ -1043,16 +1069,24 @@ class MaintenanceCoordinator:
                         changed = True
                     running = self._is_rule_running(rule, state.state if state else None)
                     task.last_seen_states[entity_id] = {"seen_at": now.isoformat(), "running": running}
-                elif rule.get("type") == "counter" and rule.get("source_mode") == "rate":
+                elif rule.get("type") == "counter":
+                    source_mode = normalize_meter_source_mode(rule.get("source_mode"))
+                    if source_mode not in {METER_SOURCE_RATE, METER_SOURCE_SESSION}:
+                        continue
                     rule_id = str(rule.get("id") or entity_id)
-                    key = f"counter_rate:{rule_id}"
+                    key = f"counter_{source_mode}:{rule_id}"
                     last = task.last_seen_states.get(key, {})
                     last_seen = dt_util.parse_datetime(last.get("seen_at")) if last.get("seen_at") else None
                     try:
-                        rate_value = float(state.state) if state else None
+                        numeric_value = float(state.state) if state else None
                     except (TypeError, ValueError):
-                        rate_value = None
-                    if last_seen and rate_value is not None:
+                        numeric_value = None
+                    source_unit = rule.get("source_unit") or (state.attributes.get("unit_of_measurement") if state else None)
+                    expected_unit = rule.get("target_unit") or rule.get("unit") or rule.get("source_unit")
+                    if not meter_units_compatible(expected_unit, source_unit, source_mode):
+                        task.last_seen_states[key] = {"seen_at": now.isoformat(), "invalid_unit": True}
+                        continue
+                    if source_mode == METER_SOURCE_RATE and last_seen and numeric_value is not None:
                         elapsed = max((now - last_seen).total_seconds(), 0)
                         # Use the previous rate over the elapsed interval. If no previous
                         # numeric rate exists, initialize without adding usage.
@@ -1062,13 +1096,28 @@ class MaintenanceCoordinator:
                         except (TypeError, ValueError):
                             prev_rate = None
                         if prev_rate is not None and elapsed > 0:
-                            source_unit = rule.get("source_unit") or (state.attributes.get("unit_of_measurement") if state else None)
                             added, target_unit = self._integrate_rate(prev_rate, source_unit, elapsed)
                             if added > 0:
                                 task.totalized_usage[rule_id] = task.totalized_usage.get(rule_id, 0) + added
                                 rule["target_unit"] = rule.get("target_unit") or target_unit
                                 changed = True
-                    task.last_seen_states[key] = {"seen_at": now.isoformat(), "rate": rate_value}
+                        task.last_seen_states[key] = {"seen_at": now.isoformat(), "rate": numeric_value}
+                    elif source_mode == METER_SOURCE_SESSION and numeric_value is not None:
+                        previous = last.get("value")
+                        try:
+                            previous_value = float(previous)
+                        except (TypeError, ValueError):
+                            previous_value = None
+                        if previous_value is not None:
+                            delta = numeric_value - previous_value
+                            if delta > 0:
+                                task.totalized_usage[rule_id] = task.totalized_usage.get(rule_id, 0) + delta
+                                if source_unit:
+                                    rule.update(normalize_counter_rule_units(rule, source_unit))
+                                changed = True
+                        task.last_seen_states[key] = {"seen_at": now.isoformat(), "value": numeric_value}
+                    else:
+                        task.last_seen_states[key] = {"seen_at": now.isoformat()}
         if changed:
             await self.async_save()
             self._notify()
@@ -1338,23 +1387,27 @@ class MaintenanceCoordinator:
         for rule in task.rules:
             if rule.get("type") == "counter" and rule.get("entity"):
                 state = self.hass.states.get(rule["entity"])
-                if rule.get("source_mode") == "rate":
+                source_mode = normalize_meter_source_mode(rule.get("source_mode"))
+                state_unit = state.attributes.get("unit_of_measurement") if state else None
+                expected_unit = rule.get("target_unit") or rule.get("unit") or rule.get("source_unit")
+                if not meter_units_compatible(expected_unit, state_unit, source_mode):
+                    continue
+                if source_mode in {METER_SOURCE_RATE, METER_SOURCE_SESSION}:
                     rule_id = str(rule.get("id") or rule.get("entity"))
                     rule["baseline"] = float(task.totalized_usage.get(rule_id, 0))
                     if state:
                         source_unit = state.attributes.get("unit_of_measurement")
                         if source_unit:
-                            rule["source_unit"] = source_unit
-                            rule["target_unit"] = rule.get("target_unit") or self._rate_target_unit(source_unit)
+                            rule.update(normalize_counter_rule_units(rule, source_unit, expected_unit))
                 else:
                     try:
                         rule["baseline"] = float(state.state) if state else float(rule.get("baseline") or 0)
                     except (TypeError, ValueError):
                         rule["baseline"] = float(rule.get("baseline") or 0)
-                    if state and not rule.get("unit"):
+                    if state:
                         unit = state.attributes.get("unit_of_measurement")
                         if unit:
-                            rule["unit"] = unit
+                            rule.update(normalize_counter_rule_units(rule, unit, expected_unit))
         entry = {"at": now, "method": method, "user": user, "notes": notes}
         task.completion_history.append(entry)
         task.activity_history.append({"type": "completed", **entry})

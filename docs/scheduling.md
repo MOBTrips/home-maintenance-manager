@@ -37,7 +37,13 @@ Examples:
 - Replace vehicle cabin filter every 12,000 miles.
 - Inspect equipment every 250 kWh.
 
-HMM can work with cumulative meters. For rate sensors, HMM can totalize usage over time when configured.
+HMM supports three metered source modes:
+
+- **Cumulative total**: the source only increases over time, such as lifetime gallons, kWh, miles, or cycles.
+- **Rate**: the source reports a current rate, such as W or gallons/minute, and HMM totalizes it over elapsed time.
+- **Reset/session counter**: the source increases during one use and then resets to zero. HMM adds positive deltas and ignores reset drops.
+
+The source entity unit must be compatible with the task target. For example, a watts sensor cannot satisfy a gallons-based meter task. For time-based duration sensors, the editor can show friendly target units such as minutes, hours, or days while HMM stores the normalized value in the source unit.
 
 ## Calendar-based schedules
 

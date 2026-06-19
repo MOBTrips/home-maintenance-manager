@@ -8,6 +8,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.util import dt as dt_util
 
 from .const import DOMAIN
+from .units import METER_SOURCE_RATE, METER_SOURCE_SESSION, normalize_meter_source_mode
 
 SENSOR_TYPES = {
     "summary": ("Summary", None, None),
@@ -177,9 +178,9 @@ class MaintenanceSensor(SensorEntity):
             value = task.counter_remaining(self.hass)
             return round(value, 1) if value is not None else None
         if self.sensor_type == "totalized_usage":
-            # Only meaningful for rate-based metered usage rules.
+            # Only meaningful for internally totalized metered usage rules.
             for rule in task.rules:
-                if rule.get("type") == "counter" and rule.get("source_mode") == "rate":
+                if rule.get("type") == "counter" and normalize_meter_source_mode(rule.get("source_mode")) in {METER_SOURCE_RATE, METER_SOURCE_SESSION}:
                     value = task.totalized_usage.get(str(rule.get("id") or rule.get("entity")), 0)
                     return round(value, 1)
             return None
@@ -215,9 +216,12 @@ class MaintenanceSensor(SensorEntity):
             if task is None:
                 return None
             for rule in task.rules:
-                if rule.get("type") == "counter" and rule.get("source_mode") == "rate":
+                source_mode = normalize_meter_source_mode(rule.get("source_mode"))
+                if rule.get("type") == "counter" and source_mode in {METER_SOURCE_RATE, METER_SOURCE_SESSION}:
                     if rule.get("target_unit"):
                         return str(rule.get("target_unit"))
+                    if source_mode == METER_SOURCE_SESSION and rule.get("unit"):
+                        return str(rule.get("unit"))
                     source_unit = rule.get("source_unit") or rule.get("unit")
                     if not source_unit and rule.get("entity"):
                         state = self.hass.states.get(rule.get("entity"))

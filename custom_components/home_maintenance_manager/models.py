@@ -3,11 +3,31 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from calendar import monthrange
+import importlib.util
+from pathlib import Path
 from typing import Any
 
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
 from homeassistant.util import dt as dt_util
+
+try:
+    from .units import (
+        METER_SOURCE_RATE,
+        METER_SOURCE_SESSION,
+        meter_units_compatible,
+        normalize_meter_source_mode,
+    )
+except ImportError:  # pragma: no cover - allows direct import in lightweight tests
+    _UNITS_SPEC = importlib.util.spec_from_file_location("hmm_units", Path(__file__).with_name("units.py"))
+    if _UNITS_SPEC is None or _UNITS_SPEC.loader is None:
+        raise
+    _units = importlib.util.module_from_spec(_UNITS_SPEC)
+    _UNITS_SPEC.loader.exec_module(_units)
+    METER_SOURCE_RATE = _units.METER_SOURCE_RATE
+    METER_SOURCE_SESSION = _units.METER_SOURCE_SESSION
+    meter_units_compatible = _units.meter_units_compatible
+    normalize_meter_source_mode = _units.normalize_meter_source_mode
 
 RULE_TIME = "time"
 RULE_RUNTIME = "runtime"
@@ -236,6 +256,8 @@ class RuleProgress:
     remaining: float | None
     due: bool
     detail: str
+    valid: bool = True
+    error: str | None = None
 
 
 @dataclass
@@ -365,10 +387,17 @@ class MaintenanceTask:
                 entity_id = rule.get("entity")
                 amount = float(rule.get("amount") or 0)
                 baseline = float(rule.get("baseline") or 0)
-                if rule.get("source_mode") == "rate":
+                source_mode = normalize_meter_source_mode(rule.get("source_mode"))
+                state = hass.states.get(entity_id) if entity_id else None
+                state_unit = state.attributes.get("unit_of_measurement") if state else None
+                expected_unit = rule.get("target_unit") or rule.get("unit") or rule.get("source_unit")
+                if not meter_units_compatible(expected_unit, state_unit, source_mode):
+                    detail = f"Invalid meter mapping: expected {expected_unit}, got {state_unit}"
+                    progress.append(RuleProgress(rule_id, rule_type, name, 0, None, False, detail, False, detail))
+                    continue
+                if source_mode in {METER_SOURCE_RATE, METER_SOURCE_SESSION}:
                     current = float(self.totalized_usage.get(rule_id, 0))
                 else:
-                    state = hass.states.get(entity_id) if entity_id else None
                     try:
                         current = float(state.state) if state else baseline
                     except (TypeError, ValueError):
@@ -391,16 +420,19 @@ class MaintenanceTask:
         progress = self.rule_progress(hass)
         if not progress:
             return "unknown"
-        due_flags = [p.due for p in progress]
+        valid_progress = [p for p in progress if p.valid]
+        if not valid_progress:
+            return "unknown"
+        due_flags = [p.due for p in valid_progress]
         if self.rule_logic == LOGIC_ALL:
             is_due = all(due_flags)
         elif self.rule_logic == LOGIC_PRIMARY and self.primary_rule_id:
-            is_due = next((p.due for p in progress if p.rule_id == self.primary_rule_id), False)
+            is_due = next((p.due for p in valid_progress if p.rule_id == self.primary_rule_id), False)
         else:
             is_due = any(due_flags)
         if is_due:
             return "due"
-        if any(p.percent_used >= self.warning_percent for p in progress):
+        if any(p.percent_used >= self.warning_percent for p in valid_progress):
             return "upcoming"
         return "ok"
 
@@ -416,12 +448,15 @@ class MaintenanceTask:
         progress = self.rule_progress(hass)
         if not progress:
             return None
+        valid_progress = [p for p in progress if p.valid]
+        if not valid_progress:
+            return None
         if self.rule_logic == LOGIC_ALL:
-            return min(p.percent_used for p in progress) * 100
+            return min(p.percent_used for p in valid_progress) * 100
         if self.rule_logic == LOGIC_PRIMARY and self.primary_rule_id:
-            primary = next((p for p in progress if p.rule_id == self.primary_rule_id), progress[0])
+            primary = next((p for p in valid_progress if p.rule_id == self.primary_rule_id), valid_progress[0])
             return primary.percent_used * 100
-        return max(p.percent_used for p in progress) * 100
+        return max(p.percent_used for p in valid_progress) * 100
 
     def days_remaining(self, hass: HomeAssistant) -> float | None:
         values = [p.remaining for p in self.rule_progress(hass) if p.rule_type == RULE_TIME and p.remaining is not None]
@@ -448,10 +483,15 @@ class MaintenanceTask:
                 continue
             entity_id = rule.get("entity")
             baseline = float(rule.get("baseline") or 0)
-            if rule.get("source_mode") == "rate":
+            source_mode = normalize_meter_source_mode(rule.get("source_mode"))
+            state = hass.states.get(entity_id) if entity_id else None
+            state_unit = state.attributes.get("unit_of_measurement") if state else None
+            expected_unit = rule.get("target_unit") or rule.get("unit") or rule.get("source_unit")
+            if not meter_units_compatible(expected_unit, state_unit, source_mode):
+                continue
+            if source_mode in {METER_SOURCE_RATE, METER_SOURCE_SESSION}:
                 current = float(self.totalized_usage.get(str(rule.get("id") or "counter_1"), 0))
             else:
-                state = hass.states.get(entity_id) if entity_id else None
                 try:
                     current = float(state.state) if state else baseline
                 except (TypeError, ValueError):
@@ -477,7 +517,8 @@ class MaintenanceTask:
     def counter_unit(self, hass: HomeAssistant) -> str | None:
         for rule in self.rules:
             if rule.get("type") == RULE_COUNTER:
-                if rule.get("source_mode") == "rate":
+                source_mode = normalize_meter_source_mode(rule.get("source_mode"))
+                if source_mode == METER_SOURCE_RATE:
                     if rule.get("target_unit"):
                         return str(rule.get("target_unit"))
                     source_unit = rule.get("source_unit") or rule.get("unit")
@@ -516,11 +557,19 @@ class MaintenanceTask:
     def summary_attributes(self, hass: HomeAssistant) -> dict[str, Any]:
         progress = self.rule_progress(hass)
         next_due = self.next_due_datetime(hass)
+        generated_device_id = None
+        try:
+            from homeassistant.helpers import device_registry as dr
+            device = dr.async_get(hass).async_get_device({self.device_identifier})
+            generated_device_id = device.id if device else None
+        except Exception:
+            generated_device_id = None
         return {
             "task_id": self.id,
             "category": self.category,
             "area": self.area,
             "linked_device_id": self.linked_device_id,
+            "generated_device_id": generated_device_id,
             "linked_entities": self.linked_entities,
             "status": self.status(hass),
             "seasonal": self.seasonal,

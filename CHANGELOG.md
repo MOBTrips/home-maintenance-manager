@@ -6,6 +6,10 @@
 - Added final import summary counts for mapped entities, cleared references, skipped optional references, unresolved requirements, and tasks that will import paused.
 - Extended bundled Task Pack entity requirements with metadata used by the improved mapper.
 - Hardened Task Pack entity imports so required unresolved tasks stay selected for review, key-based placeholders are recognized, sparse suggestions avoid domain-only noise, and pause reasons are persisted in task provenance.
+- Validated metered task entity mappings by unit family, rejected incompatible mappings, and normalized stale Task Pack meter units to the mapped entity unit.
+- Added reset/session metered source mode for sensors that rise during a use and reset to zero between uses.
+- Added friendly metered target unit scaling for time units while storing normalized source-unit amounts.
+- Added an Open HA Device shortcut from task cards, task details, and the task editor for inspecting generated Maintenance Task devices.
 
 ## 0.7.2
 

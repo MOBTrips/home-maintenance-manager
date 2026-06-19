@@ -3,10 +3,23 @@ from __future__ import annotations
 from copy import deepcopy
 from datetime import datetime, timezone
 import hashlib
+import importlib.util
 import json
 from pathlib import Path
 import re
 from typing import Any
+
+try:
+    from .units import meter_units_compatible, normalize_counter_rule_units, normalize_meter_source_mode
+except ImportError:  # pragma: no cover - allows direct import in lightweight tests
+    _UNITS_SPEC = importlib.util.spec_from_file_location("hmm_units", Path(__file__).with_name("units.py"))
+    if _UNITS_SPEC is None or _UNITS_SPEC.loader is None:
+        raise
+    _units = importlib.util.module_from_spec(_UNITS_SPEC)
+    _UNITS_SPEC.loader.exec_module(_units)
+    meter_units_compatible = _units.meter_units_compatible
+    normalize_counter_rule_units = _units.normalize_counter_rule_units
+    normalize_meter_source_mode = _units.normalize_meter_source_mode
 
 TASK_PACK_FORMAT = "home_maintenance_manager_task_pack"
 TASK_PACK_TYPE = "task_pack"
@@ -237,6 +250,10 @@ def _requirement_lookup(requirements: list[dict[str, Any]]) -> dict[str, dict[st
     return lookup
 
 
+def _requirement_for_ref(entity_ref: str, requirements: list[dict[str, Any]]) -> dict[str, Any] | None:
+    return _requirement_lookup(requirements).get(entity_ref)
+
+
 def _entity_mapping_aliases(entity_ref: str, requirements: list[dict[str, Any]] | None = None) -> set[str]:
     aliases = {entity_ref}
     if entity_ref.startswith("hmm://entity/"):
@@ -270,9 +287,12 @@ def apply_task_pack_entity_mapping(
     task_data: dict[str, Any],
     entity_mapping: dict[str, Any] | None = None,
     requirements: list[dict[str, Any]] | None = None,
+    entity_metadata: dict[str, dict[str, Any]] | None = None,
+    strict: bool = False,
 ) -> dict[str, Any]:
     """Apply reviewed entity mapping choices to a Task Pack task."""
     mapping = entity_mapping or {}
+    metadata = entity_metadata or {}
     data = deepcopy(task_data)
     linked = []
     for entity_id in data.get("linked_entities") or []:
@@ -303,7 +323,30 @@ def apply_task_pack_entity_mapping(
                 if new_rule.get("type") in ("runtime", "counter"):
                     _mark_unresolved_entity_pause(data)
             else:
-                new_rule["entity"] = str(action)
+                mapped_entity = str(action)
+                new_rule["entity"] = mapped_entity
+                requirement = _requirement_for_ref(original, requirements or [])
+                entity_meta = metadata.get(mapped_entity, {})
+                if new_rule.get("type") == "counter" and entity_meta:
+                    actual_unit = entity_meta.get("unit_of_measurement") or entity_meta.get("unit")
+                    expected_unit = (
+                        requirement.get("unit_of_measurement")
+                        if requirement
+                        else None
+                    ) or new_rule.get("target_unit") or new_rule.get("unit") or new_rule.get("source_unit")
+                    source_mode = normalize_meter_source_mode(new_rule.get("source_mode"))
+                    if not meter_units_compatible(expected_unit, actual_unit, source_mode):
+                        message = f"{mapped_entity} uses {actual_unit or 'no unit'}, which is not compatible with expected {expected_unit or 'unit'}"
+                        if strict:
+                            raise ValueError(message)
+                        _mark_unresolved_entity_pause(data)
+                        provenance = dict(data.get("provenance") or {})
+                        warnings = list(provenance.get("mapping_warnings") or [])
+                        warnings.append(message)
+                        provenance["mapping_warnings"] = warnings
+                        data["provenance"] = provenance
+                    else:
+                        new_rule = normalize_counter_rule_units(new_rule, actual_unit, expected_unit)
         rules.append(new_rule)
     data["rules"] = rules
     return data

@@ -23,7 +23,7 @@ Task Packs are always handled as templates:
 - They never restore deleted-task tombstones.
 - Runtime history, completion history, activity history, NFC tag IDs, Home Assistant device IDs, and private notification targets are stripped before saving.
 
-Required runtime or metered entity references that remain unresolved during import are imported paused so due status is not calculated from the wrong source.
+Required runtime or metered entity references that remain unresolved during import are imported paused so due status is not calculated from the wrong source. Metered mappings also validate unit compatibility during apply. A local entity with an incompatible unit, such as W for a gallons requirement, is rejected instead of silently importing stale task-pack meter metadata.
 
 ## Entity Mapping Queue
 
@@ -39,6 +39,8 @@ Each requirement shows:
 - ranked local entity suggestions
 
 Required runtime and meter requirements may be left unresolved, but affected tasks import paused. Optional requirements may be kept unresolved for later mapping, cleared from imported tasks, or mapped to a local entity.
+
+For metered requirements, include `unit_of_measurement` whenever practical. HMM uses it to rank suggestions and validate the final mapping. Compatible units in the same family, such as gal and L, are accepted and the task rule is normalized to the mapped entity unit.
 
 ## Exporting a Pack
 
