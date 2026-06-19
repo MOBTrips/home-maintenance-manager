@@ -1,0 +1,67 @@
+{
+  "format": "home_maintenance_manager_task_pack",
+  "format_version": 1,
+  "type": "task_pack",
+  "pack": {
+    "id": "northern_illinois_winter_readiness",
+    "name": "Northern Illinois Winter Readiness",
+    "version": "1.0.0",
+    "author": "ChatGPT",
+    "description": "Northern Illinois Winter Readiness",
+    "tags": [
+      "northern-illinois",
+      "estate-home"
+    ]
+  },
+  "entity_requirements": [],
+  "tasks": [
+    {
+      "id": "task_1",
+      "name": "Disconnect Garden Hoses",
+      "category": "Seasonal",
+      "schedule_type": "time",
+      "time_interval_value": 365,
+      "time_interval_unit": "days"
+    },
+    {
+      "id": "task_2",
+      "name": "Service Snowblower",
+      "category": "Seasonal",
+      "schedule_type": "time",
+      "time_interval_value": 365,
+      "time_interval_unit": "days"
+    },
+    {
+      "id": "task_3",
+      "name": "Check Generator",
+      "category": "Electrical",
+      "schedule_type": "time",
+      "time_interval_value": 180,
+      "time_interval_unit": "days"
+    },
+    {
+      "id": "task_4",
+      "name": "Inspect Attic Insulation",
+      "category": "Seasonal",
+      "schedule_type": "time",
+      "time_interval_value": 365,
+      "time_interval_unit": "days"
+    },
+    {
+      "id": "task_5",
+      "name": "Inspect Weather Stripping",
+      "category": "Windows & Doors",
+      "schedule_type": "time",
+      "time_interval_value": 365,
+      "time_interval_unit": "days"
+    },
+    {
+      "id": "task_6",
+      "name": "Check Ice Dam Risk Areas",
+      "category": "Roofing",
+      "schedule_type": "time",
+      "time_interval_value": 365,
+      "time_interval_unit": "days"
+    }
+  ]
+}

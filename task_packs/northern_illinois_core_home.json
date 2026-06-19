@@ -1,0 +1,99 @@
+{
+  "format": "home_maintenance_manager_task_pack",
+  "format_version": 1,
+  "type": "task_pack",
+  "pack": {
+    "id": "northern_illinois_core_home",
+    "name": "Northern Illinois Core Home Maintenance",
+    "version": "1.0.0",
+    "author": "ChatGPT",
+    "description": "Northern Illinois Core Home Maintenance",
+    "tags": [
+      "northern-illinois",
+      "estate-home"
+    ]
+  },
+  "entity_requirements": [],
+  "tasks": [
+    {
+      "id": "task_1",
+      "name": "Replace HVAC Filters",
+      "category": "HVAC",
+      "schedule_type": "time",
+      "time_interval_value": 90,
+      "time_interval_unit": "days"
+    },
+    {
+      "id": "task_2",
+      "name": "Test Smoke Detectors",
+      "category": "Safety",
+      "schedule_type": "time",
+      "time_interval_value": 180,
+      "time_interval_unit": "days"
+    },
+    {
+      "id": "task_3",
+      "name": "Test CO Detectors",
+      "category": "Safety",
+      "schedule_type": "time",
+      "time_interval_value": 180,
+      "time_interval_unit": "days"
+    },
+    {
+      "id": "task_4",
+      "name": "Flush Water Heater",
+      "category": "Plumbing",
+      "schedule_type": "time",
+      "time_interval_value": 365,
+      "time_interval_unit": "days"
+    },
+    {
+      "id": "task_5",
+      "name": "Clean Refrigerator Coils",
+      "category": "Appliances",
+      "schedule_type": "time",
+      "time_interval_value": 180,
+      "time_interval_unit": "days"
+    },
+    {
+      "id": "task_6",
+      "name": "Clean Dryer Vent",
+      "category": "Safety",
+      "schedule_type": "time",
+      "time_interval_value": 365,
+      "time_interval_unit": "days"
+    },
+    {
+      "id": "task_7",
+      "name": "Test GFCI Outlets",
+      "category": "Electrical",
+      "schedule_type": "time",
+      "time_interval_value": 365,
+      "time_interval_unit": "days"
+    },
+    {
+      "id": "task_8",
+      "name": "Test Sump Pump",
+      "category": "Plumbing",
+      "schedule_type": "time",
+      "time_interval_value": 180,
+      "time_interval_unit": "days"
+    },
+    {
+      "id": "task_9",
+      "name": "Furnace Service",
+      "category": "HVAC",
+      "schedule_type": "time",
+      "time_interval_value": 365,
+      "time_interval_unit": "days"
+    },
+    {
+      "id": "task_10",
+      "name": "AC Service",
+      "category": "HVAC",
+      "schedule_type": "time",
+      "time_interval_value": 365,
+      "time_interval_unit": "days"
+    }
+  ]
+}

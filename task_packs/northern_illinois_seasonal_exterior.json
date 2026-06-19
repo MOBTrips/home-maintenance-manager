@@ -1,0 +1,83 @@
+{
+  "format": "home_maintenance_manager_task_pack",
+  "format_version": 1,
+  "type": "task_pack",
+  "pack": {
+    "id": "northern_illinois_seasonal_exterior",
+    "name": "Northern Illinois Seasonal Exterior",
+    "version": "1.0.0",
+    "author": "ChatGPT",
+    "description": "Northern Illinois Seasonal Exterior",
+    "tags": [
+      "northern-illinois",
+      "estate-home"
+    ]
+  },
+  "entity_requirements": [],
+  "tasks": [
+    {
+      "id": "task_1",
+      "name": "Inspect Roof",
+      "category": "Roofing",
+      "schedule_type": "time",
+      "time_interval_value": 180,
+      "time_interval_unit": "days"
+    },
+    {
+      "id": "task_2",
+      "name": "Clean Gutters",
+      "category": "Exterior",
+      "schedule_type": "time",
+      "time_interval_value": 180,
+      "time_interval_unit": "days"
+    },
+    {
+      "id": "task_3",
+      "name": "Inspect Foundation",
+      "category": "Exterior",
+      "schedule_type": "time",
+      "time_interval_value": 365,
+      "time_interval_unit": "days"
+    },
+    {
+      "id": "task_4",
+      "name": "Service Lawn Equipment",
+      "category": "Grounds",
+      "schedule_type": "time",
+      "time_interval_value": 365,
+      "time_interval_unit": "days"
+    },
+    {
+      "id": "task_5",
+      "name": "Inspect Deck",
+      "category": "Exterior",
+      "schedule_type": "time",
+      "time_interval_value": 365,
+      "time_interval_unit": "days"
+    },
+    {
+      "id": "task_6",
+      "name": "Trim Vegetation Near House",
+      "category": "Grounds",
+      "schedule_type": "time",
+      "time_interval_value": 180,
+      "time_interval_unit": "days"
+    },
+    {
+      "id": "task_7",
+      "name": "Winterize Hose Bibs",
+      "category": "Plumbing",
+      "schedule_type": "time",
+      "time_interval_value": 365,
+      "time_interval_unit": "days"
+    },
+    {
+      "id": "task_8",
+      "name": "Drain Irrigation System",
+      "category": "Grounds",
+      "schedule_type": "time",
+      "time_interval_value": 365,
+      "time_interval_unit": "days"
+    }
+  ]
+}

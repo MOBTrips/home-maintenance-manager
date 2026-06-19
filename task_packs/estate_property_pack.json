@@ -1,0 +1,83 @@
+{
+  "format": "home_maintenance_manager_task_pack",
+  "format_version": 1,
+  "type": "task_pack",
+  "pack": {
+    "id": "estate_property_pack",
+    "name": "Northern Illinois Estate Property",
+    "version": "1.0.0",
+    "author": "ChatGPT",
+    "description": "Northern Illinois Estate Property",
+    "tags": [
+      "northern-illinois",
+      "estate-home"
+    ]
+  },
+  "entity_requirements": [],
+  "tasks": [
+    {
+      "id": "task_1",
+      "name": "Inspect Drainage Swales",
+      "category": "Drainage",
+      "schedule_type": "time",
+      "time_interval_value": 180,
+      "time_interval_unit": "days"
+    },
+    {
+      "id": "task_2",
+      "name": "Inspect Culverts",
+      "category": "Drainage",
+      "schedule_type": "time",
+      "time_interval_value": 180,
+      "time_interval_unit": "days"
+    },
+    {
+      "id": "task_3",
+      "name": "Inspect Large Trees",
+      "category": "Grounds",
+      "schedule_type": "time",
+      "time_interval_value": 365,
+      "time_interval_unit": "days"
+    },
+    {
+      "id": "task_4",
+      "name": "Exterior Lighting Inspection",
+      "category": "Electrical",
+      "schedule_type": "time",
+      "time_interval_value": 365,
+      "time_interval_unit": "days"
+    },
+    {
+      "id": "task_5",
+      "name": "Security Camera Inspection",
+      "category": "Safety",
+      "schedule_type": "time",
+      "time_interval_value": 180,
+      "time_interval_unit": "days"
+    },
+    {
+      "id": "task_6",
+      "name": "Fire Extinguisher Inspection",
+      "category": "Safety",
+      "schedule_type": "time",
+      "time_interval_value": 365,
+      "time_interval_unit": "days"
+    },
+    {
+      "id": "task_7",
+      "name": "Generator Load Test",
+      "category": "Electrical",
+      "schedule_type": "time",
+      "time_interval_value": 365,
+      "time_interval_unit": "days"
+    },
+    {
+      "id": "task_8",
+      "name": "Inspect Attic Access Points",
+      "category": "Interior",
+      "schedule_type": "time",
+      "time_interval_value": 365,
+      "time_interval_unit": "days"
+    }
+  ]
+}
