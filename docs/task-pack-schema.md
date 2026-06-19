@@ -19,7 +19,7 @@ Task Packs use JSON and must declare this top-level shape:
 | Field | Required | Description |
 |---|---:|---|
 | `format` | Yes | Must be `home_maintenance_manager_task_pack`. |
-| `format_version` | Yes | Schema version number. v0.7.1 uses `1`. |
+| `format_version` | Yes | Schema version number. v0.7.2 uses `1`. |
 | `type` | Yes | Must be `task_pack`. |
 | `pack` | Yes | Metadata about the pack. |
 | `entity_requirements` | Yes | Entity requirements used by task templates. May be empty. |
@@ -56,7 +56,7 @@ Example:
   "description": "Recurring hot tub care tasks.",
   "author": "Home Maintenance Manager",
   "source": "bundled",
-  "min_hmm_version": "0.7.1",
+  "min_hmm_version": "0.7.2",
   "provenance": {
     "kind": "community",
     "source": "bundled"

@@ -1,0 +1,59 @@
+{
+  "format": "home_maintenance_manager_task_pack",
+  "format_version": 1,
+  "type": "task_pack",
+  "pack": {
+    "id": "hmm.refrigerator_maintenance",
+    "name": "Refrigerator Maintenance",
+    "version": "1.0.0",
+    "description": "Refrigerator cleaning, filter replacement, and temperature checks.",
+    "author": "Home Maintenance Manager",
+    "license": "MIT",
+    "source": "bundled",
+    "source_url": "https://github.com/MOBTrips/home-maintenance-manager",
+    "min_hmm_version": "0.7.2",
+    "categories": ["Appliance"],
+    "tags": ["refrigerator", "appliance", "filters"],
+    "provenance": {"kind": "community", "source": "bundled"}
+  },
+  "entity_requirements": [],
+  "tasks": [
+    {
+      "id": "pack_refrigerator_water_filter",
+      "name": "Replace refrigerator water filter",
+      "description": "Replace the refrigerator water filter cartridge.",
+      "category": "Appliance",
+      "equipment_name": "Refrigerator",
+      "rules": [{"id": "time_1", "type": "time", "name": "Every 6 months", "value": 6, "unit": "months", "days": 182.625}],
+      "rule_logic": "any",
+      "instructions": "Install a compatible filter, flush according to the manual, and reset the refrigerator filter indicator if present.",
+      "checklist": ["Replace filter", "Flush water", "Reset indicator"],
+      "parts": [{"name": "Refrigerator water filter", "quantity": 1}],
+      "tools": []
+    },
+    {
+      "id": "pack_refrigerator_clean_coils",
+      "name": "Clean refrigerator coils",
+      "description": "Vacuum dust from condenser coils and rear/bottom vents.",
+      "category": "Appliance",
+      "equipment_name": "Refrigerator",
+      "rules": [{"id": "time_1", "type": "time", "name": "Every 12 months", "value": 12, "unit": "months", "days": 365.25}],
+      "rule_logic": "any",
+      "instructions": "Unplug if required by the manual, remove grille/panel, vacuum dust, and restore airflow around the appliance.",
+      "checklist": ["Move carefully", "Vacuum coils", "Clean grille", "Restore clearance"],
+      "tools": ["Vacuum", "Coil brush"]
+    },
+    {
+      "id": "pack_refrigerator_temperature_check",
+      "name": "Check refrigerator and freezer temperature",
+      "description": "Confirm refrigerator and freezer temperatures are in a safe range.",
+      "category": "Appliance",
+      "equipment_name": "Refrigerator",
+      "rules": [{"id": "time_1", "type": "time", "name": "Every 3 months", "value": 3, "unit": "months", "days": 91.3125}],
+      "rule_logic": "any",
+      "instructions": "Use an appliance thermometer and adjust settings if needed.",
+      "checklist": ["Check fridge temperature", "Check freezer temperature", "Adjust settings if needed"],
+      "tools": ["Appliance thermometer"]
+    }
+  ]
+}

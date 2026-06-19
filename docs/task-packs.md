@@ -7,6 +7,7 @@ Task Packs are reusable Home Maintenance Manager task templates. They are meant 
 - Add new maintenance tasks through the existing import review wizard.
 - Update matching task IDs when the user selects those tasks.
 - Export selected local tasks as a shareable Task Pack from Settings.
+- Browse and install built-in sample packs from Settings through the import review wizard.
 - Declare metadata such as pack name, author, version, source, categories, tags, and provenance.
 - Declare entity requirements that can be mapped to local Home Assistant entities during import.
 - Track installed pack metadata in HMM storage for future update/reinstall workflows.
@@ -41,7 +42,21 @@ The export workflow sanitizes selected tasks the same way imports do. It strips 
 
 ## Installed Packs
 
-Settings shows installed Task Packs from HMM storage, including pack name, version, installed date, and imported task count. This is local metadata only; v0.7.1 does not contact an online repository or check for updates.
+Settings shows installed Task Packs from HMM storage, including pack name, version, installed date, and imported task count. This is local metadata only; v0.7.2 does not contact an online repository or check for updates.
+
+## Built-In Library
+
+Use **Settings → Browse built-in packs** to review local packs bundled with HMM. The browser shows pack name, description, task count, tags/categories, and whether the pack has already been installed.
+
+Installing a built-in pack loads the same import review wizard used by JSON files:
+
+- Preview first.
+- Select tasks.
+- Map missing entities when needed.
+- Apply as merge-only.
+- Review the completion summary.
+
+Built-in packs are local files. v0.7.2 does not add online repositories, remote downloads, update checks, or automatic installs.
 
 ## Provenance
 
@@ -60,10 +75,18 @@ Task Pack provenance identifies where a pack came from:
 This repository includes example packs under `task_packs/`:
 
 - `basic_homeowner_maintenance.json`
+- `dryer_vent_maintenance.json`
+- `generator_maintenance.json`
+- `home_exterior_seasonal_maintenance.json`
 - `hot_tub_maintenance.json`
+- `hvac_maintenance.json`
+- `pool_maintenance.json`
+- `refrigerator_maintenance.json`
+- `sump_pump_maintenance.json`
+- `water_heater_maintenance.json`
 
 Use the Maintenance panel import wizard to review an example pack before importing it.
 
 ## Future Repository Support
 
-The v0.7.1 schema is designed so a future online repository can publish pack manifests, source URLs, package hashes, categories, tags, and compatibility metadata. Import should remain user-reviewed and local-first even when packs eventually come from an online index.
+The v0.7.2 schema is designed so a future online repository can publish pack manifests, source URLs, package hashes, categories, tags, and compatibility metadata. Import should remain user-reviewed and local-first even when packs eventually come from an online index.

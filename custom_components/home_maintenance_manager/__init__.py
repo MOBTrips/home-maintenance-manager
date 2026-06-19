@@ -178,6 +178,43 @@ async def websocket_export_task_pack(hass: HomeAssistant, connection, msg) -> No
         connection.send_error(msg["id"], "export_failed", str(err))
 
 
+@websocket_api.websocket_command({vol.Required("type"): f"{DOMAIN}/list_built_in_task_packs"})
+@websocket_api.async_response
+async def websocket_list_built_in_task_packs(hass: HomeAssistant, connection, msg) -> None:
+    """Return metadata for bundled local Task Packs."""
+    coordinator = _coordinator_for_entry(hass)
+    if coordinator is None:
+        connection.send_error(msg["id"], "not_found", "Home Maintenance Manager coordinator was not found")
+        return
+    try:
+        connection.send_result(msg["id"], {"packs": coordinator.built_in_task_packs()})
+    except ValueError as err:
+        connection.send_error(msg["id"], "invalid_task_pack_library", str(err))
+    except Exception as err:  # pragma: no cover
+        _LOGGER.exception("Home Maintenance Manager built-in Task Pack listing failed")
+        connection.send_error(msg["id"], "task_pack_library_failed", str(err))
+
+
+@websocket_api.websocket_command({
+    vol.Required("type"): f"{DOMAIN}/get_built_in_task_pack",
+    vol.Required("pack_id"): cv.string,
+})
+@websocket_api.async_response
+async def websocket_get_built_in_task_pack(hass: HomeAssistant, connection, msg) -> None:
+    """Return one bundled local Task Pack package."""
+    coordinator = _coordinator_for_entry(hass)
+    if coordinator is None:
+        connection.send_error(msg["id"], "not_found", "Home Maintenance Manager coordinator was not found")
+        return
+    try:
+        connection.send_result(msg["id"], coordinator.built_in_task_pack(msg.get("pack_id") or ""))
+    except ValueError as err:
+        connection.send_error(msg["id"], "invalid_task_pack", str(err))
+    except Exception as err:  # pragma: no cover
+        _LOGGER.exception("Home Maintenance Manager built-in Task Pack load failed")
+        connection.send_error(msg["id"], "task_pack_load_failed", str(err))
+
+
 @websocket_api.websocket_command({
     vol.Required("type"): f"{DOMAIN}/import_data",
     vol.Required("data"): dict,
@@ -403,6 +440,8 @@ async def async_setup(hass: HomeAssistant, config: dict[str, Any]) -> bool:
     websocket_api.async_register_command(hass, websocket_get_backup_status)
     websocket_api.async_register_command(hass, websocket_export_data)
     websocket_api.async_register_command(hass, websocket_export_task_pack)
+    websocket_api.async_register_command(hass, websocket_list_built_in_task_packs)
+    websocket_api.async_register_command(hass, websocket_get_built_in_task_pack)
     websocket_api.async_register_command(hass, websocket_import_data)
     websocket_api.async_register_command(hass, websocket_import_preview)
     websocket_api.async_register_command(hass, websocket_import_apply)

@@ -18,6 +18,8 @@ from .task_packs import (
     build_task_pack_package,
     enforce_task_pack_merge_mode,
     is_task_pack_package,
+    list_built_in_task_pack_metadata,
+    load_built_in_task_pack,
     merge_installed_pack_record,
     validate_task_pack,
 )
@@ -191,6 +193,16 @@ class MaintenanceCoordinator:
             "installed_task_packs": list(installed_packs.values()) if isinstance(installed_packs, dict) else [],
         }
 
+    def built_in_task_packs(self) -> list[dict[str, Any]]:
+        """Return local built-in Task Pack library metadata."""
+        installed_packs = self.storage_settings.get("installed_task_packs") or {}
+        installed_ids = set(installed_packs.keys()) if isinstance(installed_packs, dict) else set()
+        return list_built_in_task_pack_metadata(installed_ids)
+
+    def built_in_task_pack(self, pack_id: str) -> dict[str, Any]:
+        """Return one local built-in Task Pack package."""
+        return load_built_in_task_pack(pack_id)
+
     def _normalize_nfc_config(self, task_data: dict[str, Any]) -> dict[str, Any]:
         """Return task data with NFC disabled state represented consistently.
 
@@ -336,7 +348,7 @@ class MaintenanceCoordinator:
         return {
             "format": "home_maintenance_manager_export",
             "format_version": 1,
-            "integration_version": "0.7.1",
+            "integration_version": "0.7.2",
             "exported_at": dt_util.utcnow().isoformat(),
             "storage_version": STORAGE_VERSION,
             "tasks": [task.as_dict() for task in self.tasks.values()],

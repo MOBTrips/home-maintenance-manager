@@ -6,6 +6,7 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     this.tasks = [];
     this.metadata = { areas: [], devices: [], entities: [], notify_services: [], notification_settings: null };
     this.backupStatus = null;
+    this.builtInTaskPacks = [];
     this.importPackage = null;
     this.importPreview = null;
     this.importMode = "merge";
@@ -63,6 +64,12 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
       this.tasks = taskData.tasks || [];
       this.metadata = meta || this.metadata;
       this.backupStatus = backupStatus || null;
+      try {
+        const library = await this._hass.callWS({ type: "home_maintenance_manager/list_built_in_task_packs" });
+        this.builtInTaskPacks = Array.isArray(library?.packs) ? library.packs : [];
+      } catch (err) {
+        this.builtInTaskPacks = [];
+      }
       this.applyRouteTask();
       if (meta?.notification_settings) this.notificationSettings = {...this.notificationSettings, ...meta.notification_settings};
       try {
@@ -728,8 +735,29 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
           return `<div class="summary-line"><span><b>${this.escape(pack.name || pack.id || 'Task Pack')}</b><br><span class="muted">${this.escape(pack.id || '')}</span></span><span><b>${this.escape(pack.version || 'Unknown')}</b><br><span class="muted">${this.escape(installedAt)} • ${importedCount} task${importedCount === 1 ? '' : 's'}</span></span></div>`;
         }).join('')}</div>` : `<p class="muted">No Task Packs have been imported yet.</p>`}
       </div>
+      <div class="card"><h2>Browse built-in packs</h2>
+        <p class="muted">Local sample packs bundled with HMM. Installing opens the import review wizard first; nothing is saved until you confirm the wizard.</p>
+        ${this.renderBuiltInTaskPackLibrary(installedPacks)}
+      </div>
       <div class="card"><h2>Lookups</h2><p>Areas: ${this.metadata.areas.length}</p><p>Devices: ${this.metadata.devices.length}</p><p>Entities: ${this.metadata.entities.length}</p><p>Notify services: ${this.metadata.notify_services.length}</p><p>NFC tags: ${this.tags.length}</p><p>Categories: ${this.categories().length}</p></div>
     </div>`;
+  }
+
+  renderBuiltInTaskPackLibrary(installedPacks) {
+    const installedIds = new Set((installedPacks || []).map(pack => pack.id).filter(Boolean));
+    const packs = this.builtInTaskPacks || [];
+    if (!packs.length) return `<p class="muted">No built-in Task Packs were found in this installation.</p>`;
+    return `<div class="summary-list">${packs.map(pack => {
+      const installed = pack.installed || installedIds.has(pack.id);
+      const tags = [...(pack.categories || []), ...(pack.tags || [])].slice(0, 8);
+      return `<div class="wizard-section-card">
+        <div class="review-title-row"><h3>${this.escape(pack.name || pack.id || 'Task Pack')}</h3><span class="pill ${installed ? 'ok' : ''}">${installed ? 'Installed' : 'Not installed'}</span></div>
+        <p class="muted">${this.escape(pack.description || '')}</p>
+        <div class="summary-line"><span>Tasks</span><b>${Number(pack.task_count || 0)}</b></div>
+        ${tags.length ? `<div>${tags.map(tag => `<span class="category-pill">${this.escape(tag)}</span>`).join('')}</div>` : ''}
+        <div class="task-actions" style="margin-top:10px;"><button class="btn ${installed ? '' : 'primary'}" data-install-built-in-pack="${this.escape(pack.id)}">${installed ? 'Review again' : 'Install'}</button></div>
+      </div>`;
+    }).join('')}</div>`;
   }
 
   renderTaskPackExportModal() {
@@ -1095,7 +1123,7 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
       description: q('task-pack-description'),
       tags,
       source: 'manual_export',
-      min_hmm_version: '0.7.1',
+      min_hmm_version: '0.7.2',
       provenance: { kind: 'manual', source: 'export' },
     };
   }
@@ -1153,6 +1181,22 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
       this.render();
     } catch (err) {
       alert(`Import preview failed: ${err?.message || err}`);
+    }
+  }
+
+  async installBuiltInTaskPack(packId) {
+    try {
+      const pack = await this._hass.callWS({ type: 'home_maintenance_manager/get_built_in_task_pack', pack_id: packId });
+      this.importMode = 'merge';
+      this.importPackage = pack;
+      this.importPreview = await this._hass.callWS({ type: 'home_maintenance_manager/import_preview', mode: 'merge', data: pack });
+      this.importStatusFilter = 'all';
+      this.importEntityMapping = {};
+      this.importWizardStep = 1;
+      this.importWizardOpen = true;
+      this.render();
+    } catch (err) {
+      alert(`Could not open built-in Task Pack: ${err?.message || err}`);
     }
   }
 
@@ -1800,6 +1844,7 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     this.shadowRoot.querySelectorAll('[data-action="save-notification-settings"]').forEach(el=>el.onclick=()=>this.saveNotificationSettings());
     this.shadowRoot.querySelectorAll('[data-action="test-notification"]').forEach(el=>el.onclick=()=>this.testNotification());
     this.shadowRoot.querySelectorAll('[data-action="export-json"]').forEach(el=>el.onclick=()=>this.exportJson());
+    this.shadowRoot.querySelectorAll('[data-install-built-in-pack]').forEach(el=>el.onclick=()=>this.installBuiltInTaskPack(el.dataset.installBuiltInPack));
     this.shadowRoot.querySelectorAll('[data-action="open-task-pack-export"]').forEach(el=>el.onclick=()=>this.openTaskPackExport());
     this.shadowRoot.querySelectorAll('[data-action="close-task-pack-export"]').forEach(el=>el.onclick=()=>{ this.taskPackExportOpen=false; this.render(); });
     this.shadowRoot.querySelectorAll('[data-action="task-pack-export-scrim"]').forEach(el=>el.onclick=(ev)=>{ if (ev.target === el) { this.taskPackExportOpen=false; this.render(); } });

@@ -4,6 +4,7 @@ from copy import deepcopy
 from datetime import datetime, timezone
 import hashlib
 import json
+from pathlib import Path
 import re
 from typing import Any
 
@@ -11,6 +12,10 @@ TASK_PACK_FORMAT = "home_maintenance_manager_task_pack"
 TASK_PACK_TYPE = "task_pack"
 DEFAULT_PROVENANCE_KIND = "community"
 ALLOWED_PROVENANCE_KINDS = {"community", "ai_generated", "asset_generated", "manual", "imported"}
+BUILT_IN_PACK_DIRS = (
+    Path(__file__).resolve().parents[2] / "task_packs",
+    Path(__file__).resolve().parent / "task_packs",
+)
 
 RUNTIME_HISTORY_FIELDS = {
     "runtime_seconds",
@@ -62,8 +67,72 @@ def is_task_pack_package(package: dict[str, Any]) -> bool:
 
 def package_hash(package: dict[str, Any]) -> str:
     """Return a stable hash for installed pack tracking."""
-    payload = json.dumps(package, sort_keys=True, separators=(",", ":"), default=str)
+    package_for_hash = dict(package)
+    package_for_hash.pop("package_hash", None)
+    payload = json.dumps(package_for_hash, sort_keys=True, separators=(",", ":"), default=str)
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _built_in_pack_files() -> list[Path]:
+    """Return bundled Task Pack JSON files from local package/repo paths."""
+    files: dict[str, Path] = {}
+    for directory in BUILT_IN_PACK_DIRS:
+        if not directory.exists():
+            continue
+        for path in sorted(directory.glob("*.json")):
+            files.setdefault(path.name, path)
+    return list(files.values())
+
+
+def load_built_in_task_pack(pack_id: str) -> dict[str, Any]:
+    """Load and validate one bundled Task Pack by pack id."""
+    requested = str(pack_id or "").strip()
+    if not requested:
+        raise ValueError("Built-in Task Pack id is required")
+    for path in _built_in_pack_files():
+        try:
+            package = json.loads(path.read_text(encoding="utf-8"))
+            normalized = validate_task_pack(package)
+        except Exception as err:
+            raise ValueError(f"Built-in Task Pack {path.name} is invalid: {err}") from err
+        if normalized["pack"].get("id") == requested:
+            package = {
+                **package,
+                "pack": normalized["pack"],
+                "entity_requirements": normalized["entity_requirements"],
+                "tasks": normalized["tasks"],
+                "package_hash": normalized["package_hash"],
+            }
+            return package
+    raise ValueError(f"Built-in Task Pack not found: {requested}")
+
+
+def list_built_in_task_pack_metadata(installed_pack_ids: set[str] | None = None) -> list[dict[str, Any]]:
+    """Return metadata for bundled Task Packs without exposing full task bodies."""
+    installed_pack_ids = installed_pack_ids or set()
+    packs = []
+    for path in _built_in_pack_files():
+        try:
+            package = json.loads(path.read_text(encoding="utf-8"))
+            normalized = validate_task_pack(package)
+        except Exception as err:
+            raise ValueError(f"Built-in Task Pack {path.name} is invalid: {err}") from err
+        pack = normalized["pack"]
+        packs.append({
+            "id": pack.get("id"),
+            "name": pack.get("name"),
+            "version": pack.get("version"),
+            "description": pack.get("description"),
+            "author": pack.get("author"),
+            "categories": pack.get("categories") or [],
+            "tags": pack.get("tags") or [],
+            "task_count": len(normalized["tasks"]),
+            "entity_requirement_count": len(normalized["entity_requirements"]),
+            "installed": str(pack.get("id")) in installed_pack_ids,
+            "source": "bundled",
+            "package_hash": normalized["package_hash"],
+        })
+    return sorted(packs, key=lambda item: (item.get("name") or "").lower())
 
 
 def _clean_string(value: Any, default: str = "") -> str:
@@ -327,7 +396,7 @@ def build_task_pack_package(
             "license": pack_metadata.get("license", ""),
             "source": pack_metadata.get("source", "manual_export"),
             "source_url": pack_metadata.get("source_url", ""),
-            "min_hmm_version": pack_metadata.get("min_hmm_version", "0.7.1"),
+            "min_hmm_version": pack_metadata.get("min_hmm_version", "0.7.2"),
             "categories": pack_metadata.get("categories", []),
             "tags": pack_metadata.get("tags", []),
             "provenance": pack_metadata.get("provenance", {"kind": "manual", "source": "export"}),

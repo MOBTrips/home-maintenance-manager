@@ -1,0 +1,69 @@
+{
+  "format": "home_maintenance_manager_task_pack",
+  "format_version": 1,
+  "type": "task_pack",
+  "pack": {
+    "id": "hmm.generator_maintenance",
+    "name": "Generator Maintenance",
+    "version": "1.0.0",
+    "description": "Standby or portable generator inspection, exercise, and service reminders.",
+    "author": "Home Maintenance Manager",
+    "license": "MIT",
+    "source": "bundled",
+    "source_url": "https://github.com/MOBTrips/home-maintenance-manager",
+    "min_hmm_version": "0.7.2",
+    "categories": ["Electrical", "Safety"],
+    "tags": ["generator", "power", "safety"],
+    "provenance": {"kind": "community", "source": "bundled"}
+  },
+  "entity_requirements": [
+    {
+      "id": "generator_runtime",
+      "name": "Generator runtime",
+      "description": "Optional runtime or power source that indicates the generator is running.",
+      "domain": "sensor",
+      "role": "runtime",
+      "required": false,
+      "task_ids": ["pack_generator_runtime_service"]
+    }
+  ],
+  "tasks": [
+    {
+      "id": "pack_generator_exercise",
+      "name": "Exercise generator",
+      "description": "Run the generator periodically according to the manufacturer instructions.",
+      "category": "Electrical",
+      "equipment_name": "Generator",
+      "rules": [{"id": "time_1", "type": "time", "name": "Every 30 days", "value": 30, "unit": "days", "days": 30}],
+      "rule_logic": "any",
+      "instructions": "Run the generator safely outdoors or through its installed exercise cycle. Never operate a portable generator indoors.",
+      "checklist": ["Check ventilation", "Run generator", "Listen for issues", "Record runtime"],
+      "tools": []
+    },
+    {
+      "id": "pack_generator_runtime_service",
+      "name": "Service generator after runtime",
+      "description": "Change oil or perform runtime-based service after use.",
+      "category": "Electrical",
+      "equipment_name": "Generator",
+      "rules": [{"id": "runtime_1", "type": "runtime", "name": "Every 50 runtime hours", "entity": "hmm://entity/generator_runtime", "value": 50, "unit": "hours", "hours": 50}],
+      "rule_logic": "any",
+      "instructions": "Follow the generator manual for runtime-based oil, filter, spark plug, and inspection intervals.",
+      "checklist": ["Review manual", "Change oil if due", "Inspect air filter", "Inspect spark plug"],
+      "parts": [{"name": "Generator oil/filter", "quantity": 1}],
+      "tools": ["Basic hand tools"]
+    },
+    {
+      "id": "pack_generator_fuel_battery_check",
+      "name": "Check generator fuel and battery",
+      "description": "Inspect fuel condition and battery readiness.",
+      "category": "Safety",
+      "equipment_name": "Generator",
+      "rules": [{"id": "time_1", "type": "time", "name": "Every 3 months", "value": 3, "unit": "months", "days": 91.3125}],
+      "rule_logic": "any",
+      "instructions": "Check fuel level/age, stabilizer needs, battery terminals, charger status, and transfer switch readiness where applicable.",
+      "checklist": ["Check fuel", "Check battery", "Check charger", "Review safety clearances"],
+      "tools": ["Flashlight"]
+    }
+  ]
+}

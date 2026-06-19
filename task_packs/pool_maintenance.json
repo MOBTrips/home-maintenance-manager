@@ -1,0 +1,69 @@
+{
+  "format": "home_maintenance_manager_task_pack",
+  "format_version": 1,
+  "type": "task_pack",
+  "pack": {
+    "id": "hmm.pool_maintenance",
+    "name": "Pool Maintenance",
+    "version": "1.0.0",
+    "description": "Core pool water, filter, and seasonal maintenance tasks.",
+    "author": "Home Maintenance Manager",
+    "license": "MIT",
+    "source": "bundled",
+    "source_url": "https://github.com/MOBTrips/home-maintenance-manager",
+    "min_hmm_version": "0.7.2",
+    "categories": ["Pool"],
+    "tags": ["pool", "water-care", "filters", "seasonal"],
+    "provenance": {"kind": "community", "source": "bundled"}
+  },
+  "entity_requirements": [
+    {
+      "id": "pool_pump_runtime",
+      "name": "Pool pump runtime",
+      "description": "Optional runtime or power source that indicates the pool pump is running.",
+      "domain": "sensor",
+      "role": "runtime",
+      "required": false,
+      "task_ids": ["pack_pool_clean_filter_runtime"]
+    }
+  ],
+  "tasks": [
+    {
+      "id": "pack_pool_test_water",
+      "name": "Test pool water",
+      "description": "Test sanitizer, pH, alkalinity, and stabilizer.",
+      "category": "Pool",
+      "equipment_name": "Pool",
+      "rules": [{"id": "time_1", "type": "time", "name": "Every 7 days", "value": 7, "unit": "days", "days": 7}],
+      "rule_logic": "any",
+      "instructions": "Use a reliable test kit or strips and adjust chemicals according to product directions.",
+      "checklist": ["Test sanitizer", "Test pH", "Test alkalinity", "Record adjustments"],
+      "parts": [{"name": "Pool test supplies", "quantity": 1}],
+      "tools": []
+    },
+    {
+      "id": "pack_pool_clean_filter_runtime",
+      "name": "Clean pool filter after runtime",
+      "description": "Clean or backwash the pool filter after pump runtime.",
+      "category": "Pool",
+      "equipment_name": "Pool filter",
+      "rules": [{"id": "runtime_1", "type": "runtime", "name": "Every 250 runtime hours", "entity": "hmm://entity/pool_pump_runtime", "value": 250, "unit": "hours", "hours": 250}],
+      "rule_logic": "any",
+      "instructions": "Clean, rinse, or backwash the filter according to the filter type and manufacturer instructions.",
+      "checklist": ["Turn off pump", "Clean/backwash filter", "Restore valve position", "Check pressure"],
+      "tools": ["Garden hose"]
+    },
+    {
+      "id": "pack_pool_open_close_season",
+      "name": "Review pool seasonal opening/closing",
+      "description": "Prepare the pool for opening or closing based on local climate.",
+      "category": "Pool",
+      "equipment_name": "Pool",
+      "rules": [{"id": "time_1", "type": "time", "name": "Every 6 months", "value": 6, "unit": "months", "days": 182.625}],
+      "rule_logic": "any",
+      "instructions": "Use this as a reminder to follow your pool opening or closing checklist.",
+      "checklist": ["Inspect cover/equipment", "Balance water", "Service filter/pump", "Store or reinstall accessories"],
+      "tools": []
+    }
+  ]
+}

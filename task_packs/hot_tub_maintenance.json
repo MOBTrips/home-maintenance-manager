@@ -11,7 +11,7 @@
     "license": "MIT",
     "source": "bundled",
     "source_url": "https://github.com/MOBTrips/home-maintenance-manager",
-    "min_hmm_version": "0.7.1",
+    "min_hmm_version": "0.7.2",
     "categories": ["Hot Tub"],
     "tags": ["hot-tub", "water-care", "filters"],
     "provenance": {

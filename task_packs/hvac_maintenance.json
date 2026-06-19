@@ -1,0 +1,70 @@
+{
+  "format": "home_maintenance_manager_task_pack",
+  "format_version": 1,
+  "type": "task_pack",
+  "pack": {
+    "id": "hmm.hvac_maintenance",
+    "name": "HVAC Maintenance",
+    "version": "1.0.0",
+    "description": "Recurring furnace, air conditioner, and air quality maintenance tasks.",
+    "author": "Home Maintenance Manager",
+    "license": "MIT",
+    "source": "bundled",
+    "source_url": "https://github.com/MOBTrips/home-maintenance-manager",
+    "min_hmm_version": "0.7.2",
+    "categories": ["HVAC"],
+    "tags": ["hvac", "filters", "seasonal"],
+    "provenance": {"kind": "community", "source": "bundled"}
+  },
+  "entity_requirements": [
+    {
+      "id": "hvac_runtime",
+      "name": "HVAC runtime",
+      "description": "Optional runtime or power source for the main HVAC blower or condenser.",
+      "domain": "sensor",
+      "role": "runtime",
+      "required": false,
+      "task_ids": ["pack_hvac_runtime_filter_check"]
+    }
+  ],
+  "tasks": [
+    {
+      "id": "pack_hvac_replace_filter",
+      "name": "Replace HVAC filter",
+      "description": "Replace or clean the main HVAC return filter.",
+      "category": "HVAC",
+      "equipment_name": "HVAC system",
+      "rules": [{"id": "time_1", "type": "time", "name": "Every 3 months", "value": 3, "unit": "months", "days": 91.3125}],
+      "rule_logic": "any",
+      "instructions": "Turn off the fan, remove the old filter, confirm airflow direction, install the new filter, and restart the system.",
+      "checklist": ["Confirm filter size", "Replace filter", "Write date on filter frame"],
+      "parts": [{"name": "HVAC filter", "quantity": 1}],
+      "tools": []
+    },
+    {
+      "id": "pack_hvac_seasonal_service",
+      "name": "Schedule seasonal HVAC service",
+      "description": "Book professional heating/cooling service before peak season.",
+      "category": "HVAC",
+      "equipment_name": "HVAC system",
+      "rules": [{"id": "time_1", "type": "time", "name": "Every 6 months", "value": 6, "unit": "months", "days": 182.625}],
+      "rule_logic": "any",
+      "instructions": "Schedule inspection, cleaning, refrigerant/combustion checks, condensate drain review, and safety checks.",
+      "checklist": ["Book service", "Replace filter", "Review technician notes"],
+      "tools": []
+    },
+    {
+      "id": "pack_hvac_runtime_filter_check",
+      "name": "Check HVAC filter after runtime",
+      "description": "Inspect the filter after heavy HVAC usage.",
+      "category": "HVAC",
+      "equipment_name": "HVAC system",
+      "rules": [{"id": "runtime_1", "type": "runtime", "name": "Every 500 runtime hours", "entity": "hmm://entity/hvac_runtime", "value": 500, "unit": "hours", "hours": 500}],
+      "rule_logic": "any",
+      "instructions": "Inspect the filter and replace it early if it is visibly loaded with dust or debris.",
+      "checklist": ["Inspect filter", "Replace if dirty", "Confirm airflow"],
+      "parts": [{"name": "HVAC filter", "quantity": 1}],
+      "tools": []
+    }
+  ]
+}

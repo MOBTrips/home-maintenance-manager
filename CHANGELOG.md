@@ -1,3 +1,10 @@
+## 0.7.2
+
+- Added a local built-in Task Pack library in Settings with pack name, description, task count, tags/categories, and installed status.
+- Added bundled Task Packs for HVAC, water heater, refrigerator, dryer vent, sump pump, pool, generator, and home exterior seasonal maintenance.
+- Added backend websocket APIs for listing built-in packs and loading one pack into the existing import review wizard.
+- Built-in pack installation remains local-only, preview-first, merge-only, and uses the existing entity mapping and completion summary flow.
+
 ## 0.7.1
 
 - Added a Settings workflow to export selected tasks as a formal Task Pack with user-entered pack metadata.

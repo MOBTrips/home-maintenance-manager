@@ -1,0 +1,60 @@
+{
+  "format": "home_maintenance_manager_task_pack",
+  "format_version": 1,
+  "type": "task_pack",
+  "pack": {
+    "id": "hmm.home_exterior_seasonal_maintenance",
+    "name": "Home Exterior Seasonal Maintenance",
+    "version": "1.0.0",
+    "description": "Seasonal exterior checks for gutters, siding, drainage, and winter readiness.",
+    "author": "Home Maintenance Manager",
+    "license": "MIT",
+    "source": "bundled",
+    "source_url": "https://github.com/MOBTrips/home-maintenance-manager",
+    "min_hmm_version": "0.7.2",
+    "categories": ["Seasonal", "Yard", "Safety"],
+    "tags": ["exterior", "seasonal", "gutters", "winter"],
+    "provenance": {"kind": "community", "source": "bundled"}
+  },
+  "entity_requirements": [],
+  "tasks": [
+    {
+      "id": "pack_exterior_clean_gutters",
+      "name": "Clean gutters and downspouts",
+      "description": "Remove leaves and debris from gutters and verify downspout drainage.",
+      "category": "Seasonal",
+      "equipment_name": "Gutters",
+      "rules": [{"id": "time_1", "type": "time", "name": "Every 6 months", "value": 6, "unit": "months", "days": 182.625}],
+      "rule_logic": "any",
+      "instructions": "Clean gutters safely or hire a professional. Confirm downspouts discharge away from the foundation.",
+      "checklist": ["Clean gutters", "Flush downspouts", "Check discharge", "Inspect hangers"],
+      "tools": ["Ladder", "Gloves", "Garden hose"]
+    },
+    {
+      "id": "pack_exterior_inspect_caulk",
+      "name": "Inspect exterior caulk and penetrations",
+      "description": "Check windows, doors, vents, and utility penetrations for gaps.",
+      "category": "Seasonal",
+      "equipment_name": "Home exterior",
+      "rules": [{"id": "time_1", "type": "time", "name": "Every 12 months", "value": 12, "unit": "months", "days": 365.25}],
+      "rule_logic": "any",
+      "instructions": "Inspect exterior caulk and sealant. Repair gaps according to material and product directions.",
+      "checklist": ["Inspect windows", "Inspect doors", "Inspect vents", "Note repairs"],
+      "parts": [{"name": "Exterior caulk/sealant", "quantity": 1}],
+      "tools": ["Flashlight"]
+    },
+    {
+      "id": "pack_exterior_winterize_hose_bibs",
+      "name": "Winterize hose bibs",
+      "description": "Prepare outdoor faucets and hoses before freezing weather.",
+      "category": "Seasonal",
+      "equipment_name": "Outdoor plumbing",
+      "rules": [{"id": "time_1", "type": "time", "name": "Every 12 months", "value": 12, "unit": "months", "days": 365.25}],
+      "rule_logic": "any",
+      "instructions": "Disconnect hoses, shut off interior valves where applicable, drain hose bibs, and install covers if needed.",
+      "checklist": ["Disconnect hoses", "Shut off valves", "Drain bibs", "Install covers"],
+      "parts": [{"name": "Faucet covers", "quantity": 1}],
+      "tools": []
+    }
+  ]
+}

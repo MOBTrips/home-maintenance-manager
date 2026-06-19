@@ -1,0 +1,58 @@
+{
+  "format": "home_maintenance_manager_task_pack",
+  "format_version": 1,
+  "type": "task_pack",
+  "pack": {
+    "id": "hmm.dryer_vent_maintenance",
+    "name": "Dryer Vent Maintenance",
+    "version": "1.0.0",
+    "description": "Lint trap, dryer duct, and exterior vent maintenance for safer drying.",
+    "author": "Home Maintenance Manager",
+    "license": "MIT",
+    "source": "bundled",
+    "source_url": "https://github.com/MOBTrips/home-maintenance-manager",
+    "min_hmm_version": "0.7.2",
+    "categories": ["Appliance", "Safety"],
+    "tags": ["dryer", "vent", "lint", "safety"],
+    "provenance": {"kind": "community", "source": "bundled"}
+  },
+  "entity_requirements": [],
+  "tasks": [
+    {
+      "id": "pack_dryer_lint_trap_deep_clean",
+      "name": "Deep clean dryer lint trap",
+      "description": "Wash lint screen and clear lint from the trap cavity.",
+      "category": "Appliance",
+      "equipment_name": "Dryer",
+      "rules": [{"id": "time_1", "type": "time", "name": "Every 3 months", "value": 3, "unit": "months", "days": 91.3125}],
+      "rule_logic": "any",
+      "instructions": "Wash the lint screen to remove residue, let it dry, and vacuum inside the lint trap cavity.",
+      "checklist": ["Wash screen", "Dry screen", "Vacuum cavity"],
+      "tools": ["Vacuum", "Soft brush"]
+    },
+    {
+      "id": "pack_dryer_vent_clean",
+      "name": "Clean dryer vent duct",
+      "description": "Remove lint from the dryer duct and exterior vent.",
+      "category": "Safety",
+      "equipment_name": "Dryer vent",
+      "rules": [{"id": "time_1", "type": "time", "name": "Every 12 months", "value": 12, "unit": "months", "days": 365.25}],
+      "rule_logic": "any",
+      "instructions": "Unplug the dryer, disconnect the duct, clean lint from the duct and exterior hood, reconnect securely, and test airflow.",
+      "checklist": ["Unplug dryer", "Clean duct", "Clean exterior hood", "Test airflow"],
+      "tools": ["Dryer vent brush", "Vacuum"]
+    },
+    {
+      "id": "pack_dryer_exterior_flap_check",
+      "name": "Inspect exterior dryer vent flap",
+      "description": "Confirm the exterior vent opens freely and is not blocked.",
+      "category": "Safety",
+      "equipment_name": "Dryer vent",
+      "rules": [{"id": "time_1", "type": "time", "name": "Every 6 months", "value": 6, "unit": "months", "days": 182.625}],
+      "rule_logic": "any",
+      "instructions": "Check that the vent flap opens while the dryer runs and is clear of lint, nests, snow, or landscaping.",
+      "checklist": ["Run dryer", "Confirm flap opens", "Clear blockage"],
+      "tools": ["Flashlight"]
+    }
+  ]
+}

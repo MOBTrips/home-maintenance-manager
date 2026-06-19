@@ -1,0 +1,68 @@
+{
+  "format": "home_maintenance_manager_task_pack",
+  "format_version": 1,
+  "type": "task_pack",
+  "pack": {
+    "id": "hmm.sump_pump_maintenance",
+    "name": "Sump Pump Maintenance",
+    "version": "1.0.0",
+    "description": "Sump pump testing, pit cleaning, and backup power checks.",
+    "author": "Home Maintenance Manager",
+    "license": "MIT",
+    "source": "bundled",
+    "source_url": "https://github.com/MOBTrips/home-maintenance-manager",
+    "min_hmm_version": "0.7.2",
+    "categories": ["Plumbing", "Safety"],
+    "tags": ["sump-pump", "basement", "water"],
+    "provenance": {"kind": "community", "source": "bundled"}
+  },
+  "entity_requirements": [
+    {
+      "id": "sump_pump_runtime",
+      "name": "Sump pump runtime",
+      "description": "Optional runtime or power source that indicates the sump pump is running.",
+      "domain": "sensor",
+      "role": "runtime",
+      "required": false,
+      "task_ids": ["pack_sump_runtime_inspection"]
+    }
+  ],
+  "tasks": [
+    {
+      "id": "pack_sump_pump_test",
+      "name": "Test sump pump",
+      "description": "Confirm the sump pump starts, pumps water, and shuts off.",
+      "category": "Plumbing",
+      "equipment_name": "Sump pump",
+      "rules": [{"id": "time_1", "type": "time", "name": "Every 3 months", "value": 3, "unit": "months", "days": 91.3125}],
+      "rule_logic": "any",
+      "instructions": "Pour water into the pit until the float rises. Confirm the pump starts, drains water, and stops.",
+      "checklist": ["Add water", "Confirm pump starts", "Confirm discharge", "Confirm shutoff"],
+      "tools": ["Bucket"]
+    },
+    {
+      "id": "pack_sump_pit_clean",
+      "name": "Clean sump pit",
+      "description": "Remove debris that could jam the float or pump intake.",
+      "category": "Plumbing",
+      "equipment_name": "Sump pit",
+      "rules": [{"id": "time_1", "type": "time", "name": "Every 12 months", "value": 12, "unit": "months", "days": 365.25}],
+      "rule_logic": "any",
+      "instructions": "Disconnect power before cleaning. Remove debris, check the float, and restore power.",
+      "checklist": ["Disconnect power", "Remove debris", "Check float", "Restore power"],
+      "tools": ["Gloves", "Bucket"]
+    },
+    {
+      "id": "pack_sump_runtime_inspection",
+      "name": "Inspect sump pump after runtime",
+      "description": "Check pump after heavy use.",
+      "category": "Plumbing",
+      "equipment_name": "Sump pump",
+      "rules": [{"id": "runtime_1", "type": "runtime", "name": "Every 20 runtime hours", "entity": "hmm://entity/sump_pump_runtime", "value": 20, "unit": "hours", "hours": 20}],
+      "rule_logic": "any",
+      "instructions": "Inspect pump and pit after extended runtime, especially after storms.",
+      "checklist": ["Inspect pump", "Check discharge", "Check pit debris"],
+      "tools": ["Flashlight"]
+    }
+  ]
+}

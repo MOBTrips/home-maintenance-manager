@@ -144,6 +144,8 @@ The import wizard includes a mapping step for missing Home Assistant entities. Y
 
 ### Task Packs
 
-HMM v0.7.1 supports Task Pack JSON files for importing and exporting reusable maintenance templates. Task Packs always merge, never replace existing tasks, never import settings, and strip user-specific data such as history, NFC tag IDs, device IDs, and notification targets before saving.
+HMM v0.7.2 supports Task Pack JSON files for importing and exporting reusable maintenance templates. Task Packs always merge, never replace existing tasks, never import settings, and strip user-specific data such as history, NFC tag IDs, device IDs, and notification targets before saving.
 
 From Settings, use **Export selected tasks as Task Pack** to choose tasks, enter pack metadata, and download a shareable template. Exported packs replace local Home Assistant entity IDs with mapping requirements so another home can map those placeholders during import. Settings also shows installed Task Packs with their version, install date, and imported task count.
+
+Settings also includes a local **Browse built-in packs** library. Built-in packs are bundled with HMM, open in the normal import review wizard, and do not use online repositories, remote downloads, or update checks.

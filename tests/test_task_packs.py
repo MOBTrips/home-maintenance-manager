@@ -19,6 +19,8 @@ build_task_pack_package = task_packs.build_task_pack_package
 enforce_task_pack_merge_mode = task_packs.enforce_task_pack_merge_mode
 installed_pack_record = task_packs.installed_pack_record
 is_task_pack_package = task_packs.is_task_pack_package
+list_built_in_task_pack_metadata = task_packs.list_built_in_task_pack_metadata
+load_built_in_task_pack = task_packs.load_built_in_task_pack
 merge_installed_pack_record = task_packs.merge_installed_pack_record
 validate_task_pack = task_packs.validate_task_pack
 
@@ -33,6 +35,35 @@ class TaskPackTests(unittest.TestCase):
                 self.assertEqual(normalized["package_type"], "task_pack")
                 self.assertGreater(len(normalized["tasks"]), 0)
                 self.assertTrue(normalized["package_hash"])
+
+    def test_built_in_task_pack_library_lists_all_local_packs(self) -> None:
+        packs = list_built_in_task_pack_metadata({"hmm.hot_tub_maintenance"})
+        self.assertGreaterEqual(len(packs), 10)
+        ids = {pack["id"] for pack in packs}
+        self.assertIn("hmm.hvac_maintenance", ids)
+        self.assertIn("hmm.water_heater_maintenance", ids)
+        self.assertIn("hmm.refrigerator_maintenance", ids)
+        self.assertIn("hmm.dryer_vent_maintenance", ids)
+        self.assertIn("hmm.sump_pump_maintenance", ids)
+        self.assertIn("hmm.pool_maintenance", ids)
+        self.assertIn("hmm.generator_maintenance", ids)
+        self.assertIn("hmm.home_exterior_seasonal_maintenance", ids)
+        hot_tub = next(pack for pack in packs if pack["id"] == "hmm.hot_tub_maintenance")
+        self.assertTrue(hot_tub["installed"])
+        self.assertGreater(hot_tub["task_count"], 0)
+        self.assertIn("package_hash", hot_tub)
+
+    def test_load_built_in_task_pack_returns_valid_package(self) -> None:
+        library_pack = next(pack for pack in list_built_in_task_pack_metadata() if pack["id"] == "hmm.hvac_maintenance")
+        package = load_built_in_task_pack("hmm.hvac_maintenance")
+        normalized = validate_task_pack(package)
+        self.assertEqual(normalized["pack"]["id"], "hmm.hvac_maintenance")
+        self.assertEqual(package["package_hash"], library_pack["package_hash"])
+        self.assertGreater(len(package["tasks"]), 0)
+
+    def test_load_built_in_task_pack_rejects_unknown_id(self) -> None:
+        with self.assertRaisesRegex(ValueError, "not found"):
+            load_built_in_task_pack("hmm.missing_pack")
 
     def test_task_pack_sanitizes_private_fields(self) -> None:
         package = {

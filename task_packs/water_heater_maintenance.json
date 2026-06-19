@@ -1,0 +1,58 @@
+{
+  "format": "home_maintenance_manager_task_pack",
+  "format_version": 1,
+  "type": "task_pack",
+  "pack": {
+    "id": "hmm.water_heater_maintenance",
+    "name": "Water Heater Maintenance",
+    "version": "1.0.0",
+    "description": "Sediment flushing, leak checks, and safety checks for tank-style water heaters.",
+    "author": "Home Maintenance Manager",
+    "license": "MIT",
+    "source": "bundled",
+    "source_url": "https://github.com/MOBTrips/home-maintenance-manager",
+    "min_hmm_version": "0.7.2",
+    "categories": ["Plumbing"],
+    "tags": ["water-heater", "plumbing", "safety"],
+    "provenance": {"kind": "community", "source": "bundled"}
+  },
+  "entity_requirements": [],
+  "tasks": [
+    {
+      "id": "pack_water_heater_flush",
+      "name": "Flush water heater",
+      "description": "Drain sediment from the water heater tank.",
+      "category": "Plumbing",
+      "equipment_name": "Water heater",
+      "rules": [{"id": "time_1", "type": "time", "name": "Every 12 months", "value": 12, "unit": "months", "days": 365.25}],
+      "rule_logic": "any",
+      "instructions": "Follow the manufacturer instructions. Set power/gas to a safe service mode, attach a hose, flush sediment, refill completely, then restore heat.",
+      "checklist": ["Review manual", "Attach drain hose", "Flush sediment", "Confirm tank is full"],
+      "tools": ["Garden hose", "Bucket"]
+    },
+    {
+      "id": "pack_water_heater_leak_check",
+      "name": "Inspect water heater for leaks",
+      "description": "Check connections, pan, drain valve, and relief valve discharge path.",
+      "category": "Plumbing",
+      "equipment_name": "Water heater",
+      "rules": [{"id": "time_1", "type": "time", "name": "Every 6 months", "value": 6, "unit": "months", "days": 182.625}],
+      "rule_logic": "any",
+      "instructions": "Look for corrosion, moisture, valve seepage, and water in the drain pan.",
+      "checklist": ["Check fittings", "Check pan", "Check drain valve", "Check relief valve pipe"],
+      "tools": ["Flashlight"]
+    },
+    {
+      "id": "pack_water_heater_relief_valve",
+      "name": "Review water heater relief valve",
+      "description": "Confirm the temperature and pressure relief valve and discharge pipe appear safe.",
+      "category": "Safety",
+      "equipment_name": "Water heater",
+      "rules": [{"id": "time_1", "type": "time", "name": "Every 12 months", "value": 12, "unit": "months", "days": 365.25}],
+      "rule_logic": "any",
+      "instructions": "Visually inspect the relief valve and discharge pipe. Follow local guidance and manufacturer instructions before operating the valve.",
+      "checklist": ["Inspect valve", "Inspect discharge pipe", "Confirm no cap or blockage"],
+      "tools": ["Flashlight"]
+    }
+  ]
+}
