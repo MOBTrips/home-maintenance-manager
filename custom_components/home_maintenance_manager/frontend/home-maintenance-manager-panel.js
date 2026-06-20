@@ -90,7 +90,25 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
 
   css() {
     return `
-      :host { display:block; font-family: var(--paper-font-body1_-_font-family, Roboto, sans-serif); color: var(--primary-text-color); }
+      :host {
+        display:block;
+        font-family: var(--paper-font-body1_-_font-family, Roboto, sans-serif);
+        color: var(--primary-text-color);
+        --hmm-status-healthy-text: var(--success-color, #0b6b20);
+        --hmm-status-healthy-bg: color-mix(in srgb, var(--hmm-status-healthy-text) 14%, var(--card-background-color));
+        --hmm-status-due-soon-text: var(--warning-color, #8a5f00);
+        --hmm-status-due-soon-bg: color-mix(in srgb, var(--hmm-status-due-soon-text) 16%, var(--card-background-color));
+        --hmm-status-due-now-text: var(--hmm-status-orange, #b85c00);
+        --hmm-status-due-now-bg: color-mix(in srgb, var(--hmm-status-due-now-text) 16%, var(--card-background-color));
+        --hmm-status-overdue-text: var(--error-color, #b00020);
+        --hmm-status-overdue-bg: color-mix(in srgb, var(--hmm-status-overdue-text) 14%, var(--card-background-color));
+        --hmm-status-critical-text: #7f0018;
+        --hmm-status-critical-bg: color-mix(in srgb, var(--hmm-status-critical-text) 16%, var(--card-background-color));
+        --hmm-status-paused-text: var(--secondary-text-color);
+        --hmm-status-paused-bg: var(--secondary-background-color);
+        --hmm-status-neutral-text: var(--secondary-text-color);
+        --hmm-status-neutral-bg: var(--secondary-background-color);
+      }
       .page { padding: 24px; max-width: 1280px; margin: 0 auto; }
       .ha-mobile-appbar { display:none; position:sticky; top:0; z-index:6; margin:-24px -24px 24px; padding-top:env(safe-area-inset-top, 0px); background:var(--app-header-background-color, var(--primary-background-color)); color:var(--app-header-text-color, var(--primary-text-color)); border-bottom:1px solid var(--divider-color); box-shadow:0 1px 3px rgba(0,0,0,.10); }
       .ha-mobile-appbar .bar-row { height:56px; display:flex; align-items:center; gap:16px; padding:0 12px; }
@@ -115,14 +133,32 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
       .grid { display:grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap:16px; }
       .card { background: var(--card-background-color); border-radius:18px; padding:18px; box-shadow: var(--ha-card-box-shadow, 0 2px 8px rgba(0,0,0,.12)); border: 1px solid var(--divider-color); }
       .metric { font-size:34px; font-weight:700; }
+      .metric-card { min-height:118px; display:flex; flex-direction:column; justify-content:space-between; gap:8px; }
+      .metric-card .metric-card-head { display:flex; justify-content:space-between; gap:10px; align-items:flex-start; }
+      .metric-card .metric-card-label { color:var(--secondary-text-color); }
+      .metric-card .metric { line-height:1; }
+      .metric-card .progress { margin:4px 0; }
       .muted { color: var(--secondary-text-color); }
-      .pill { display:inline-block; border-radius:999px; padding:5px 10px; font-size:12px; font-weight:700; text-transform:uppercase; background: var(--secondary-background-color); }
-      .pill.ok { background:#e4f7e7; color:#0b6b20; }
-      .pill.upcoming { background:#fff4d6; color:#7a5600; }
-      .pill.due, .pill.overdue { background:#fde7e7; color:#9b1c1c; }
-      .pill.warn { background:#fff4d6; color:#7a5600; }
-      .pill.paused, .pill.snoozed, .pill.season_paused { background:#e8e8e8; color:#555; }
+      .pill { display:inline-block; border-radius:999px; padding:5px 10px; font-size:12px; font-weight:700; text-transform:uppercase; background: var(--hmm-status-neutral-bg); color:var(--hmm-status-neutral-text); }
+      .pill.ok { background:var(--hmm-status-healthy-bg); color:var(--hmm-status-healthy-text); }
+      .pill.upcoming { background:var(--hmm-status-due-soon-bg); color:var(--hmm-status-due-soon-text); }
+      .pill.due { background:var(--hmm-status-due-now-bg); color:var(--hmm-status-due-now-text); }
+      .pill.overdue { background:var(--hmm-status-overdue-bg); color:var(--hmm-status-overdue-text); }
+      .pill.critical { background:var(--hmm-status-critical-bg); color:var(--hmm-status-critical-text); }
+      .pill.warn { background:var(--hmm-status-due-soon-bg); color:var(--hmm-status-due-soon-text); }
+      .pill.paused, .pill.snoozed, .pill.season_paused { background:var(--hmm-status-paused-bg); color:var(--hmm-status-paused-text); }
+      .status-chip { display:inline-flex; align-items:center; gap:6px; border:1px solid transparent; border-radius:999px; padding:5px 10px; font-size:12px; font-weight:700; line-height:1; text-transform:uppercase; background:var(--hmm-status-neutral-bg); color:var(--hmm-status-neutral-text); white-space:nowrap; }
+      .status-chip ha-icon { --mdc-icon-size:16px; width:16px; height:16px; flex:0 0 16px; }
+      .status-chip--compact { padding:4px 8px; font-size:11px; }
+      .status-chip--healthy { background:var(--hmm-status-healthy-bg); color:var(--hmm-status-healthy-text); }
+      .status-chip--due-soon { background:var(--hmm-status-due-soon-bg); color:var(--hmm-status-due-soon-text); }
+      .status-chip--due-now { background:var(--hmm-status-due-now-bg); color:var(--hmm-status-due-now-text); }
+      .status-chip--overdue { background:var(--hmm-status-overdue-bg); color:var(--hmm-status-overdue-text); }
+      .status-chip--critical { background:var(--hmm-status-critical-bg); color:var(--hmm-status-critical-text); }
+      .status-chip--paused, .status-chip--season-paused { background:var(--hmm-status-paused-bg); color:var(--hmm-status-paused-text); }
       .category-pill { display:inline-block; border-radius:999px; padding:4px 9px; font-size:12px; background: var(--secondary-background-color); color: var(--secondary-text-color); margin:4px 6px 4px 0; }
+      .category-icon { display:inline-flex; align-items:center; justify-content:center; width:28px; height:28px; border-radius:50%; color:var(--primary-color); background:color-mix(in srgb, var(--primary-color) 12%, var(--card-background-color)); }
+      .category-icon ha-icon { --mdc-icon-size:18px; width:18px; height:18px; }
       .progress { height:12px; background: var(--secondary-background-color); border-radius:999px; overflow:hidden; margin:12px 0; }
       .bar { height:100%; background: var(--primary-color); width:0%; }
       .detail-hero { display:grid; grid-template-columns: 112px 1fr; gap:16px; align-items:center; margin:10px 0 16px; }
@@ -196,6 +232,12 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
       .category-header { display:flex; justify-content:space-between; gap:12px; align-items:baseline; margin:24px 0 10px; }
       .category-header h2 { margin:0; }
       .status-dot { width:10px; height:10px; border-radius:50%; background: var(--primary-color); display:inline-block; margin-right:6px; }
+      .status-dot--healthy { background:var(--hmm-status-healthy-text); }
+      .status-dot--due-soon { background:var(--hmm-status-due-soon-text); }
+      .status-dot--due-now { background:var(--hmm-status-due-now-text); }
+      .status-dot--overdue { background:var(--hmm-status-overdue-text); }
+      .status-dot--critical { background:var(--hmm-status-critical-text); }
+      .status-dot--paused, .status-dot--season-paused { background:var(--hmm-status-paused-text); }
       .field-error { color:#b00020; font-size:13px; margin-top:4px; display:none; }
       .field-error.active { display:block; }
       .analysis-box { border:1px dashed var(--divider-color); border-radius:14px; padding:12px; margin-top:10px; background: var(--card-background-color); }
@@ -227,6 +269,26 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
       @media(max-width: 800px){ .manual-threshold-row { grid-template-columns: 1fr; } }
       @media(max-width: 800px){ .analysis-controls { grid-template-columns: 1fr; } }
       .tooltip-note { font-size:12px; color: var(--secondary-text-color); }
+      .section-header { display:flex; align-items:flex-end; justify-content:space-between; gap:12px; margin:22px 0 12px; }
+      .section-header h2, .section-header h3 { margin:0; }
+      .section-header .section-kicker { color:var(--secondary-text-color); font-size:13px; margin-top:3px; }
+      .section-header .section-actions { display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-end; }
+      .compact-task-list { display:flex; flex-direction:column; border:1px solid var(--divider-color); border-radius:16px; overflow:hidden; background:var(--card-background-color); }
+      .compact-task-row { min-height:44px; display:grid; grid-template-columns:minmax(190px, 1.4fr) minmax(110px, .65fr) minmax(150px, 1fr) auto; gap:10px; align-items:center; padding:8px 10px; border-bottom:1px solid var(--divider-color); }
+      .compact-task-row:last-child { border-bottom:0; }
+      .compact-task-main { min-width:0; display:flex; align-items:center; gap:8px; }
+      .compact-task-title { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-weight:700; }
+      .compact-task-meta { min-width:0; color:var(--secondary-text-color); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:13px; }
+      .compact-rule-stack { display:grid; gap:5px; }
+      .compact-rule-progress { display:grid; grid-template-columns:18px minmax(70px, 1fr) 36px; gap:6px; align-items:center; min-width:0; font-size:12px; color:var(--secondary-text-color); }
+      .compact-rule-label { font-weight:800; color:var(--primary-text-color); }
+      .compact-mini-bar { height:7px; border-radius:999px; overflow:hidden; background:var(--secondary-background-color); }
+      .compact-mini-fill { height:100%; width:0%; background:var(--primary-color); }
+      .compact-task-actions { display:flex; gap:6px; justify-content:flex-end; }
+      .hmm-dialog { width:min(940px, 100%); }
+      .hmm-dialog--narrow { width:min(620px, 100%); }
+      .hmm-dialog-body { display:block; }
+      @media(max-width: 800px){ .compact-task-row { grid-template-columns:1fr; align-items:start; } .compact-task-actions { justify-content:flex-start; } .section-header { align-items:flex-start; flex-direction:column; } }
 
       .import-wizard { width:min(1120px, 100%); padding:0; overflow:hidden; }
       .import-wizard .sticky-head { position:sticky; top:0; z-index:2; background:var(--card-background-color); padding:20px 22px 14px; border-bottom:1px solid var(--divider-color); margin:0; }
@@ -305,6 +367,129 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
   friendlyStatus(status) {
     const map = { ok:'OK', upcoming:'Upcoming', due:'Due', overdue:'Overdue', paused:'Paused', snoozed:'Snoozed', season_paused:'Season Paused', unknown:'Unknown' };
     return map[String(status || '').toLowerCase()] || String(status || 'Unknown').replaceAll('_',' ').replace(/\b\w/g, c=>c.toUpperCase());
+  }
+
+  statusVisual(status) {
+    const raw = String(status || 'unknown').toLowerCase().replaceAll('_', '-');
+    const aliases = {
+      ok: 'healthy',
+      healthy: 'healthy',
+      upcoming: 'due-soon',
+      'due-soon': 'due-soon',
+      due: 'due-now',
+      'due-now': 'due-now',
+      'due-today': 'due-now',
+      overdue: 'overdue',
+      critical: 'critical',
+      paused: 'paused',
+      snoozed: 'paused',
+      'season-paused': 'season-paused',
+      unknown: 'unknown',
+    };
+    const tone = aliases[raw] || 'unknown';
+    const labels = {
+      healthy: 'Healthy',
+      'due-soon': 'Due Soon',
+      'due-now': 'Due Now',
+      overdue: 'Overdue',
+      critical: 'Critical',
+      paused: 'Paused',
+      'season-paused': 'Season Paused',
+      unknown: 'Unknown',
+    };
+    const icons = {
+      healthy: 'mdi:check-circle',
+      'due-soon': 'mdi:clock-alert-outline',
+      'due-now': 'mdi:alert-circle-outline',
+      overdue: 'mdi:alert-octagon-outline',
+      critical: 'mdi:alert-octagram',
+      paused: 'mdi:pause-circle-outline',
+      'season-paused': 'mdi:leaf-off',
+      unknown: 'mdi:help-circle-outline',
+    };
+    return { tone, label: labels[tone] || this.friendlyStatus(status), icon: icons[tone] || icons.unknown };
+  }
+
+  renderTaskStatusChip(status, options = {}) {
+    const visual = this.statusVisual(status);
+    const label = options.label || visual.label;
+    const compact = options.compact ? ' status-chip--compact' : '';
+    const title = options.title || label;
+    return `<span class="status-chip status-chip--${visual.tone}${compact}" title="${this.escape(title)}" aria-label="${this.escape(label)}"><ha-icon icon="${visual.icon}"></ha-icon><span>${this.escape(label)}</span></span>`;
+  }
+
+  categoryIconName(category) {
+    const key = String(category || 'General').toLowerCase();
+    if (key.includes('hvac')) return 'mdi:hvac';
+    if (key.includes('electrical')) return 'mdi:lightning-bolt';
+    if (key.includes('plumb') || key.includes('water')) return 'mdi:pipe';
+    if (key.includes('pool')) return 'mdi:pool';
+    if (key.includes('safety')) return 'mdi:shield-check';
+    if (key.includes('exterior') || key.includes('roof')) return 'mdi:home-roof';
+    if (key.includes('appliance')) return 'mdi:wrench';
+    if (key.includes('landscap') || key.includes('yard')) return 'mdi:tree';
+    return 'mdi:clipboard-check';
+  }
+
+  renderCategoryIcon(category) {
+    return `<span class="category-icon" title="${this.escape(category || 'General')}"><ha-icon icon="${this.categoryIconName(category)}"></ha-icon></span>`;
+  }
+
+  compactRuleLabel(type) {
+    return { time:'T', runtime:'R', counter:'M', calendar:'C' }[type] || 'P';
+  }
+
+  renderCompactRuleProgress(rule) {
+    const pct = Math.max(0, Math.min(100, Math.round(rule.percent ?? rule.percent_used ?? 0)));
+    const label = rule.label || this.compactRuleLabel(rule.rule_type || rule.type);
+    const title = rule.title || this.ruleTypeLabel(rule.rule_type || rule.type);
+    return `<div class="compact-rule-progress" title="${this.escape(title)}"><span class="compact-rule-label">${this.escape(label)}</span><span class="compact-mini-bar"><span class="compact-mini-fill" style="width:${pct}%"></span></span><span>${pct}%</span></div>`;
+  }
+
+  renderCompactTaskRow(t) {
+    const status = this.taskStatus(t);
+    const category = this.category(t);
+    const taskId = this.escape(t.id || '');
+    const rules = Array.isArray(t.summary?.rule_progress) && t.summary.rule_progress.length
+      ? t.summary.rule_progress.map(r => ({ ...r, percent: Math.round((r.percent_used || 0) * 100) }))
+      : [{ type: 'time', percent: this.percent(t), title: 'Overall progress' }];
+    return `<div class="compact-task-row" data-task-id="${taskId}">
+      <div class="compact-task-main">${this.renderCategoryIcon(category)}<span class="compact-task-title">${this.escape(t.name || t.id)}</span></div>
+      <div>${this.renderTaskStatusChip(status, { compact: true })}</div>
+      <div class="compact-rule-stack">${rules.slice(0, 2).map(r => this.renderCompactRuleProgress(r)).join('')}</div>
+      <div class="compact-task-actions"><button class="btn small primary" data-complete="${taskId}">Done</button><button class="btn small" data-view-task="${taskId}">View</button></div>
+    </div>`;
+  }
+
+  renderSectionHeader(title, options = {}) {
+    const level = options.level === 3 ? 'h3' : 'h2';
+    const subtitle = options.subtitle ? `<div class="section-kicker">${this.escape(options.subtitle)}</div>` : '';
+    const actions = options.actions ? `<div class="section-actions">${options.actions}</div>` : '';
+    return `<div class="section-header"><div><${level}>${this.escape(title)}</${level}>${subtitle}</div>${actions}</div>`;
+  }
+
+  renderDialogLayout(options = {}) {
+    const scrimAction = options.scrimAction || 'modal-scrim';
+    const closeAction = options.closeAction || 'close-modal';
+    const classes = ['modal', 'hmm-dialog', options.className || ''].filter(Boolean).join(' ');
+    const subtitle = options.subtitle ? `<div class="muted">${this.escape(options.subtitle)}</div>` : '';
+    const footer = options.footer ? `<div class="modal-actions-bottom">${options.footer}</div>` : '';
+    return `<div class="modal-scrim" data-action="${this.escape(scrimAction)}"><div class="${this.escape(classes)}" role="dialog" aria-modal="true" aria-label="${this.escape(options.ariaLabel || options.title || 'Dialog')}" data-modal-content>
+      <div class="modal-head"><div><h2>${this.escape(options.title || '')}</h2>${subtitle}</div><button class="btn" data-action="${this.escape(closeAction)}">Close</button></div>
+      <div class="hmm-dialog-body">${options.body || ''}</div>
+      ${footer}
+    </div></div>`;
+  }
+
+  renderDashboardMetricCard(options = {}) {
+    const visual = this.statusVisual(options.status || 'unknown');
+    const progress = options.progress === undefined ? '' : `<div class="progress"><div class="bar" style="width:${Math.max(0, Math.min(100, Number(options.progress) || 0))}%"></div></div>`;
+    return `<div class="card metric-card ${this.escape(options.className || '')}">
+      <div class="metric-card-head"><div class="metric-card-label">${this.escape(options.label || '')}</div>${options.status ? `<span class="status-dot status-dot--${visual.tone}" title="${this.escape(visual.label)}"></span>` : ''}</div>
+      <div class="metric">${this.escape(options.value ?? '')}</div>
+      ${progress}
+      ${options.help ? `<div class="muted">${this.escape(options.help)}</div>` : ''}
+    </div>`;
   }
 
   ruleTypeLabel(type) {
@@ -624,10 +809,10 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     const activeCategories = this.categories().filter(c => this.tasks.some(t => this.category(t) === c));
     return `
       <div class="grid">
-        <div class="card"><div class="muted">Maintenance health</div><div class="metric">${this.healthScore()}%</div><div class="progress"><div class="bar" style="width:${this.healthScore()}%"></div></div><div class="muted">Overall score based on due and upcoming tasks.</div></div>
-        <div class="card"><div class="muted">Needs attention</div><div class="metric">${due}</div><div class="muted">Due or overdue tasks</div></div>
-        <div class="card"><div class="muted">Coming soon</div><div class="metric">${upcoming}</div><div class="muted">Upcoming tasks</div></div>
-        <div class="card"><div class="muted">On track</div><div class="metric">${ok}</div><div class="muted">OK tasks</div></div>
+        ${this.renderDashboardMetricCard({ label: 'Maintenance health', value: `${this.healthScore()}%`, progress: this.healthScore(), status: 'ok', help: 'Overall score based on due and upcoming tasks.' })}
+        ${this.renderDashboardMetricCard({ label: 'Needs attention', value: due, status: due ? 'due' : 'ok', help: 'Due or overdue tasks' })}
+        ${this.renderDashboardMetricCard({ label: 'Coming soon', value: upcoming, status: upcoming ? 'upcoming' : 'ok', help: 'Upcoming tasks' })}
+        ${this.renderDashboardMetricCard({ label: 'On track', value: ok, status: 'ok', help: 'OK tasks' })}
       </div>
       <h2>Categories</h2>
       <div class="grid">${activeCategories.length ? activeCategories.map(c => this.renderCategoryCard(c)).join("") : this.renderEmptyTasks()}</div>

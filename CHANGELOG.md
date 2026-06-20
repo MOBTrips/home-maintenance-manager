@@ -1,3 +1,8 @@
+## 0.7.4
+
+- Added Phase 1 UI foundation components for shared status colors, task status chips, compact task rows, section headers, dialog layout, and dashboard metric cards.
+- Updated README documentation links and added a v0.7.4 Phase 1 UI Foundation test plan.
+
 ## 0.7.3
 
 - Reworked Task Pack missing-entity mapping into a queue workflow with progress counts, Required/Optional/All filters, and per-requirement review cards.
