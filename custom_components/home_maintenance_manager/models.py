@@ -15,6 +15,7 @@ try:
     from .units import (
         METER_SOURCE_RATE,
         METER_SOURCE_SESSION,
+        convert_usage_amount,
         meter_units_compatible,
         normalize_meter_source_mode,
     )
@@ -26,6 +27,7 @@ except ImportError:  # pragma: no cover - allows direct import in lightweight te
     _UNITS_SPEC.loader.exec_module(_units)
     METER_SOURCE_RATE = _units.METER_SOURCE_RATE
     METER_SOURCE_SESSION = _units.METER_SOURCE_SESSION
+    convert_usage_amount = _units.convert_usage_amount
     meter_units_compatible = _units.meter_units_compatible
     normalize_meter_source_mode = _units.normalize_meter_source_mode
 
@@ -404,8 +406,10 @@ class MaintenanceTask:
                         current = baseline
                 used = max(current - baseline, 0)
                 pct = min(used / amount, 999) if amount else 0
-                unit = rule.get("target_unit") or rule.get("unit") or "units"
-                progress.append(RuleProgress(rule_id, rule_type, name, pct, amount - used, pct >= 1, f"{used:.1f}/{amount:.1f} {unit}"))
+                display_unit = rule.get("target_display_unit") or rule.get("target_unit") or rule.get("unit") or "units"
+                display_used = self._display_usage_value(used, rule)
+                display_amount = self._display_usage_value(amount, rule)
+                progress.append(RuleProgress(rule_id, rule_type, name, pct, display_amount - display_used, pct >= 1, f"{display_used:.1f}/{display_amount:.1f} {display_unit}"))
         return progress
 
     def status(self, hass: HomeAssistant) -> str:
@@ -476,6 +480,14 @@ class MaintenanceTask:
         values = [p.remaining for p in self.rule_progress(hass) if p.rule_type == RULE_COUNTER and p.remaining is not None]
         return min(values) if values else None
 
+    def _display_usage_value(self, value: float, rule: dict[str, Any]) -> float:
+        source_unit = rule.get("target_unit") or rule.get("unit") or rule.get("source_unit")
+        display_unit = rule.get("target_display_unit") or source_unit
+        try:
+            return convert_usage_amount(value, source_unit, display_unit)
+        except (TypeError, ValueError):
+            return value
+
     def counter_used(self, hass: HomeAssistant) -> float | None:
         values: list[float] = []
         for rule in self.rules:
@@ -496,7 +508,7 @@ class MaintenanceTask:
                     current = float(state.state) if state else baseline
                 except (TypeError, ValueError):
                     current = baseline
-            values.append(max(current - baseline, 0))
+            values.append(self._display_usage_value(max(current - baseline, 0), rule))
         return max(values) if values else None
 
     def _rate_target_unit(self, unit: str | None) -> str | None:
@@ -520,7 +532,7 @@ class MaintenanceTask:
                 source_mode = normalize_meter_source_mode(rule.get("source_mode"))
                 if source_mode == METER_SOURCE_RATE:
                     if rule.get("target_unit"):
-                        return str(rule.get("target_unit"))
+                        return str(rule.get("target_display_unit") or rule.get("target_unit"))
                     source_unit = rule.get("source_unit") or rule.get("unit")
                     entity_id = rule.get("entity")
                     if not source_unit and entity_id:
@@ -529,9 +541,9 @@ class MaintenanceTask:
                             source_unit = state.attributes.get("unit_of_measurement")
                     return self._rate_target_unit(source_unit)
                 if rule.get("target_unit"):
-                    return str(rule.get("target_unit"))
+                    return str(rule.get("target_display_unit") or rule.get("target_unit"))
                 if rule.get("unit"):
-                    return str(rule.get("unit"))
+                    return str(rule.get("target_display_unit") or rule.get("unit"))
                 entity_id = rule.get("entity")
                 state = hass.states.get(entity_id) if entity_id else None
                 if state:

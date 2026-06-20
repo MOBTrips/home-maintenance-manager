@@ -32,6 +32,7 @@ from .units import (
     normalize_counter_rule_units,
     normalize_meter_source_mode,
     rate_target_unit,
+    session_counter_delta,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -1091,6 +1092,9 @@ class MaintenanceCoordinator:
                         continue
                     rule_id = str(rule.get("id") or entity_id)
                     key = f"counter_{source_mode}:{rule_id}"
+                    if rule_id not in task.totalized_usage:
+                        task.totalized_usage[rule_id] = 0
+                        changed = True
                     last = task.last_seen_states.get(key, {})
                     last_seen = dt_util.parse_datetime(last.get("seen_at")) if last.get("seen_at") else None
                     try:
@@ -1125,7 +1129,7 @@ class MaintenanceCoordinator:
                         except (TypeError, ValueError):
                             previous_value = None
                         if previous_value is not None:
-                            delta = numeric_value - previous_value
+                            delta = session_counter_delta(previous_value, numeric_value)
                             if delta > 0:
                                 task.totalized_usage[rule_id] = task.totalized_usage.get(rule_id, 0) + delta
                                 if source_unit:

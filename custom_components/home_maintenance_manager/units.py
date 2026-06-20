@@ -136,6 +136,16 @@ def normalize_meter_source_mode(mode: Any) -> str:
     return METER_SOURCE_CUMULATIVE
 
 
+def session_counter_delta(previous: Any, current: Any) -> float:
+    """Return positive usage added by a reset/session counter reading."""
+    try:
+        previous_value = float(previous)
+        current_value = float(current)
+    except (TypeError, ValueError):
+        return 0.0
+    return max(current_value - previous_value, 0.0)
+
+
 def unit_family(unit: Any) -> str:
     canonical = canonical_unit(unit)
     if not canonical:

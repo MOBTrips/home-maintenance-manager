@@ -169,6 +169,43 @@ class MeteredUsageTests(unittest.TestCase):
         self.assertEqual(task.as_dict()["rules"][0]["source_mode"], "session_total")
         self.assertEqual(units.normalize_meter_source_mode("reset_counter"), "session_total")
 
+    def test_session_counter_delta_ignores_resets_and_accumulates_cycles(self) -> None:
+        readings = [0, 15, 30, 75, 150, 0, 10, 40, 0, 5]
+        total = 0
+        for previous, current in zip(readings, readings[1:]):
+            total += units.session_counter_delta(previous, current)
+
+        self.assertEqual(total, 195)
+        self.assertEqual(units.session_counter_delta(150, 0), 0)
+
+    def test_metered_display_units_match_configured_editor_unit(self) -> None:
+        task = models.MaintenanceTask(
+            id="session",
+            name="Session",
+            totalized_usage={"counter_1": 7200},
+            rules=[
+                {
+                    "id": "counter_1",
+                    "type": "counter",
+                    "entity": "sensor.toothbrush_duration",
+                    "amount": 21600,
+                    "baseline": 0,
+                    "unit": "s",
+                    "source_unit": "s",
+                    "target_unit": "s",
+                    "target_display_value": 6,
+                    "target_display_unit": "h",
+                    "source_mode": "session_total",
+                }
+            ],
+        )
+        hass = FakeHass({"sensor.toothbrush_duration": FakeState("0", "s")})
+
+        self.assertEqual(task.counter_unit(hass), "h")
+        self.assertEqual(task.counter_used(hass), 2)
+        self.assertEqual(task.counter_remaining(hass), 4)
+        self.assertEqual(task.rule_progress(hass)[0].detail, "2.0/6.0 h")
+
     def test_time_unit_conversion_for_meter_targets(self) -> None:
         self.assertEqual(units.convert_usage_amount(60, "minutes", "s"), 3600)
         self.assertEqual(units.convert_usage_amount(2, "hours", "s"), 7200)

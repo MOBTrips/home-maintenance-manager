@@ -33,6 +33,7 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     this.mobileMenuOpen = false;
     this._routeTaskId = null;
     this._boundRouteChanged = () => this.handleRouteChanged();
+    this._scrollImportConfigIntoView = false;
   }
 
   set hass(hass) {
@@ -969,6 +970,10 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
   render() {
     this.shadowRoot.innerHTML = `<style>${this.css()}</style><div class="page">${this.renderBody()}</div>${this.safeRenderModal()}${this.renderImportWizardModal()}${this.renderTaskPackExportModal()}`;
     this.bind();
+    if (this._scrollImportConfigIntoView) {
+      this._scrollImportConfigIntoView = false;
+      requestAnimationFrame(() => this.scrollImportConfigIntoView());
+    }
   }
 
   safeRenderModal() {
@@ -1961,6 +1966,13 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     this.importEntityQueueIndex = Math.max(0, Math.min((this.importEntityQueueIndex || 0) + delta, queue.length - 1));
   }
 
+  scrollImportConfigIntoView() {
+    const body = this.shadowRoot.querySelector('.import-wizard-body');
+    const panel = this.shadowRoot.querySelector('.task-config-panel');
+    if (!body || !panel) return;
+    body.scrollTop = Math.max(0, panel.offsetTop - body.offsetTop - 12);
+  }
+
 
   captureImportWizardOptions() {
     const mode = this.shadowRoot.querySelector('input[name="wizard-import-mode"]:checked')?.value;
@@ -2500,9 +2512,9 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     this.shadowRoot.querySelectorAll('[data-import-step]').forEach(el=>el.onclick=()=>{ this.captureImportSelections(); this.captureImportWizardOptions(); const target=Number(el.dataset.importStep||1); if (this.canMoveToImportStep(target)) { this.importWizardStep=target; this.render(); } });
     this.shadowRoot.querySelectorAll('[data-action="import-step-next"]').forEach(el=>el.onclick=()=>{ this.captureImportSelections(); this.captureImportWizardOptions(); const target=Math.min(4,(this.importWizardStep||1)+1); if (this.canMoveToImportStep(target)) { this.importWizardStep=target; this.render(); } });
     this.shadowRoot.querySelectorAll('[data-action="import-step-prev"]').forEach(el=>el.onclick=()=>{ this.captureImportSelections(); this.captureImportWizardOptions(); this.importWizardStep=Math.max(1,(this.importWizardStep||1)-1); this.render(); });
-    this.shadowRoot.querySelectorAll('[data-entity-queue-index]').forEach(el=>el.onclick=()=>{ this.captureEntityMapping(); this.importEntityQueueIndex=Number(el.dataset.entityQueueIndex||0); this.render(); });
-    this.shadowRoot.querySelectorAll('[data-action="entity-queue-next"]').forEach(el=>el.onclick=()=>{ this.captureEntityMapping(); this.advanceEntityQueue(1); this.render(); });
-    this.shadowRoot.querySelectorAll('[data-action="entity-queue-prev"]').forEach(el=>el.onclick=()=>{ this.captureEntityMapping(); this.advanceEntityQueue(-1); this.render(); });
+    this.shadowRoot.querySelectorAll('[data-entity-queue-index]').forEach(el=>el.onclick=()=>{ this.captureEntityMapping(); this.importEntityQueueIndex=Number(el.dataset.entityQueueIndex||0); this._scrollImportConfigIntoView=true; this.render(); });
+    this.shadowRoot.querySelectorAll('[data-action="entity-queue-next"]').forEach(el=>el.onclick=()=>{ this.captureEntityMapping(); this.advanceEntityQueue(1); this._scrollImportConfigIntoView=true; this.render(); });
+    this.shadowRoot.querySelectorAll('[data-action="entity-queue-prev"]').forEach(el=>el.onclick=()=>{ this.captureEntityMapping(); this.advanceEntityQueue(-1); this._scrollImportConfigIntoView=true; this.render(); });
     this.shadowRoot.querySelectorAll('[data-skip-optional-map]').forEach(el=>el.onclick=()=>{ this.importEntityMapping[el.dataset.skipOptionalMap]='__clear__'; this.render(); });
     this.shadowRoot.querySelectorAll('[data-clear-task-map]').forEach(el=>el.onclick=()=>{ delete this.importEntityMapping[el.dataset.clearTaskMap]; this.render(); });
     this.shadowRoot.querySelectorAll('ha-entity-picker[data-task-map-picker]').forEach(el=>{
@@ -2568,7 +2580,10 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     }
     const schedule = this.shadowRoot.getElementById('task-schedule');
     const notify = this.shadowRoot.getElementById('task-notify');
-    if (meterSourceType) meterSourceType.onchange = () => this.updateMeterUnit();
+    if (meterSourceType) {
+      meterSourceType.oninput = () => { meterSourceType.dataset.userTouched = '1'; };
+      meterSourceType.onchange = () => { meterSourceType.dataset.userTouched = '1'; this.updateMeterUnit(); };
+    }
     const meterTargetUnit = this.shadowRoot.getElementById('task-meter-target-unit');
     if (meterTargetUnit) meterTargetUnit.onchange = () => this.updateMeterUnit();
     const notifyBehaviorEl = this.shadowRoot.getElementById('task-notify-behavior');

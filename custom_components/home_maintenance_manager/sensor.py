@@ -8,7 +8,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.util import dt as dt_util
 
 from .const import DOMAIN
-from .units import METER_SOURCE_RATE, METER_SOURCE_SESSION, normalize_meter_source_mode
+from .units import METER_SOURCE_RATE, METER_SOURCE_SESSION, convert_usage_amount, normalize_meter_source_mode
 
 SENSOR_TYPES = {
     "summary": ("Summary", None, None),
@@ -182,6 +182,11 @@ class MaintenanceSensor(SensorEntity):
             for rule in task.rules:
                 if rule.get("type") == "counter" and normalize_meter_source_mode(rule.get("source_mode")) in {METER_SOURCE_RATE, METER_SOURCE_SESSION}:
                     value = task.totalized_usage.get(str(rule.get("id") or rule.get("entity")), 0)
+                    if rule.get("target_display_unit"):
+                        try:
+                            value = convert_usage_amount(value, rule.get("target_unit") or rule.get("unit") or rule.get("source_unit"), rule.get("target_display_unit"))
+                        except (TypeError, ValueError):
+                            pass
                     return round(value, 1)
             return None
         if self.sensor_type == "next_due":
@@ -218,6 +223,8 @@ class MaintenanceSensor(SensorEntity):
             for rule in task.rules:
                 source_mode = normalize_meter_source_mode(rule.get("source_mode"))
                 if rule.get("type") == "counter" and source_mode in {METER_SOURCE_RATE, METER_SOURCE_SESSION}:
+                    if rule.get("target_display_unit"):
+                        return str(rule.get("target_display_unit"))
                     if rule.get("target_unit"):
                         return str(rule.get("target_unit"))
                     if source_mode == METER_SOURCE_SESSION and rule.get("unit"):
