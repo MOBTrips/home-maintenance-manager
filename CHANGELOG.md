@@ -10,6 +10,7 @@
 - Added reset/session metered source mode for sensors that rise during a use and reset to zero between uses.
 - Added friendly metered target unit scaling for time units while storing normalized source-unit amounts.
 - Added an Open HA Device shortcut from task cards, task details, and the task editor for inspecting generated Maintenance Task devices.
+- Fixed integration removal so uninstalling HMM clears HMM-owned storage and generated registry devices/entities; normal reloads and restarts still preserve tasks.
 
 ## 0.7.2
 

@@ -38,6 +38,12 @@ For full recovery, restore the Home Assistant backup that contains:
 /config/custom_components/home_maintenance_manager/
 ```
 
+## Uninstall behavior
+
+Removing the Home Maintenance Manager integration from Home Assistant deletes HMM-owned storage and generated HMM devices/entities. Re-adding the integration after removal starts with no previous HMM tasks.
+
+Normal Home Assistant restarts, integration reloads, HACS updates, and custom component reinstalls do not clear task storage. Use a Home Assistant backup or HMM JSON export before removing the integration if you want to keep the tasks for later restore.
+
 ## Migration from older versions
 
 v0.6.0 migrates data from:

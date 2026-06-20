@@ -517,6 +517,39 @@ async def _async_cleanup_task_registry_entries(
                 exc_info=True,
             )
 
+async def _async_cleanup_config_entry_registry_entries(
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+) -> None:
+    """Remove all HMM-owned registry entries for a deleted config entry."""
+    from homeassistant.helpers import device_registry as dr, entity_registry as er
+
+    entity_registry = er.async_get(hass)
+    device_registry = dr.async_get(hass)
+
+    for entity_entry in list(er.async_entries_for_config_entry(entity_registry, entry.entry_id)):
+        try:
+            entity_registry.async_remove(entity_entry.entity_id)
+        except Exception:  # pragma: no cover - cleanup should not block uninstall
+            _LOGGER.debug(
+                "Could not remove HMM entity registry entry %s during config-entry removal",
+                entity_entry.entity_id,
+                exc_info=True,
+            )
+
+    for device in list(device_registry.devices.values()):
+        identifiers = getattr(device, "identifiers", set()) or set()
+        if not any(identifier and identifier[0] == DOMAIN for identifier in identifiers):
+            continue
+        try:
+            device_registry.async_remove_device(device.id)
+        except Exception:  # pragma: no cover - cleanup should not block uninstall
+            _LOGGER.debug(
+                "Could not remove HMM device registry entry %s during config-entry removal",
+                device.id,
+                exc_info=True,
+            )
+
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     coordinator = MaintenanceCoordinator(hass)
     await coordinator.async_load(entry.options, hass.data[DOMAIN].get("yaml_tasks", []))
@@ -609,13 +642,15 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 
 async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    """Remove HMM-owned storage when the integration config entry is deleted.
+    """Remove HMM-owned data when the integration config entry is deleted.
 
     HACS reinstall/update does not call this; Home Assistant only calls it when
     the user removes the integration config entry. That makes a deliberate
     remove/add cycle behave like a clean reset while normal HA backups and
     restores still preserve the unified storage file.
     """
+    await _async_cleanup_config_entry_registry_entries(hass, entry)
+
     for version, key in ((STORAGE_VERSION, STORAGE_KEY), (LEGACY_STORAGE_VERSION, LEGACY_STORAGE_KEY)):
         try:
             await Store(hass, version, key).async_remove()
