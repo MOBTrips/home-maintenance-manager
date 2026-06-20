@@ -393,6 +393,18 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
       .entity-map-row .entity-original { word-break:break-word; }
       .entity-map-actions { display:grid; gap:8px; }
       .entity-map-actions ha-entity-picker { display:block; width:100%; }
+      .task-config-layout { display:grid; grid-template-columns:minmax(230px,.75fr) minmax(0,1.5fr); gap:14px; align-items:start; }
+      .task-config-list { display:grid; gap:8px; }
+      .task-config-item { text-align:left; border:1px solid var(--divider-color); border-radius:12px; padding:10px; background:var(--card-background-color); color:var(--primary-text-color); cursor:pointer; }
+      .task-config-item.active { border-color:var(--primary-color); box-shadow:0 0 0 1px var(--primary-color); }
+      .task-config-item.complete { border-color:#0b6b20; }
+      .task-config-item.blocked { border-color:#b00020; }
+      .task-config-panel { border:1px solid var(--divider-color); border-radius:16px; padding:16px; background:var(--secondary-background-color); }
+      .task-config-head { display:flex; justify-content:space-between; gap:12px; align-items:flex-start; margin-bottom:12px; }
+      .task-config-head h3 { margin:0 0 4px; }
+      .task-requirement-card { border:1px solid var(--divider-color); border-radius:14px; padding:12px; background:var(--card-background-color); margin-top:10px; }
+      .task-requirement-head { display:flex; justify-content:space-between; gap:12px; align-items:flex-start; }
+      .task-requirement-picker { margin-top:10px; }
       .entity-queue-layout { display:grid; grid-template-columns:minmax(230px, .75fr) minmax(0, 1.5fr); gap:14px; align-items:start; }
       .entity-queue-list { display:grid; gap:8px; }
       .entity-queue-item { text-align:left; border:1px solid var(--divider-color); border-radius:12px; padding:10px; background:var(--card-background-color); color:var(--primary-text-color); cursor:pointer; }
@@ -402,10 +414,6 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
       .entity-meta-grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(150px, 1fr)); gap:8px; margin:12px 0; }
       .entity-meta-tile { border:1px solid var(--divider-color); border-radius:12px; padding:10px; background:var(--card-background-color); }
       .entity-meta-tile .key { color:var(--secondary-text-color); font-size:12px; margin-bottom:2px; }
-      .suggestion-list { display:grid; gap:8px; margin-top:8px; }
-      .suggestion-card { text-align:left; border:1px solid var(--divider-color); border-radius:12px; padding:10px; background:var(--card-background-color); color:var(--primary-text-color); cursor:pointer; }
-      .suggestion-card:hover { border-color:var(--primary-color); }
-      .suggestion-card .score { float:right; color:var(--secondary-text-color); font-size:12px; }
       details.entity-picker-fallback { border:1px dashed var(--divider-color); border-radius:12px; padding:10px; background:var(--card-background-color); }
       .entity-map-context { margin-top:12px; display:grid; gap:8px; }
       .entity-context-card { border:1px solid var(--divider-color); border-radius:12px; padding:10px; background:var(--card-background-color); }
@@ -417,7 +425,7 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
       .summary-line { display:flex; justify-content:space-between; gap:12px; border-bottom:1px solid var(--divider-color); padding:8px 0; }
       .sticky-actions { position:sticky; bottom:0; background:var(--card-background-color); padding:16px 22px; margin:0; }
       .empty-list { text-align:center; color:var(--secondary-text-color); padding:24px; }
-      @media(max-width: 800px){ .history-day { grid-template-columns:1fr; gap:8px; } .history-date-rail { position:static; } .history-day-list::before, .history-entry::before { display:none; } .history-entry-main { display:grid; gap:6px; } .history-entry-title { white-space:normal; } .entity-map-row, .entity-queue-layout { grid-template-columns:1fr; } .import-wizard-scrim { padding:0; } .import-wizard { min-height:100vh; border-radius:0; } .wizard-summary-grid { grid-template-columns:1fr 1fr; } .wizard-controls { flex-direction:column; align-items:stretch; } .review-list { max-height:none; } .modal-actions-bottom.sticky-actions { align-items:stretch; flex-direction:column; } .sticky-actions .right { justify-content:stretch; } .sticky-actions .right .btn { flex:1; } }
+      @media(max-width: 800px){ .history-day { grid-template-columns:1fr; gap:8px; } .history-date-rail { position:static; } .history-day-list::before, .history-entry::before { display:none; } .history-entry-main { display:grid; gap:6px; } .history-entry-title { white-space:normal; } .entity-map-row, .entity-queue-layout, .task-config-layout { grid-template-columns:1fr; } .task-config-head, .task-requirement-head { display:grid; } .import-wizard-scrim { padding:0; } .import-wizard { min-height:100vh; border-radius:0; } .wizard-summary-grid { grid-template-columns:1fr 1fr; } .wizard-controls { flex-direction:column; align-items:stretch; } .review-list { max-height:none; } .modal-actions-bottom.sticky-actions { align-items:stretch; flex-direction:column; } .sticky-actions .right { justify-content:stretch; } .sticky-actions .right .btn { flex:1; } }
     `;
   }
 
@@ -1358,17 +1366,24 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     const selected = (p.tasks || []).filter(t => t.selected && t.status !== 'invalid').length;
     const requiredMissing = Number(entity.required_missing || 0);
     const missing = Number(entity.missing || 0);
-    const requirements = Array.isArray(p.entity_requirements) ? p.entity_requirements : [];
-    const step = this.importWizardStep || 1;
+    const taskRefs = this.importTaskEntityRefs();
+    const step = Math.max(1, Math.min(Number(this.importWizardStep || 1), 4));
     const warnings = (p.warnings || []).map(w=>`<div class="wizard-alert">${this.escape(w)}</div>`).join('');
-    const canApply = selected > 0;
-    const steps = [[1,'Analyze'],[2,'Review tasks'],[3,'Map entities'],[4,'Import options'],[5,'Summary']]
+    const requiredComplete = this.requiredImportMappingsComplete();
+    const conflicts = this.importMappingConflicts();
+    const canReview = selected > 0 && requiredComplete && !conflicts.length;
+    const canApply = selected > 0 && requiredComplete && !conflicts.length;
+    const steps = [[1,'Select Tasks'],[2,'Configure Tasks'],[3,'Review Import'],[4,'Import Complete']]
       .map(([num,label])=>`<button class="step ${step===num?'active':''}" data-import-step="${num}"><b>${num}</b>${label}</button>`).join('');
+    const footer = step === 4
+      ? `<button class="btn primary" data-action="close-import-wizard">Done</button>`
+      : `${step>1 ? `<button class="btn" data-action="import-step-prev">Back</button>` : ''}
+        ${step<3 ? `<button class="btn primary" data-action="import-step-next" ${step === 1 ? (selected ? '' : 'disabled') : (canReview ? '' : 'disabled')}>Next</button>` : `<button class="btn primary" data-action="apply-import-json" ${canApply ? '' : 'disabled'}>${this.importMode === 'replace' ? 'Replace with selected' : 'Import selected'}</button>`}`;
     return `<div class="modal-scrim import-wizard-scrim" data-action="import-wizard-scrim">
       <div class="modal import-wizard" role="dialog" aria-modal="true" aria-label="Import review">
         <div class="modal-head sticky-head">
           <div>
-            <div class="muted">Import Review Wizard</div>
+            <div class="muted">Import Wizard</div>
             <h2>${this.escape(p.pack_name || 'HMM Import')}</h2>
             <div class="muted">${this.escape(p.package_type || 'backup')} • Nothing has been saved yet</div>
           </div>
@@ -1378,23 +1393,327 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
         <div class="wizard-summary-grid">
           <div class="summary-tile"><div class="summary-value">${total}</div><div class="muted">Tasks in file</div></div>
           <div class="summary-tile"><div class="summary-value">${selected}</div><div class="muted">Selected</div></div>
-          <div class="summary-tile"><div class="summary-value">${requirements.length}</div><div class="muted">Requirements</div></div>
+          <div class="summary-tile"><div class="summary-value">${taskRefs.length}</div><div class="muted">Task configs</div></div>
           <div class="summary-tile"><div class="summary-value">${missing}</div><div class="muted">Missing entities</div></div>
           <div class="summary-tile ${requiredMissing ? 'attention' : ''}"><div class="summary-value">${requiredMissing}</div><div class="muted">Required missing</div></div>
         </div>
         ${warnings}
-        ${step===1 ? this.renderImportWizardAnalyzeStep(p, counts, entity) : ''}
-        ${step===2 ? this.renderImportWizardTaskStep(p, counts, missing) : ''}
-        ${step===3 ? this.renderImportWizardEntityStep(p) : ''}
-        ${step===4 ? this.renderImportWizardOptionsStep(p) : ''}
-        ${step===5 ? this.renderImportWizardSummaryStep(p, selected) : ''}
+        ${conflicts.length && step !== 4 ? `<div class="wizard-warning"><b>Mapping conflict:</b> ${this.escape(conflicts[0])}</div>` : ''}
+        ${step===1 ? this.renderImportWizardSelectTasksStep(p, counts, entity, missing) : ''}
+        ${step===2 ? this.renderImportWizardConfigureStep(p) : ''}
+        ${step===3 ? this.renderImportWizardReviewStep(p, selected) : ''}
+        ${step===4 ? this.renderImportWizardCompleteStep() : ''}
         <div class="modal-actions-bottom sticky-actions">
           <div><b>${selected}</b> selected of ${total} task${total === 1 ? '' : 's'}</div>
           <div class="right">
-            <button class="btn" data-action="close-import-wizard">Cancel</button>
-            ${step>1 ? `<button class="btn" data-action="import-step-prev">Back</button>` : ''}
-            ${step<5 ? `<button class="btn primary" data-action="import-step-next">Next</button>` : `<button class="btn primary" data-action="apply-import-json" ${canApply ? '' : 'disabled'}>${this.importMode === 'replace' ? 'Replace with selected' : 'Import selected'}</button>`}
+            ${step !== 4 ? `<button class="btn" data-action="close-import-wizard">Cancel</button>` : ''}
+            ${footer}
           </div>
+        </div>
+      </div>
+    </div>`;
+  }
+
+  renderImportWizardSelectTasksStep(p, counts, entity, missing) {
+    const exported = p.exported_at ? new Date(p.exported_at).toLocaleString() : 'Not provided';
+    const isPack = p.package_type === 'task_pack';
+    const pack = p.pack || {};
+    const total = (p.tasks || []).length;
+    const filters = [
+      ['all', `All (${total})`], ['new', `New (${counts.new || 0})`], ['update', `Updates (${counts.update || 0})`],
+      ['duplicate', `Duplicates (${counts.duplicate || 0})`], ['deleted', `Deleted (${counts.deleted || 0})`],
+      ['invalid', `Invalid (${counts.invalid || 0})`], ['missing_entities', `Needs config (${missing || 0})`],
+    ];
+    const rows = (p.tasks || []).filter(t => {
+      const f = this.importStatusFilter || 'all';
+      if (f === 'all') return true;
+      if (f === 'missing_entities') return (t.entities || []).some(e => e.status === 'missing');
+      return t.status === f;
+    }).map(t => this.renderImportTaskReviewRow(t)).join('');
+    return `<div class="wizard-panel">
+      <div class="wizard-section-card"><h3>Select Tasks</h3>
+        <p class="muted">Choose the imported tasks to include. Selected tasks stay selected as you move through configuration and review.</p>
+        <div class="summary-list">
+          <div class="summary-line"><span>Type</span><b>${this.escape(p.package_type || 'backup')}</b></div>
+          <div class="summary-line"><span>Exported</span><b>${this.escape(exported)}</b></div>
+          <div class="summary-line"><span>Settings included</span><b>${p.settings_present ? 'Yes' : 'No'}</b></div>
+          <div class="summary-line"><span>Entities found</span><b>${entity.found || 0}</b></div>
+          <div class="summary-line"><span>Entities needing configuration</span><b>${entity.missing || 0}</b></div>
+        </div>
+      </div>
+      ${isPack ? `<div class="wizard-section-card"><h3>Task Pack</h3>
+        <div class="summary-list">
+          <div class="summary-line"><span>Name</span><b>${this.escape(pack.name || p.pack_name || 'Task Pack')}</b></div>
+          <div class="summary-line"><span>Pack ID</span><b>${this.escape(pack.id || 'Not provided')}</b></div>
+          <div class="summary-line"><span>Version</span><b>${this.escape(pack.version || 'Not provided')}</b></div>
+        </div>
+        ${pack.description ? `<p class="muted">${this.escape(pack.description)}</p>` : ''}
+        <div class="info-box">Task Packs always merge and cannot replace full storage, import settings, restore deleted tombstones, or keep runtime/history/private data.</div>
+      </div>` : ''}
+      <div class="wizard-controls">
+        <div><label>Show</label><div class="chip-row">${filters.map(([id,label]) => `<button class="chip ${this.importStatusFilter === id ? 'active' : ''}" data-import-filter="${id}">${this.escape(label)}</button>`).join('')}</div></div>
+        <div class="wizard-bulk-actions"><button class="btn small" data-action="select-all-import">Select all valid</button><button class="btn small" data-action="select-none-import">Select none</button></div>
+      </div>
+      <div class="review-list">${rows || '<div class="empty-list">No tasks match this filter.</div>'}</div>
+    </div>`;
+  }
+
+  selectedImportTasks() {
+    if (!this.importPreview?.tasks) return [];
+    return this.importPreview.tasks.filter(t => t.selected && t.status !== 'invalid');
+  }
+
+  importTaskEntityRefs() {
+    const refs = [];
+    this.selectedImportTasks().forEach(task => {
+      (task.entities || []).forEach((entity, index) => {
+        if (entity.status !== 'missing') return;
+        refs.push({
+          ...entity,
+          key: `${task.id}::${entity.entity_id || entity.id || index}::${index}`,
+          taskId: task.id,
+          taskName: task.name || 'Unnamed task',
+          taskCategory: task.category || 'General',
+          taskStatus: task.status || 'unknown',
+          taskDescription: task.description || task.notes || task.instructions || '',
+          taskSchedule: this.importTaskScheduleSummary(task),
+          entity_id: entity.entity_id || entity.id || '',
+          required: !!entity.required,
+        });
+      });
+    });
+    return refs;
+  }
+
+  importTaskConfigQueue() {
+    const refs = this.importTaskEntityRefs();
+    return this.selectedImportTasks().map((task, index) => ({
+      task,
+      index,
+      refs: refs.filter(ref => ref.taskId === task.id),
+    }));
+  }
+
+  taskConfigStatus(item) {
+    const requiredRefs = item.refs.filter(ref => ref.required);
+    if (!item.refs.length) return 'complete';
+    if (requiredRefs.some(ref => !this.isMappedEntityValue(this.importEntityMapping?.[ref.key]))) return 'blocked';
+    return 'complete';
+  }
+
+  mappingValueForTaskRef(ref) {
+    return this.importEntityMapping?.[ref.key] || '';
+  }
+
+  isMappedEntityValue(value) {
+    return !!value && !['__unresolved__','__clear__'].includes(value);
+  }
+
+  importRequirementDomains(ref) {
+    const raw = ref.domain || ref.expected_domain || ref.domains || ref.supported_domains || '';
+    const values = Array.isArray(raw) ? raw : String(raw).split(',');
+    return values.map(v => String(v).trim()).filter(Boolean).map(v => v.replace(/\.\*$/, ''));
+  }
+
+  requiredImportMappingsComplete() {
+    return this.importTaskEntityRefs().filter(ref => ref.required).every(ref => this.isMappedEntityValue(this.mappingValueForTaskRef(ref)));
+  }
+
+  importMappingConflicts() {
+    const byEntity = new Map();
+    for (const ref of this.importTaskEntityRefs()) {
+      const value = this.mappingValueForTaskRef(ref);
+      const action = this.isMappedEntityValue(value) ? value : (ref.required ? '' : '__clear__');
+      if (!action) continue;
+      const existing = byEntity.get(ref.entity_id);
+      if (existing && existing !== action) {
+        return [`${ref.entity_id} has different task-specific choices. Use the same choice for that placeholder or import those tasks separately.`];
+      }
+      byEntity.set(ref.entity_id, action);
+    }
+    return [];
+  }
+
+  importBackendEntityMapping() {
+    const mapping = {};
+    for (const ref of this.importTaskEntityRefs()) {
+      const action = this.mappingValueForTaskRef(ref);
+      if (this.isMappedEntityValue(action)) mapping[ref.entity_id] = action;
+      else if (!ref.required && !mapping[ref.entity_id]) mapping[ref.entity_id] = '__clear__';
+    }
+    return mapping;
+  }
+
+  importEntityMappingSummary() {
+    const refs = this.importTaskEntityRefs();
+    let mapped = 0, skipped = 0, unresolved = 0, requiredUnresolved = 0;
+    const pausedTaskIds = new Set();
+    for (const ref of refs) {
+      const action = this.mappingValueForTaskRef(ref);
+      if (this.isMappedEntityValue(action)) mapped += 1;
+      else if (ref.required) {
+        unresolved += 1;
+        requiredUnresolved += 1;
+        pausedTaskIds.add(ref.taskId);
+      } else {
+        skipped += 1;
+      }
+    }
+    return { mapped, skipped, unresolved, requiredUnresolved, pausedTasks: pausedTaskIds.size, total: refs.length };
+  }
+
+  renderImportWizardConfigureStep() {
+    const queue = this.importTaskConfigQueue();
+    if (!queue.length) {
+      return `<div class="wizard-panel"><div class="wizard-section-card"><h3>Configure Tasks</h3><p class="muted">Select at least one valid task before configuring import requirements.</p></div></div>`;
+    }
+    const index = Math.max(0, Math.min(Number(this.importEntityQueueIndex || 0), queue.length - 1));
+    this.importEntityQueueIndex = index;
+    const current = queue[index];
+    const totalRefs = this.importTaskEntityRefs().length;
+    const summary = this.importEntityMappingSummary();
+    return `<div class="wizard-panel">
+      <div class="wizard-section-card"><h3>Configure Tasks</h3>
+        <p class="muted">Configure each selected task independently. Required entities must be selected before review; optional entities may be skipped.</p>
+        <div class="summary-list">
+          <div class="summary-line"><span>Selected tasks</span><b>${queue.length}</b></div>
+          <div class="summary-line"><span>Entity requirements to configure</span><b>${totalRefs}</b></div>
+          <div class="summary-line"><span>Mapped</span><b>${summary.mapped}</b></div>
+          <div class="summary-line"><span>Required incomplete</span><b>${summary.requiredUnresolved}</b></div>
+        </div>
+      </div>
+      <div class="task-config-layout">
+        <div class="task-config-list">
+          ${queue.map((item, idx) => this.renderImportTaskConfigQueueItem(item, idx, index)).join('')}
+        </div>
+        ${this.renderImportTaskConfigPanel(current, index + 1, queue.length)}
+      </div>
+    </div>`;
+  }
+
+  renderImportTaskConfigQueueItem(item, idx, activeIndex) {
+    const status = this.taskConfigStatus(item);
+    const requiredCount = item.refs.filter(ref => ref.required).length;
+    const mappedCount = item.refs.filter(ref => this.isMappedEntityValue(this.mappingValueForTaskRef(ref))).length;
+    const label = !item.refs.length ? 'No configuration needed' : `${mappedCount}/${item.refs.length} mapped`;
+    return `<button class="task-config-item ${idx === activeIndex ? 'active' : ''} ${status}" data-entity-queue-index="${idx}">
+      <b>${this.escape(item.task.name || 'Unnamed task')}</b>
+      <div class="muted">Task ${idx + 1} • ${this.escape(item.task.category || 'General')} • ${this.escape(label)}${requiredCount ? ` • ${requiredCount} required` : ''}</div>
+    </button>`;
+  }
+
+  renderImportTaskConfigPanel(item, position, total) {
+    const task = item.task;
+    const description = (task.description || task.notes || task.instructions || '').replace(/\s+/g, ' ').trim();
+    const schedule = this.importTaskScheduleSummary(task);
+    const cards = item.refs.length
+      ? item.refs.map(ref => this.renderTaskEntityRequirementCard(ref)).join('')
+      : `<div class="empty-list">This selected task has no missing entity requirements.</div>`;
+    return `<div class="task-config-panel">
+      <div class="task-config-head">
+        <div>
+          <div class="muted">Task ${position} of ${total}</div>
+          <h3>${this.escape(task.name || 'Unnamed task')}</h3>
+          <div class="muted">${this.escape(task.category || 'General')}${schedule ? ` • ${this.escape(schedule)}` : ''}</div>
+        </div>
+        <span class="pill ${this.taskConfigStatus(item) === 'blocked' ? 'warn' : 'ok'}">${this.taskConfigStatus(item) === 'blocked' ? 'Needs required entity' : 'Ready'}</span>
+      </div>
+      ${description ? `<p>${this.escape(description)}</p>` : '<p class="muted">No task description was provided.</p>'}
+      ${cards}
+      <div class="task-actions" style="margin-top:12px;"><button class="btn small" data-action="entity-queue-prev">Previous task</button><button class="btn small primary" data-action="entity-queue-next">Next task</button></div>
+    </div>`;
+  }
+
+  renderTaskEntityRequirementCard(ref) {
+    const value = this.mappingValueForTaskRef(ref);
+    const mapped = this.isMappedEntityValue(value);
+    const domains = this.importRequirementDomains(ref);
+    const domainText = domains.length ? domains.join(', ') : (ref.domain || 'Any');
+    const title = ref.entity_requirement_label || ref.entity_requirement_name || ref.name || ref.entity_id;
+    return `<div class="task-requirement-card">
+      <div class="task-requirement-head">
+        <div>
+          <b>${this.escape(title)}</b>
+          <div class="muted">${this.escape(ref.role || 'entity')} • ${this.escape(ref.required ? 'Required' : 'Optional')} • Placeholder <code>${this.escape(ref.entity_id)}</code></div>
+        </div>
+        <span class="pill ${ref.required && !mapped ? 'warn' : mapped ? 'ok' : ''}">${mapped ? 'Mapped' : ref.required ? 'Required' : 'Optional'}</span>
+      </div>
+      ${ref.description ? `<p class="muted">${this.escape(ref.description)}</p>` : ''}
+      <div class="entity-meta-grid">
+        <div class="entity-meta-tile"><div class="key">Domain</div><div>${this.escape(domainText)}</div></div>
+        <div class="entity-meta-tile"><div class="key">Device class</div><div>${this.escape(ref.device_class || 'Any')}</div></div>
+        <div class="entity-meta-tile"><div class="key">State class</div><div>${this.escape(ref.state_class || 'Any')}</div></div>
+        <div class="entity-meta-tile"><div class="key">Unit</div><div>${this.escape(ref.unit_of_measurement || 'Any')}</div></div>
+      </div>
+      <div class="task-requirement-picker">
+        <ha-entity-picker data-task-map-picker="${this.escape(ref.key)}" data-include-domains="${this.escape(domains.join(','))}" allow-custom-entity></ha-entity-picker>
+      </div>
+      <div class="task-actions">
+        ${mapped ? `<button class="btn small" data-clear-task-map="${this.escape(ref.key)}">Clear selection</button>` : ''}
+        ${ref.required ? `<span class="muted">Required entities must be selected before import review.</span>` : `<button class="btn small" data-skip-optional-map="${this.escape(ref.key)}">Skip optional</button>`}
+      </div>
+    </div>`;
+  }
+
+  renderImportWizardReviewStep(p, selected) {
+    const entitySummary = this.importEntityMappingSummary();
+    const selectedTasks = this.selectedImportTasks();
+    const normalTasks = Math.max(0, selected - entitySummary.pausedTasks);
+    const isPack = p.package_type === 'task_pack';
+    const hasUpdates = (p.counts?.update || 0) > 0;
+    const hasDeleted = (p.counts?.deleted || 0) > 0;
+    return `<div class="wizard-panel">
+      <div class="wizard-section-card"><h3>Review Import</h3>
+        <p class="muted">Review selected tasks, import options, and task-by-task entity assignments before anything is saved.</p>
+        <div class="summary-list">
+          <div class="summary-line"><span>Selected tasks</span><b>${selected}</b></div>
+          <div class="summary-line"><span>Mode</span><b>${isPack ? 'Merge' : (this.importMode === 'replace' ? 'Replace' : 'Merge')}</b></div>
+          <div class="summary-line"><span>Mapped task entities</span><b>${entitySummary.mapped}</b></div>
+          <div class="summary-line"><span>Skipped optional entities</span><b>${entitySummary.skipped}</b></div>
+          <div class="summary-line"><span>Required incomplete</span><b>${entitySummary.requiredUnresolved}</b></div>
+          <div class="summary-line"><span>Tasks imported normally</span><b>${normalTasks}</b></div>
+        </div>
+        ${entitySummary.requiredUnresolved ? '<div class="wizard-warning"><b>Required entities incomplete:</b> go back to Configure Tasks before importing.</div>' : ''}
+      </div>
+      ${!isPack ? `<div class="wizard-section-card"><h3>Apply mode</h3>
+        <label class="option-card"><input type="radio" name="wizard-import-mode" value="merge" ${this.importMode !== 'replace' ? 'checked' : ''}> <span><b>Merge selected tasks</b><br><span class="muted">Keep existing HMM data. Add/update only the tasks selected in this wizard.</span></span></label>
+        <label class="option-card danger-option"><input type="radio" name="wizard-import-mode" value="replace" ${this.importMode === 'replace' ? 'checked' : ''}> <span><b>Replace HMM tasks with selected tasks</b><br><span class="muted">Recovery/migration mode. Existing HMM tasks not selected here will be removed.</span></span></label>
+      </div>` : `<div class="wizard-section-card"><h3>Apply mode</h3><p class="muted">Task Packs are templates, so they always use merge mode.</p></div>`}
+      <div class="wizard-section-card"><h3>Settings and deleted tasks</h3>
+        <label class="check-row"><input type="checkbox" id="import-settings" ${isPack ? '' : 'checked'} ${isPack ? 'disabled' : ''}> Import HMM settings from this backup</label>
+        <label class="check-row"><input type="checkbox" id="restore-deleted" ${hasDeleted ? '' : 'disabled'}> Allow previously deleted tasks to be restored</label>
+        ${hasUpdates ? '<div class="info-box"><b>Updates found:</b> selected tasks with matching IDs will update existing tasks when merge mode is used.</div>' : ''}
+      </div>
+      <div class="wizard-section-card"><h3>Selected tasks and assignments</h3>
+        <div class="summary-list">${selectedTasks.map(task => this.renderReviewTaskAssignment(task)).join('') || '<div class="empty-list">No tasks selected.</div>'}</div>
+      </div>
+    </div>`;
+  }
+
+  renderReviewTaskAssignment(task) {
+    const refs = this.importTaskEntityRefs().filter(ref => ref.taskId === task.id);
+    const assignment = refs.length ? refs.map(ref => {
+      const action = this.mappingValueForTaskRef(ref);
+      const value = this.isMappedEntityValue(action) ? action : (ref.required ? 'Required selection missing' : 'Skipped optional');
+      return `<div class="muted">${this.escape(ref.entity_requirement_label || ref.entity_requirement_name || ref.name || ref.entity_id)}: <b>${this.escape(value)}</b></div>`;
+    }).join('') : '<div class="muted">No missing entity configuration.</div>';
+    return `<div class="entity-context-card">
+      <div class="entity-context-title"><span>${this.escape(task.name || 'Unnamed task')}</span><span class="category-pill">${this.escape(task.category || 'General')}</span></div>
+      ${assignment}
+    </div>`;
+  }
+
+  renderImportWizardCompleteStep() {
+    const result = this.importApplyResult || {};
+    return `<div class="wizard-panel">
+      <div class="wizard-section-card"><h3>Import Complete</h3>
+        <p class="muted">The reviewed import has finished. HMM data has been refreshed from Home Assistant.</p>
+        <div class="summary-list">
+          <div class="summary-line"><span>New tasks imported</span><b>${result.new_tasks ?? 0}</b></div>
+          <div class="summary-line"><span>Updated tasks</span><b>${result.updated_tasks ?? 0}</b></div>
+          <div class="summary-line"><span>Paused due to unresolved entities</span><b>${result.paused_due_to_unresolved_entities ?? 0}</b></div>
+          <div class="summary-line"><span>Skipped</span><b>${result.skipped ?? 0}</b></div>
+          <div class="summary-line"><span>Tasks now</span><b>${result.after_tasks ?? this.tasks.length}</b></div>
         </div>
       </div>
     </div>`;
@@ -1515,184 +1834,6 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     return bits.join(' • ');
   }
 
-  renderEntityMapTaskContext(task) {
-    const schedule = this.importTaskScheduleSummary(task);
-    const desc = (task.description || '').replace(/\s+/g, ' ').trim();
-    return `<div class="entity-context-card">
-      <div class="entity-context-title"><span>${this.escape(task.name)}</span><span class="pill ${task.required ? 'warn' : ''}">${this.escape(task.required ? 'Required' : 'Optional')}</span></div>
-      <div class="entity-context-meta">${this.escape(task.category || 'General')} • ${this.escape(task.role || 'entity')} • ${this.escape(task.status || 'unknown')}${schedule ? ` • ${this.escape(schedule)}` : ''}</div>
-      ${desc ? `<div class="entity-context-note">${this.escape(desc.slice(0, 180))}${desc.length > 180 ? '…' : ''}</div>` : ''}
-    </div>`;
-  }
-
-  renderImportWizardEntityStep(p) {
-    const refs = this.importMissingEntityRefs();
-    if (!refs.length) return `<div class="wizard-panel"><div class="wizard-section-card"><h3>Entity mapping</h3><p class="muted">No missing entities were found for the selected tasks.</p></div></div>`;
-    const mapped = refs.filter(ref => {
-      const value = this.importEntityMapping?.[ref.entity_id];
-      return value && !['__unresolved__','__clear__'].includes(value);
-    }).length;
-    const cleared = refs.filter(ref => this.importEntityMapping?.[ref.entity_id] === '__clear__').length;
-    const required = refs.filter(ref => ref.required).length;
-    const optional = refs.length - required;
-    const filter = this.importEntityFilter || 'all';
-    const visibleRefs = refs.filter(ref => filter === 'all' || (filter === 'required' ? ref.required : !ref.required));
-    const index = Math.max(0, Math.min(Number(this.importEntityQueueIndex || 0), Math.max(visibleRefs.length - 1, 0)));
-    this.importEntityQueueIndex = index;
-    const current = visibleRefs[index] || visibleRefs[0] || refs[0];
-    const currentPosition = refs.findIndex(ref => ref.entity_id === current.entity_id) + 1;
-    return `<div class="wizard-panel">
-      <div class="wizard-section-card"><h3>Map entity requirements</h3><p class="muted">Review each unresolved Task Pack requirement. Required runtime and meter requirements may stay unresolved, but affected tasks will import paused until mapped.</p></div>
-      <div class="wizard-summary-grid" style="padding:0 0 12px;">
-        <div class="summary-tile"><div class="summary-value">${refs.length}</div><div class="muted">Total unresolved</div></div>
-        <div class="summary-tile ${required ? 'attention' : ''}"><div class="summary-value">${required}</div><div class="muted">Required</div></div>
-        <div class="summary-tile"><div class="summary-value">${optional}</div><div class="muted">Optional</div></div>
-        <div class="summary-tile"><div class="summary-value">${mapped}</div><div class="muted">Mapped</div></div>
-      </div>
-      <div class="wizard-controls">
-        <div><label>Queue</label><div class="chip-row">${[['all','All'],['required','Required'],['optional','Optional']].map(([id,label]) => `<button class="chip ${filter===id?'active':''}" data-entity-filter="${id}">${label}</button>`).join('')}</div></div>
-        <div class="muted">Entity ${currentPosition || 1} of ${refs.length} • ${cleared} cleared</div>
-      </div>
-      <div class="entity-queue-layout">
-        <div class="entity-queue-list">
-          ${visibleRefs.map((ref, idx) => this.renderEntityQueueItem(ref, idx, current.entity_id)).join('')}
-        </div>
-        ${this.renderEntityMapRow(current, currentPosition, refs.length)}
-      </div>
-    </div>`;
-  }
-
-  renderEntityQueueItem(ref, idx, activeId) {
-    const value = this.importEntityMapping?.[ref.entity_id] || '__unresolved__';
-    const mapped = value && !['__unresolved__','__clear__'].includes(value);
-    const status = mapped ? 'Mapped' : value === '__clear__' ? 'Cleared' : 'Unresolved';
-    const label = ref.entity_requirement_label || ref.entity_requirement_name || ref.name || ref.entity_id;
-    return `<button class="entity-queue-item ${activeId === ref.entity_id ? 'active' : ''} ${mapped ? 'mapped' : ''}" data-entity-queue-index="${idx}">
-      <b>${this.escape(label)}</b>
-      <div class="muted">${this.escape(ref.required ? 'Required' : 'Optional')} • ${this.escape(ref.role || 'entity')} • ${this.escape(status)}</div>
-    </button>`;
-  }
-
-  renderEntityMapRow(ref, position=1, total=1) {
-    const current = this.importEntityMapping?.[ref.entity_id] || '__unresolved__';
-    const suggestions = (ref.suggestions || []).slice(0,6).map(item => typeof item === 'string' ? {entity_id:item, name:item, reasons:[], score:0} : item);
-    const requirementName = ref.entity_requirement_label || ref.entity_requirement_name || ref.name || '';
-    const title = requirementName || ref.entity_id;
-    const expected = [
-      ['Domain', ref.domain],
-      ['Device class', ref.device_class],
-      ['State class', ref.state_class],
-      ['Unit', ref.unit_of_measurement],
-    ];
-    const requiredHelp = ref.required
-      ? 'If left unresolved or cleared, affected runtime/meter tasks will be imported paused.'
-      : 'Optional references can be kept for later, cleared, or mapped now.';
-    return `<div class="entity-queue-panel">
-      <div>
-        <div class="muted">Entity ${position} of ${total}</div>
-        <div class="pill ${ref.required ? 'warn' : ''}">${ref.required ? 'Required' : 'Optional'} ${this.escape(ref.role || 'entity')}</div>
-        <h3 class="entity-original">${this.escape(title)}</h3>
-        <div class="muted">Placeholder: <code>${this.escape(ref.entity_id)}</code></div>
-        ${ref.description ? `<p>${this.escape(ref.description)}</p>` : '<p class="muted">No description was provided by this pack.</p>'}
-        <div class="entity-meta-grid">
-          ${expected.map(([label,value]) => `<div class="entity-meta-tile"><div class="key">${label}</div><div>${this.escape(value || 'Any')}</div></div>`).join('')}
-        </div>
-        <div class="info-box">${this.escape(requiredHelp)}</div>
-        <div class="muted">Used by ${ref.tasks?.length || 0} selected imported task${(ref.tasks?.length || 0) === 1 ? '' : 's'}</div>
-        <div class="entity-map-context">
-          ${(ref.tasks || []).slice(0,4).map(t => this.renderEntityMapTaskContext(t)).join('')}
-          ${(ref.tasks || []).length > 4 ? `<div class="entity-context-more">+${(ref.tasks || []).length - 4} more task${((ref.tasks || []).length - 4) === 1 ? '' : 's'} use this entity</div>` : ''}
-        </div>
-      </div>
-      <div class="entity-map-actions">
-        <label><input type="radio" name="map-${this.escape(ref.entity_id)}" data-map-entity="${this.escape(ref.entity_id)}" value="__unresolved__" ${current==='__unresolved__'?'checked':''}> ${ref.required ? 'Keep unresolved and pause affected tasks' : 'Keep unresolved and map later'}</label>
-        <label><input type="radio" name="map-${this.escape(ref.entity_id)}" data-map-entity="${this.escape(ref.entity_id)}" value="__clear__" ${current==='__clear__'?'checked':''}> Clear this reference from imported tasks</label>
-        <h4>Suggested entities</h4>
-        ${suggestions.length ? `<div class="suggestion-list">${suggestions.map(x=>`<button class="suggestion-card" data-map-suggestion="${this.escape(ref.entity_id)}" data-map-value="${this.escape(x.entity_id)}"><span class="score">${this.escape((x.reasons || []).join(', ') || 'match')}</span><b>${this.escape(x.name || x.entity_id)}</b><div class="muted">${this.escape(x.entity_id)}${x.unit_of_measurement ? ' • '+this.escape(x.unit_of_measurement) : ''}${x.device_class ? ' • '+this.escape(x.device_class) : ''}</div></button>`).join('')}</div>` : '<div class="muted">No relevant suggestions found.</div>'}
-        <details class="entity-picker-fallback">
-          <summary class="btn small">Open Entity Picker</summary>
-          <label><input type="radio" name="map-${this.escape(ref.entity_id)}" data-map-entity="${this.escape(ref.entity_id)}" value="__manual__" ${current && !['__unresolved__','__clear__'].includes(current)?'checked':''}> Use selected entity from picker</label>
-          <ha-entity-picker data-map-picker="${this.escape(ref.entity_id)}" allow-custom-entity></ha-entity-picker>
-        </details>
-        <div class="task-actions"><button class="btn small" data-action="entity-queue-prev">Previous</button><button class="btn small primary" data-action="entity-queue-next">Next</button></div>
-      </div>
-    </div>`;
-  }
-
-  renderImportWizardOptionsStep(p) {
-    const isPack = p.package_type === 'task_pack';
-    const hasUpdates = (p.counts?.update || 0) > 0;
-    const hasDeleted = (p.counts?.deleted || 0) > 0;
-    const selected = (p.tasks || []).filter(t => t.selected && t.status !== 'invalid').length;
-    return `<div class="wizard-panel">
-      <div class="wizard-section-card"><h3>Import options</h3>
-        <p class="muted">These choices control what happens when you press Import on the next page. Your selected tasks and entity mappings are preserved while you move between wizard steps.</p>
-        <div class="summary-list">
-          <div class="summary-line"><span>Selected tasks</span><b>${selected}</b></div>
-          <div class="summary-line"><span>Import type</span><b>${isPack ? 'Task Pack' : 'Backup export'}</b></div>
-        </div>
-      </div>
-      ${!isPack ? `<div class="wizard-section-card"><h3>Apply mode</h3>
-        <p class="muted"><b>Merge</b> is safest for normal imports. It adds new selected tasks and updates selected matching tasks without deleting your other HMM tasks.</p>
-        <label class="option-card"><input type="radio" name="wizard-import-mode" value="merge" ${this.importMode !== 'replace' ? 'checked' : ''}> <span><b>Merge selected tasks</b><br><span class="muted">Keep existing HMM data. Add/update only the tasks selected in this wizard.</span></span></label>
-        <label class="option-card danger-option"><input type="radio" name="wizard-import-mode" value="replace" ${this.importMode === 'replace' ? 'checked' : ''}> <span><b>Replace HMM tasks with selected tasks</b><br><span class="muted">Recovery/migration mode. Existing HMM tasks not selected here will be removed.</span></span></label>
-      </div>` : `<div class="wizard-section-card"><h3>Apply mode</h3><p class="muted">Task Packs are templates, so they always use merge mode. They add selected tasks without replacing your existing HMM data, importing settings, or restoring deleted tasks.</p></div>`}
-      <div class="wizard-section-card"><h3>Settings and deleted tasks</h3>
-        <label class="check-row"><input type="checkbox" id="import-settings" ${isPack ? '' : 'checked'} ${isPack ? 'disabled' : ''}> Import HMM settings from this backup</label>
-        <p class="muted">Use this when restoring your own backup. Leave it off when you only want tasks.</p>
-        <label class="check-row"><input type="checkbox" id="restore-deleted" ${hasDeleted ? '' : 'disabled'}> Allow previously deleted tasks to be restored</label>
-        <p class="muted">Normally HMM protects you from resurrecting tasks you already deleted. Turn this on only when you intentionally want those tasks back.</p>
-        ${hasUpdates ? '<div class="info-box"><b>Updates found:</b> selected tasks with matching IDs will update existing tasks when merge mode is used.</div>' : ''}
-        ${hasDeleted ? '' : '<p class="muted">No previously deleted tasks were detected in this import.</p>'}
-      </div>
-    </div>`;
-  }
-
-  renderImportWizardSummaryStep(p, selected) {
-    const entitySummary = this.importEntityMappingSummary();
-    const normalTasks = Math.max(0, selected - entitySummary.pausedTasks);
-    return `<div class="wizard-panel">
-      <div class="wizard-section-card"><h3>Ready to import</h3>
-        <div class="summary-list">
-          <div class="summary-line"><span>Selected tasks</span><b>${selected}</b></div>
-          <div class="summary-line"><span>Mode</span><b>${p.package_type === 'task_pack' ? 'Merge' : (this.importMode === 'replace' ? 'Replace' : 'Merge')}</b></div>
-          <div class="summary-line"><span>Mapped entities</span><b>${entitySummary.mapped}</b></div>
-          <div class="summary-line"><span>Cleared optional references</span><b>${entitySummary.clearedOptional}</b></div>
-          <div class="summary-line"><span>Skipped optional references</span><b>${entitySummary.skipped}</b></div>
-          <div class="summary-line"><span>Unresolved required entities</span><b>${entitySummary.requiredUnresolved}</b></div>
-          <div class="summary-line"><span>Tasks imported paused</span><b>${entitySummary.pausedTasks}</b></div>
-          <div class="summary-line"><span>Tasks imported normally</span><b>${normalTasks}</b></div>
-          <div class="summary-line"><span>Unresolved missing entities</span><b>${entitySummary.unresolved}</b></div>
-        </div>
-        ${entitySummary.pausedTasks ? '<div class="wizard-warning"><b>Note:</b> tasks with unresolved or cleared required runtime/meter entities will import paused instead of calculating due status from the wrong source.</div>' : ''}
-      </div>
-    </div>`;
-  }
-
-  importEntityMappingSummary() {
-    const refs = this.importMissingEntityRefs();
-    const pausedTaskIds = new Set();
-    let mapped = 0, cleared = 0, clearedOptional = 0, clearedRequired = 0, skipped = 0, unresolved = 0, requiredUnresolved = 0;
-    for (const ref of refs) {
-      const action = this.importEntityMapping?.[ref.entity_id] || '__unresolved__';
-      if (action && !['__unresolved__','__clear__'].includes(action)) mapped += 1;
-      else if (action === '__clear__') {
-        cleared += 1;
-        if (ref.required) clearedRequired += 1;
-        else clearedOptional += 1;
-      }
-      else {
-        unresolved += 1;
-        if (ref.required) requiredUnresolved += 1;
-        else skipped += 1;
-      }
-      if (ref.required && (action === '__unresolved__' || action === '__clear__')) {
-        for (const task of ref.tasks || []) pausedTaskIds.add(task.id);
-      }
-    }
-    return { mapped, cleared, clearedOptional, clearedRequired, skipped, unresolved, requiredUnresolved, pausedTasks: pausedTaskIds.size };
-  }
-
   renderImportTaskReviewRow(t) {
     const entities = t.entities || [];
     const missingEntities = entities.filter(e => e.status === 'missing');
@@ -1702,7 +1843,7 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     const checked = t.selected ? 'checked' : '';
     const disabled = t.status === 'invalid' ? 'disabled' : '';
     const statusClass = t.status === 'new' ? 'ok' : t.status === 'invalid' || t.required_entity_missing ? 'warn' : '';
-    const pauseNote = t.required_entity_missing ? '<div class="entity-warning">Required entity missing. This task will be imported paused unless remapped in the entity mapping step.</div>' : '';
+    const pauseNote = t.required_entity_missing ? '<div class="entity-warning">Required entity missing. Configure this task before import.</div>' : '';
     const entityList = missingEntities.slice(0, 3).map(e => `<code>${this.escape(e.entity_id || e.id || '')}</code>`).join(' ');
     return `<div class="review-row ${disabled ? 'disabled' : ''}">
       <div class="review-check"><input type="checkbox" class="import-task-select" data-task-id="${this.escape(t.id)}" ${checked} ${disabled}></div>
@@ -1807,6 +1948,7 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
       this.importEntityFilter = 'all';
       this.importEntityQueueIndex = 0;
       this.importEntityMapping = {};
+      this.importApplyResult = null;
       this.importWizardStep = 1;
       this.importWizardOpen = true;
       this.render();
@@ -1825,6 +1967,7 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
       this.importEntityFilter = 'all';
       this.importEntityQueueIndex = 0;
       this.importEntityMapping = {};
+      this.importApplyResult = null;
       this.importWizardStep = 1;
       this.importWizardOpen = true;
       this.render();
@@ -1856,29 +1999,24 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
 
   captureEntityMapping() {
     const mapping = {...(this.importEntityMapping || {})};
-    this.shadowRoot.querySelectorAll('[data-map-entity]').forEach(el => {
-      if (!el.checked) return;
-      const id = el.dataset.mapEntity;
-      if (el.value === '__manual__') {
-        const picker = this.shadowRoot.querySelector(`[data-map-picker="${CSS.escape(id)}"]`);
-        mapping[id] = picker?.value || mapping[id] || '__unresolved__';
-      } else {
-        mapping[id] = el.value;
-      }
+    this.shadowRoot.querySelectorAll('ha-entity-picker[data-task-map-picker]').forEach(el => {
+      const key = el.dataset.taskMapPicker;
+      if (!key) return;
+      if (el.value) mapping[key] = el.value;
+      else if (mapping[key] && mapping[key] !== '__clear__') delete mapping[key];
     });
     this.importEntityMapping = mapping;
     return mapping;
   }
 
   filteredImportEntityRefs() {
-    const filter = this.importEntityFilter || 'all';
-    return this.importMissingEntityRefs().filter(ref => filter === 'all' || (filter === 'required' ? ref.required : !ref.required));
+    return this.importTaskConfigQueue();
   }
 
   advanceEntityQueue(delta=1) {
-    const refs = this.filteredImportEntityRefs();
-    if (!refs.length) return;
-    this.importEntityQueueIndex = Math.max(0, Math.min((this.importEntityQueueIndex || 0) + delta, refs.length - 1));
+    const queue = this.importTaskConfigQueue();
+    if (!queue.length) return;
+    this.importEntityQueueIndex = Math.max(0, Math.min((this.importEntityQueueIndex || 0) + delta, queue.length - 1));
   }
 
   autoAdvanceEntityQueue() {
@@ -1898,19 +2036,48 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     this.captureEntityMapping();
   }
 
+  canMoveToImportStep(targetStep) {
+    if (targetStep <= 1) return true;
+    if (targetStep === 4 && !this.importApplyResult) {
+      alert('Run the import from Review Import before viewing Import Complete.');
+      return false;
+    }
+    if (!this.selectedImportTasks().length) {
+      alert('Select at least one valid task before continuing.');
+      return false;
+    }
+    if (targetStep >= 3) {
+      this.captureEntityMapping();
+      if (!this.requiredImportMappingsComplete()) {
+        alert('Select required entities for each configured task before reviewing the import.');
+        return false;
+      }
+      const conflicts = this.importMappingConflicts();
+      if (conflicts.length) {
+        alert(conflicts[0]);
+        return false;
+      }
+    }
+    return true;
+  }
+
   async applyImportJson() {
     if (!this.importPackage || !this.importPreview) { alert('Preview an import first.'); return; }
     this.captureImportWizardOptions();
     const selected_ids = this.selectedImportIds();
     if (!selected_ids.length) { alert('Select at least one task to import.'); return; }
+    if (!this.requiredImportMappingsComplete()) { alert('Select required entities for each configured task before importing.'); return; }
+    const conflicts = this.importMappingConflicts();
+    if (conflicts.length) { alert(conflicts[0]); return; }
     if (this.importMode === 'replace' && !confirm(`Replace existing HMM tasks with ${selected_ids.length} selected imported task(s)? This cannot be undone except by restoring a backup or importing another export.`)) return;
     try {
       const import_settings = !!this.shadowRoot.getElementById('import-settings')?.checked;
       const restore_deleted = !!this.shadowRoot.getElementById('restore-deleted')?.checked;
-      const result = await this._hass.callWS({ type: 'home_maintenance_manager/import_apply', mode: this.importMode, data: this.importPackage, selected_ids, import_settings, restore_deleted, entity_mapping: this.captureEntityMapping() });
-      alert(`Import complete.\nNew tasks imported: ${result.new_tasks ?? 0}\nUpdated tasks: ${result.updated_tasks ?? 0}\nPaused due to unresolved entities: ${result.paused_due_to_unresolved_entities ?? 0}\nSkipped: ${result.skipped ?? 0}\nTasks now: ${result.after_tasks ?? 0}`);
-      this.importPackage = null; this.importPreview = null; this.importWizardOpen = false; this.importEntityMapping = {}; this.importWizardStep = 1;
+      const result = await this._hass.callWS({ type: 'home_maintenance_manager/import_apply', mode: this.importMode, data: this.importPackage, selected_ids, import_settings, restore_deleted, entity_mapping: this.importBackendEntityMapping() });
+      this.importApplyResult = result;
+      this.importWizardStep = 4;
       await this.loadData();
+      this.render();
     } catch (err) {
       alert(`Import failed: ${err?.message || err}`);
     }
@@ -2565,16 +2732,24 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     this.shadowRoot.querySelectorAll('[data-action="close-import-wizard"]').forEach(el=>el.onclick=()=>{this.importWizardOpen=false;this.render();});
     this.shadowRoot.querySelectorAll('[data-action="import-wizard-scrim"]').forEach(el=>el.onclick=(ev)=>{ if (ev.target === el) { this.importWizardOpen=false; this.render(); } });
     this.shadowRoot.querySelectorAll('[data-import-filter]').forEach(el=>el.onclick=()=>{ this.captureImportSelections(); this.captureEntityMapping(); this.importStatusFilter=el.dataset.importFilter; this.render(); });
-    this.shadowRoot.querySelectorAll('[data-import-step]').forEach(el=>el.onclick=()=>{ this.captureImportSelections(); this.captureImportWizardOptions(); this.importWizardStep=Number(el.dataset.importStep||1); this.render(); });
-    this.shadowRoot.querySelectorAll('[data-action="import-step-next"]').forEach(el=>el.onclick=()=>{ this.captureImportSelections(); this.captureImportWizardOptions(); this.importWizardStep=Math.min(5,(this.importWizardStep||1)+1); this.render(); });
+    this.shadowRoot.querySelectorAll('[data-import-step]').forEach(el=>el.onclick=()=>{ this.captureImportSelections(); this.captureImportWizardOptions(); const target=Number(el.dataset.importStep||1); if (this.canMoveToImportStep(target)) { this.importWizardStep=target; this.render(); } });
+    this.shadowRoot.querySelectorAll('[data-action="import-step-next"]').forEach(el=>el.onclick=()=>{ this.captureImportSelections(); this.captureImportWizardOptions(); const target=Math.min(4,(this.importWizardStep||1)+1); if (this.canMoveToImportStep(target)) { this.importWizardStep=target; this.render(); } });
     this.shadowRoot.querySelectorAll('[data-action="import-step-prev"]').forEach(el=>el.onclick=()=>{ this.captureImportSelections(); this.captureImportWizardOptions(); this.importWizardStep=Math.max(1,(this.importWizardStep||1)-1); this.render(); });
     this.shadowRoot.querySelectorAll('[data-entity-filter]').forEach(el=>el.onclick=()=>{ this.captureEntityMapping(); this.importEntityFilter=el.dataset.entityFilter; this.importEntityQueueIndex=0; this.render(); });
     this.shadowRoot.querySelectorAll('[data-entity-queue-index]').forEach(el=>el.onclick=()=>{ this.captureEntityMapping(); this.importEntityQueueIndex=Number(el.dataset.entityQueueIndex||0); this.render(); });
     this.shadowRoot.querySelectorAll('[data-action="entity-queue-next"]').forEach(el=>el.onclick=()=>{ this.captureEntityMapping(); this.advanceEntityQueue(1); this.render(); });
     this.shadowRoot.querySelectorAll('[data-action="entity-queue-prev"]').forEach(el=>el.onclick=()=>{ this.captureEntityMapping(); this.advanceEntityQueue(-1); this.render(); });
-    this.shadowRoot.querySelectorAll('[data-map-entity]').forEach(el=>el.onchange=()=>{ this.captureEntityMapping(); if (el.value !== '__manual__') this.render(); });
-    this.shadowRoot.querySelectorAll('[data-map-suggestion]').forEach(el=>el.onclick=()=>{ const id=el.dataset.mapSuggestion; this.importEntityMapping[id]=el.dataset.mapValue; this.autoAdvanceEntityQueue(); });
-    this.shadowRoot.querySelectorAll('ha-entity-picker[data-map-picker]').forEach(el=>{ el.hass=this._hass; const id=el.dataset.mapPicker; const v=this.importEntityMapping?.[id]; if (v && !['__unresolved__','__clear__'].includes(v)) el.value=v; el.addEventListener('value-changed', ev=>{ const value=ev.detail?.value; this.importEntityMapping[id]=value || '__unresolved__'; const radio=this.shadowRoot.querySelector(`input[data-map-entity="${CSS.escape(id)}"][value="__manual__"]`); if (radio) radio.checked=true; if (value) this.autoAdvanceEntityQueue(); }); });
+    this.shadowRoot.querySelectorAll('[data-skip-optional-map]').forEach(el=>el.onclick=()=>{ this.importEntityMapping[el.dataset.skipOptionalMap]='__clear__'; this.render(); });
+    this.shadowRoot.querySelectorAll('[data-clear-task-map]').forEach(el=>el.onclick=()=>{ delete this.importEntityMapping[el.dataset.clearTaskMap]; this.render(); });
+    this.shadowRoot.querySelectorAll('ha-entity-picker[data-task-map-picker]').forEach(el=>{
+      el.hass=this._hass;
+      const id=el.dataset.taskMapPicker;
+      const domains=(el.dataset.includeDomains || '').split(',').map(v=>v.trim()).filter(Boolean);
+      if (domains.length) el.includeDomains=domains;
+      const v=this.importEntityMapping?.[id];
+      if (v && !['__unresolved__','__clear__'].includes(v)) el.value=v;
+      el.addEventListener('value-changed', ev=>{ const value=ev.detail?.value; if (value) this.importEntityMapping[id]=value; else delete this.importEntityMapping[id]; this.render(); });
+    });
     this.shadowRoot.querySelectorAll('[data-action="select-all-import"]').forEach(el=>el.onclick=()=>{this.shadowRoot.querySelectorAll('.import-task-select:not(:disabled)').forEach(cb=>cb.checked=true); this.captureImportSelections(); this.render();});
     this.shadowRoot.querySelectorAll('[data-action="select-none-import"]').forEach(el=>el.onclick=()=>{this.shadowRoot.querySelectorAll('.import-task-select').forEach(cb=>cb.checked=false); this.captureImportSelections(); this.render();});
     this.shadowRoot.querySelectorAll('.import-task-select').forEach(el=>el.onchange=()=>this.captureImportSelections());
