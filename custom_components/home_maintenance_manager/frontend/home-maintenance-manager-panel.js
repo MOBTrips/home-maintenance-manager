@@ -13,7 +13,6 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     this.importWizardOpen = false;
     this.importWizardStep = 1;
     this.importStatusFilter = "all";
-    this.importEntityFilter = "all";
     this.importEntityQueueIndex = 0;
     this.importEntityMapping = {};
     this.taskPackExportOpen = false;
@@ -132,7 +131,7 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
       .btn.danger { background:#b00020; color:white; }
       .btn.small { padding:7px 11px; font-size:13px; }
       .grid { display:grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap:16px; }
-      .card { background: var(--card-background-color); border-radius:18px; padding:18px; box-shadow: var(--ha-card-box-shadow, 0 2px 8px rgba(0,0,0,.12)); border: 1px solid var(--divider-color); }
+      .card { min-width:0; background: var(--card-background-color); border-radius:18px; padding:18px; box-shadow: var(--ha-card-box-shadow, 0 2px 8px rgba(0,0,0,.12)); border: 1px solid var(--divider-color); }
       .metric { font-size:34px; font-weight:700; }
       .metric-card { min-height:118px; display:flex; flex-direction:column; justify-content:space-between; gap:8px; }
       .metric-card .metric-card-head { display:flex; justify-content:space-between; gap:10px; align-items:flex-start; }
@@ -163,7 +162,8 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
       .pill.critical { background:var(--hmm-status-critical-bg); color:var(--hmm-status-critical-text); }
       .pill.warn { background:var(--hmm-status-due-soon-bg); color:var(--hmm-status-due-soon-text); }
       .pill.paused, .pill.snoozed, .pill.season_paused { background:var(--hmm-status-paused-bg); color:var(--hmm-status-paused-text); }
-      .status-chip { display:inline-flex; align-items:center; gap:6px; border:1px solid transparent; border-radius:999px; padding:5px 10px; font-size:12px; font-weight:700; line-height:1; text-transform:uppercase; background:var(--hmm-status-neutral-bg); color:var(--hmm-status-neutral-text); white-space:nowrap; }
+      .status-chip { max-width:100%; display:inline-flex; align-items:center; gap:6px; border:1px solid transparent; border-radius:999px; padding:5px 10px; font-size:12px; font-weight:700; line-height:1; text-transform:uppercase; background:var(--hmm-status-neutral-bg); color:var(--hmm-status-neutral-text); white-space:nowrap; }
+      .status-chip span { min-width:0; overflow:hidden; text-overflow:ellipsis; }
       .status-chip ha-icon { --mdc-icon-size:16px; width:16px; height:16px; flex:0 0 16px; }
       .status-chip--compact { padding:4px 8px; font-size:11px; }
       .status-chip--healthy { background:var(--hmm-status-healthy-bg); color:var(--hmm-status-healthy-text); }
@@ -186,7 +186,7 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
       .detail-dialog-body { display:grid; gap:18px; }
       .detail-summary { display:grid; grid-template-columns:96px minmax(0, 1fr); gap:16px; align-items:center; }
       .detail-summary-main { min-width:0; display:grid; gap:8px; }
-      .detail-summary-title { font-size:22px; font-weight:800; overflow:hidden; text-overflow:ellipsis; }
+      .detail-summary-title { font-size:22px; font-weight:800; overflow-wrap:anywhere; }
       .detail-section { border:1px solid var(--divider-color); border-radius:16px; padding:16px; background:var(--secondary-background-color); }
       .detail-section .section-header { margin:0 0 12px; }
       .detail-info-grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(180px, 1fr)); gap:10px; }
@@ -215,14 +215,14 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
       .task-card { display:flex; flex-direction:column; gap:12px; }
       .task-card-head { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; }
       .task-card-title-row { min-width:0; display:flex; align-items:center; gap:10px; }
-      .task-card-title-row .task-title { margin:0; min-width:0; overflow:hidden; text-overflow:ellipsis; }
+      .task-card-title-row .task-title { margin:0; min-width:0; overflow:hidden; text-overflow:ellipsis; overflow-wrap:anywhere; }
       .task-card-meta { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
       .task-progress-row { display:grid; grid-template-columns:minmax(0, 1fr) auto; gap:10px; align-items:center; }
       .task-progress-row .progress { margin:0; }
       .task-date-grid { display:grid; grid-template-columns:1fr 1fr; gap:8px; color:var(--secondary-text-color); font-size:13px; }
       .task-toolbar-footer { display:flex; justify-content:space-between; align-items:center; gap:12px; margin-top:12px; flex-wrap:wrap; }
       .view-mode-toggle { display:inline-flex; gap:4px; padding:4px; border:1px solid var(--divider-color); border-radius:999px; background:var(--card-background-color); }
-      .view-mode-toggle button { border:0; border-radius:999px; padding:8px 12px; cursor:pointer; background:transparent; color:var(--primary-text-color); }
+      .view-mode-toggle button { border:0; border-radius:999px; padding:8px 12px; cursor:pointer; background:transparent; color:var(--primary-text-color); white-space:nowrap; }
       .view-mode-toggle button.active { background:var(--primary-color); color:var(--text-primary-color); }
       .list { display:flex; flex-direction:column; gap:12px; }
       .two { display:grid; grid-template-columns: 1fr 1fr; gap:12px; }
@@ -253,13 +253,14 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
       ha-entity-picker, ha-selector { display:block; width:100%; --mdc-theme-surface: var(--card-background-color); --mdc-theme-on-surface: var(--primary-text-color); }
       textarea { min-height:80px; }
       .modal-scrim { position:fixed; inset:0; background:rgba(0,0,0,.45); display:flex; align-items:flex-start; justify-content:center; padding:40px 16px; z-index:10; overflow:auto; }
-      .modal { width:min(940px, 100%); background:var(--card-background-color); border-radius:22px; padding:22px; box-shadow:0 16px 50px rgba(0,0,0,.35); }
+      .modal { width:min(940px, 100%); max-height:calc(100vh - 80px); overflow:auto; background:var(--card-background-color); border-radius:22px; padding:22px; box-shadow:0 16px 50px rgba(0,0,0,.35); }
       .modal-actions-bottom { display:flex; gap:8px; justify-content:space-between; align-items:center; margin-top:18px; padding-top:16px; border-top:1px solid var(--divider-color); }
       .modal-actions-bottom .right { display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-end; }
       .unsaved-dialog { position:fixed; inset:0; background:rgba(0,0,0,.52); z-index:30; display:flex; align-items:center; justify-content:center; padding:20px; }
       .unsaved-card { width:min(460px, 100%); background:var(--card-background-color); border-radius:18px; padding:20px; box-shadow:0 16px 50px rgba(0,0,0,.4); border:1px solid var(--divider-color); }
       .unsaved-card h3 { margin:0 0 8px; }
-      .modal-head { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:8px; }
+      .modal-head { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; margin-bottom:8px; }
+      .modal-head h2 { overflow-wrap:anywhere; }
       .empty { text-align:center; padding:40px 16px; }
       .history-item { border-left:4px solid var(--primary-color); padding-left:12px; }
       .history-screen { display:grid; gap:18px; }
@@ -268,7 +269,7 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
       .history-date-rail { position:sticky; top:12px; display:flex; gap:10px; align-items:flex-start; color:var(--secondary-text-color); }
       .history-date-marker { width:12px; height:12px; border-radius:50%; background:var(--primary-color); box-shadow:0 0 0 4px rgba(3,169,244,.14); margin-top:4px; flex:0 0 auto; }
       .history-date-label { display:grid; gap:2px; }
-      .history-date-label b { color:var(--primary-text-color); }
+      .history-date-label b { color:var(--primary-text-color); overflow-wrap:anywhere; }
       .history-day-list { position:relative; display:grid; gap:10px; }
       .history-day-list::before { content:""; position:absolute; left:-24px; top:4px; bottom:4px; width:1px; background:var(--divider-color); }
       .history-entry { position:relative; display:grid; grid-template-columns:auto minmax(0,1fr); gap:12px; align-items:start; padding:12px 14px; border:1px solid var(--divider-color); border-radius:12px; background:var(--card-background-color); }
@@ -276,7 +277,7 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
       .history-entry-icon { display:flex; align-items:center; gap:8px; min-width:0; }
       .history-entry-content { min-width:0; display:grid; gap:6px; }
       .history-entry-main { display:flex; justify-content:space-between; gap:12px; align-items:flex-start; }
-      .history-entry-title { min-width:0; font-weight:700; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+      .history-entry-title { min-width:0; font-weight:700; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; overflow-wrap:anywhere; }
       .history-entry-meta { display:flex; gap:8px; align-items:center; flex-wrap:wrap; color:var(--secondary-text-color); font-size:13px; }
       .history-entry-notes { color:var(--secondary-text-color); font-size:13px; }
       .tag-row { display:flex; justify-content:space-between; gap:12px; align-items:center; border-bottom:1px solid var(--divider-color); padding:10px 0; }
@@ -378,21 +379,16 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
       .review-row.disabled { opacity:.62; }
       .review-check { padding-top:5px; }
       .review-title-row { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; }
-      .review-title-row h3 { margin:0 0 4px; font-size:18px; }
+      .review-title-row h3 { margin:0 0 4px; font-size:18px; overflow-wrap:anywhere; }
       .entity-warning { margin-top:8px; color:var(--primary-text-color); font-weight:700; }
       .missing-entity-list { margin-top:8px; color:var(--secondary-text-color); line-height:1.8; }
       .missing-entity-list code { white-space:normal; }
-      .import-options-section { margin:12px 22px 0; }
       .wizard-panel { padding:16px 22px; }
       .wizard-section-card { border:1px solid var(--divider-color); border-radius:16px; padding:14px; margin:0 0 12px; background:var(--secondary-background-color); }
       .wizard-section-card h3 { margin:0 0 8px; }
       .option-card { display:flex; align-items:flex-start; gap:10px; border:1px solid var(--divider-color); border-radius:14px; padding:12px; margin:10px 0; background:var(--card-background-color); cursor:pointer; }
       .option-card input { flex:0 0 auto; width:auto; margin-top:3px; }
       .danger-option { border-style:dashed; }
-      .entity-map-row { display:grid; grid-template-columns:1.1fr 1.4fr; gap:14px; align-items:start; border:1px solid var(--divider-color); border-radius:16px; padding:14px; margin-bottom:12px; background:var(--secondary-background-color); }
-      .entity-map-row .entity-original { word-break:break-word; }
-      .entity-map-actions { display:grid; gap:8px; }
-      .entity-map-actions ha-entity-picker { display:block; width:100%; }
       .task-config-layout { display:grid; grid-template-columns:minmax(230px,.75fr) minmax(0,1.5fr); gap:14px; align-items:start; }
       .task-config-list { display:grid; gap:8px; }
       .task-config-item { text-align:left; border:1px solid var(--divider-color); border-radius:12px; padding:10px; background:var(--card-background-color); color:var(--primary-text-color); cursor:pointer; }
@@ -401,31 +397,21 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
       .task-config-item.blocked { border-color:#b00020; }
       .task-config-panel { border:1px solid var(--divider-color); border-radius:16px; padding:16px; background:var(--secondary-background-color); }
       .task-config-head { display:flex; justify-content:space-between; gap:12px; align-items:flex-start; margin-bottom:12px; }
-      .task-config-head h3 { margin:0 0 4px; }
+      .task-config-head h3 { margin:0 0 4px; overflow-wrap:anywhere; }
       .task-requirement-card { border:1px solid var(--divider-color); border-radius:14px; padding:12px; background:var(--card-background-color); margin-top:10px; }
       .task-requirement-head { display:flex; justify-content:space-between; gap:12px; align-items:flex-start; }
       .task-requirement-picker { margin-top:10px; }
-      .entity-queue-layout { display:grid; grid-template-columns:minmax(230px, .75fr) minmax(0, 1.5fr); gap:14px; align-items:start; }
-      .entity-queue-list { display:grid; gap:8px; }
-      .entity-queue-item { text-align:left; border:1px solid var(--divider-color); border-radius:12px; padding:10px; background:var(--card-background-color); color:var(--primary-text-color); cursor:pointer; }
-      .entity-queue-item.active { border-color:var(--primary-color); box-shadow:0 0 0 1px var(--primary-color); }
-      .entity-queue-item.mapped { border-color:#0b6b20; }
-      .entity-queue-panel { border:1px solid var(--divider-color); border-radius:16px; padding:16px; background:var(--secondary-background-color); }
       .entity-meta-grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(150px, 1fr)); gap:8px; margin:12px 0; }
       .entity-meta-tile { border:1px solid var(--divider-color); border-radius:12px; padding:10px; background:var(--card-background-color); }
       .entity-meta-tile .key { color:var(--secondary-text-color); font-size:12px; margin-bottom:2px; }
-      details.entity-picker-fallback { border:1px dashed var(--divider-color); border-radius:12px; padding:10px; background:var(--card-background-color); }
-      .entity-map-context { margin-top:12px; display:grid; gap:8px; }
       .entity-context-card { border:1px solid var(--divider-color); border-radius:12px; padding:10px; background:var(--card-background-color); }
       .entity-context-title { display:flex; align-items:flex-start; justify-content:space-between; gap:8px; font-weight:800; }
-      .entity-context-meta { color:var(--secondary-text-color); font-size:13px; margin-top:3px; line-height:1.45; }
-      .entity-context-note { margin-top:6px; font-size:13px; line-height:1.45; }
-      .entity-context-more { color:var(--secondary-text-color); font-size:13px; margin-top:4px; }
       .summary-list { display:grid; gap:8px; }
       .summary-line { display:flex; justify-content:space-between; gap:12px; border-bottom:1px solid var(--divider-color); padding:8px 0; }
+      .summary-line > span, .summary-line > b { min-width:0; overflow-wrap:anywhere; }
       .sticky-actions { position:sticky; bottom:0; background:var(--card-background-color); padding:16px 22px; margin:0; }
       .empty-list { text-align:center; color:var(--secondary-text-color); padding:24px; }
-      @media(max-width: 800px){ .history-day { grid-template-columns:1fr; gap:8px; } .history-date-rail { position:static; } .history-day-list::before, .history-entry::before { display:none; } .history-entry-main { display:grid; gap:6px; } .history-entry-title { white-space:normal; } .entity-map-row, .entity-queue-layout, .task-config-layout { grid-template-columns:1fr; } .task-config-head, .task-requirement-head { display:grid; } .import-wizard-scrim { padding:0; } .import-wizard { min-height:100vh; border-radius:0; } .wizard-summary-grid { grid-template-columns:1fr 1fr; } .wizard-controls { flex-direction:column; align-items:stretch; } .review-list { max-height:none; } .modal-actions-bottom.sticky-actions { align-items:stretch; flex-direction:column; } .sticky-actions .right { justify-content:stretch; } .sticky-actions .right .btn { flex:1; } }
+      @media(max-width: 800px){ .history-day { grid-template-columns:1fr; gap:8px; } .history-date-rail { position:static; } .history-day-list::before, .history-entry::before { display:none; } .history-entry-main { display:grid; gap:6px; } .history-entry-title { white-space:normal; } .task-config-layout { grid-template-columns:1fr; } .task-config-head, .task-requirement-head, .entity-context-title, .summary-line { display:grid; } .import-wizard-scrim { padding:0; } .import-wizard { min-height:100vh; max-height:none; border-radius:0; } .wizard-summary-grid { grid-template-columns:1fr 1fr; } .wizard-controls { flex-direction:column; align-items:stretch; } .review-list { max-height:none; } .modal-actions-bottom.sticky-actions { align-items:stretch; flex-direction:column; } .sticky-actions .right { justify-content:stretch; } .sticky-actions .right .btn { flex:1; } }
     `;
   }
 
@@ -1719,112 +1705,6 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     </div>`;
   }
 
-  renderImportWizardAnalyzeStep(p, counts, entity) {
-    const exported = p.exported_at ? new Date(p.exported_at).toLocaleString() : 'Not provided';
-    const isPack = p.package_type === 'task_pack';
-    const pack = p.pack || {};
-    const requirements = Array.isArray(p.entity_requirements) ? p.entity_requirements : [];
-    return `<div class="wizard-panel">
-      <div class="wizard-section-card"><h3>File analysis</h3>
-        <p><b>Type:</b> ${this.escape(p.package_type || 'backup')}</p>
-        <p><b>Version:</b> ${this.escape(String(p.format_version || 'Not provided'))}</p>
-        <p><b>Exported:</b> ${this.escape(exported)}</p>
-        <p><b>Settings included:</b> ${p.settings_present ? 'Yes' : 'No'}</p>
-      </div>
-      ${isPack ? `<div class="wizard-section-card"><h3>Task Pack metadata</h3>
-        <div class="summary-list">
-          <div class="summary-line"><span>Pack ID</span><b>${this.escape(pack.id || 'Not provided')}</b></div>
-          <div class="summary-line"><span>Name</span><b>${this.escape(pack.name || p.pack_name || 'Task Pack')}</b></div>
-          <div class="summary-line"><span>Pack version</span><b>${this.escape(pack.version || 'Not provided')}</b></div>
-          <div class="summary-line"><span>Author</span><b>${this.escape(pack.author || 'Not provided')}</b></div>
-          <div class="summary-line"><span>Source</span><b>${this.escape(pack.source || pack.source_url || 'Not provided')}</b></div>
-          <div class="summary-line"><span>Provenance</span><b>${this.escape(pack.provenance?.kind || 'community')}</b></div>
-        </div>
-        ${pack.description ? `<p class="muted">${this.escape(pack.description)}</p>` : ''}
-      </div>
-      <div class="wizard-section-card"><h3>Template safety</h3>
-        <p class="muted">Task Packs always merge. They cannot replace full storage, remove existing tasks, import settings, or restore deleted tombstones. Runtime/history, NFC tag IDs, Home Assistant device IDs, and private notification targets are ignored.</p>
-      </div>` : ''}
-      <div class="wizard-section-card"><h3>Impact preview</h3>
-        <div class="summary-list">
-          <div class="summary-line"><span>New tasks</span><b>${counts.new || 0}</b></div>
-          <div class="summary-line"><span>Updates</span><b>${counts.update || 0}</b></div>
-          <div class="summary-line"><span>Duplicates</span><b>${counts.duplicate || 0}</b></div>
-          <div class="summary-line"><span>Previously deleted</span><b>${counts.deleted || 0}</b></div>
-          <div class="summary-line"><span>Invalid</span><b>${counts.invalid || 0}</b></div>
-          <div class="summary-line"><span>Entities found</span><b>${entity.found || 0}</b></div>
-          <div class="summary-line"><span>Entities missing</span><b>${entity.missing || 0}</b></div>
-          ${isPack ? `<div class="summary-line"><span>Entity requirements</span><b>${requirements.length}</b></div>` : ''}
-        </div>
-      </div>
-      ${isPack ? this.renderTaskPackRequirements(requirements) : ''}
-      ${(entity.required_missing || 0) ? `<div class="wizard-warning"><b>Entity mapping recommended:</b> required runtime/counter entities are missing. Map them in step 3 or those tasks will be imported paused.</div>` : ''}
-    </div>`;
-  }
-
-  renderTaskPackRequirements(requirements) {
-    if (!requirements.length) return `<div class="wizard-section-card"><h3>Entity requirements</h3><p class="muted">This Task Pack does not declare entity requirements.</p></div>`;
-    return `<div class="wizard-section-card"><h3>Entity requirements</h3>
-      <div class="summary-list">
-        ${requirements.map(req => `<div class="summary-line"><span>${this.escape(req.name || req.id)}</span><b>${this.escape(req.required ? 'Required' : 'Optional')}</b></div><p class="muted">${this.escape([req.role, req.domain, req.description].filter(Boolean).join(' • ') || req.id)}</p>`).join('')}
-      </div>
-    </div>`;
-  }
-
-  renderImportWizardTaskStep(p, counts, missing) {
-    const total = (p.tasks || []).length;
-    const filters = [
-      ['all', `All (${total})`], ['new', `New (${counts.new || 0})`], ['update', `Updates (${counts.update || 0})`],
-      ['duplicate', `Duplicates (${counts.duplicate || 0})`], ['deleted', `Deleted (${counts.deleted || 0})`],
-      ['invalid', `Invalid (${counts.invalid || 0})`], ['missing_entities', `Missing entities (${missing || 0})`],
-    ];
-    const rows = (p.tasks || []).filter(t => {
-      const f = this.importStatusFilter || 'all';
-      if (f === 'all') return true;
-      if (f === 'missing_entities') return (t.entities || []).some(e => e.status === 'missing');
-      return t.status === f;
-    }).map(t => this.renderImportTaskReviewRow(t)).join('');
-    return `<div class="wizard-controls">
-      <div><label>Show</label><div class="chip-row">${filters.map(([id,label]) => `<button class="chip ${this.importStatusFilter === id ? 'active' : ''}" data-import-filter="${id}">${this.escape(label)}</button>`).join('')}</div></div>
-      <div class="wizard-bulk-actions"><button class="btn small" data-action="select-all-import">Select all valid</button><button class="btn small" data-action="select-none-import">Select none</button></div>
-    </div><div class="review-list">${rows || '<div class="empty-list">No tasks match this filter.</div>'}</div>`;
-  }
-
-  importMissingEntityRefs() {
-    const rows = [];
-    const byEntity = new Map();
-    for (const t of (this.importPreview?.tasks || [])) {
-      if (!t.selected || t.status === 'invalid') continue;
-      for (const e of (t.entities || [])) {
-        if (e.status !== 'missing') continue;
-        const key = e.entity_id;
-        if (!byEntity.has(key)) byEntity.set(key, {...e, tasks: [], required: !!e.required, roles: new Set()});
-        const ref = byEntity.get(key);
-        ref.required = ref.required || !!e.required;
-        if (e.role) ref.roles.add(e.role);
-        ref.tasks.push({
-          id: t.id,
-          name: t.name || 'Unnamed task',
-          category: t.category || 'General',
-          status: t.status || 'unknown',
-          schedule_type: t.schedule_type || t.schedule?.type || '',
-          frequency: t.frequency || t.interval || '',
-          last_completed: t.last_completed || t.last_done || '',
-          due_date: t.due_date || t.next_due || '',
-          description: t.description || t.notes || t.instructions || '',
-          required: !!e.required,
-          role: e.role || 'entity',
-        });
-      }
-    }
-    for (const ref of byEntity.values()) {
-      ref.role = ref.roles?.size ? Array.from(ref.roles).join(', ') : ref.role;
-      delete ref.roles;
-      rows.push(ref);
-    }
-    return rows;
-  }
-
   importTaskScheduleSummary(t) {
     const bits = [];
     if (t.schedule_type) bits.push(String(t.schedule_type).replace(/_/g, ' '));
@@ -1945,7 +1825,6 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
       this.importPreview = await this._hass.callWS({ type: 'home_maintenance_manager/import_preview', mode: this.importMode, data: this.importPackage });
       if (this.importPreview?.package_type === 'task_pack') this.importMode = 'merge';
       this.importStatusFilter = 'all';
-      this.importEntityFilter = 'all';
       this.importEntityQueueIndex = 0;
       this.importEntityMapping = {};
       this.importApplyResult = null;
@@ -1964,7 +1843,6 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
       this.importPackage = pack;
       this.importPreview = await this._hass.callWS({ type: 'home_maintenance_manager/import_preview', mode: 'merge', data: pack });
       this.importStatusFilter = 'all';
-      this.importEntityFilter = 'all';
       this.importEntityQueueIndex = 0;
       this.importEntityMapping = {};
       this.importApplyResult = null;
@@ -2009,9 +1887,6 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     return mapping;
   }
 
-  filteredImportEntityRefs() {
-    return this.importTaskConfigQueue();
-  }
 
   advanceEntityQueue(delta=1) {
     const queue = this.importTaskConfigQueue();
@@ -2019,15 +1894,6 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     this.importEntityQueueIndex = Math.max(0, Math.min((this.importEntityQueueIndex || 0) + delta, queue.length - 1));
   }
 
-  autoAdvanceEntityQueue() {
-    const before = this.importEntityQueueIndex || 0;
-    this.advanceEntityQueue(1);
-    if ((this.importEntityQueueIndex || 0) === before) {
-      this.render();
-      return;
-    }
-    this.render();
-  }
 
   captureImportWizardOptions() {
     const mode = this.shadowRoot.querySelector('input[name="wizard-import-mode"]:checked')?.value;
@@ -2462,168 +2328,6 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
       </div>
 
       <div class="form-section">
-        <h3>4. Reminders</h3><p class="section-note">Notifications are managed globally in Settings. Most tasks should use the global default. Override only for critical or low-priority tasks.</p>
-        <div class="form-grid">
-          <div class="form-field span-6"><label>${this.label('Notification behavior','Use global settings for normal tasks. Disable for low-priority tasks. Override for special tasks that need different notification behavior.')}</label><select id="task-notify-behavior">${notifyBehaviorOptions}</select></div>
-          <div class="form-field span-6 conditional custom-notify-fields"><label>${this.label('Task override method','Only shown when Override for this task is selected.')}</label><select id="task-notify">${notifyOptions}</select></div>
-          <div class="form-field span-6 conditional custom-notify-fields mobile-fields"><label>${this.label('Task mobile target override','Optional. Leave blank to use the global mobile target(s).')}</label><select id="task-mobile">${mobileOptions}</select></div>
-        </div>
-      </div>
-
-      <div class="form-section">
-        <h3>5. NFC Tag</h3><p class="section-note">Attach a Home Assistant NFC tag so scanning the equipment can open, complete, confirm, or log the maintenance task.</p>
-        <div class="form-grid">
-          <div class="form-field span-6"><label>${this.label('NFC tag','Choose a registered Home Assistant NFC tag. Scanning it can be used to complete, confirm, or log this task.')}</label><select id="task-nfc">${tagOptions}</select></div>
-          <div class="form-field span-6"><label>${this.label('When this tag is scanned','Choose the NFC workflow. Ask for confirmation is safest; Complete immediately is fastest for trusted locations.')}</label><select id="task-nfc-action">${nfcActionOptions}</select><div class="help">Scanning a HA NFC tag opens Home Assistant and also fires a tag_scanned event that HMM handles.</div></div>
-        </div>
-      </div>
-
-      <div class="form-section">
-        <h3>6. Instructions</h3><p class="section-note">Optional homeowner-friendly notes. Add the steps someone should follow when doing the task.</p>
-        <label>${this.label('Instructions','Optional markdown-style instructions or checklist notes. Example: Turn off power, remove filter, clean, reinstall.')}</label><textarea id="task-instructions" placeholder="1. Turn off equipment
-2. Perform maintenance
-3. Mark complete">${this.escape(t.instructions || '')}</textarea>
-      </div>
-
-      <div class="modal-actions-bottom"><button class="btn" data-action="close-detail">Close</button><div class="right"><button class="btn primary" data-complete="${this.escape(t.id)}">Mark complete</button></div></div>
-    </div></div>`;
-  }
-
-  renderModal() {
-    if (!this.modal) return "";
-    if (this.modal.detail) return this.renderTaskDetailModal(this.modal.detail);
-    const t = this.modal.task || {};
-    const isEdit = !!t.id;
-    const areaOptions = [`<option value="">No area / choose later</option>`, ...this.metadata.areas.map(a=>`<option value="${this.escape(a.id)}" ${t.area===a.id?'selected':''}>${this.escape(a.name)}</option>`)].join("");
-    const deviceOptions = [`<option value="">No specific device</option>`, ...this.metadata.devices.sort((a,b)=>(a.name||'').localeCompare(b.name||'')).map(d=>`<option value="${this.escape(d.id)}" ${t.linked_device_id===d.id?'selected':''}>${this.escape(d.name || d.id)}</option>`)].join("");
-    const selectedNotify = t.notification_mode || 'global';
-    const notifyBehavior = ["global","disabled","custom"].includes(selectedNotify) ? selectedNotify : (selectedNotify === "none" ? "disabled" : "custom");
-    const customNotifyMode = ["persistent","mobile","both","automation_only"].includes(selectedNotify) ? selectedNotify : "persistent";
-    const notifyBehaviorOptions = [["global","Use global notification settings"],["disabled","Disable notifications for this task"],["custom","Override for this task"]].map(([v,l])=>`<option value="${v}" ${notifyBehavior===v?'selected':''}>${l}</option>`).join("");
-    const notifyOptions = [["persistent","Home Assistant persistent notification"],["mobile","Mobile app notification"],["both","Home Assistant + mobile app"],["automation_only","Automation only"]].map(([v,l])=>`<option value="${v}" ${customNotifyMode===v?'selected':''}>${l}</option>`).join("");
-    const mobileOptions = [`<option value="">Use global mobile target(s)</option>`, ...this.metadata.notify_services.map(s=>`<option value="${this.escape(s.value)}" ${t.mobile_notify_service===s.value?'selected':''}>${this.escape(s.label)}</option>`)].join("");
-    const tagOptions = [`<option value="">No NFC tag</option>`, ...this.tags.map(tag=>`<option value="${this.escape(tag.tag_id || tag.id)}" ${(t.nfc_tags||[])[0]===(tag.tag_id||tag.id)?'selected':''}>${this.escape(tag.name || tag.tag_id || tag.id)}</option>`)].join("");
-    const nfcAction = t.nfc_action || ((t.nfc_tags||[]).length ? 'confirm' : 'disabled');
-    const nfcActionOptions = [["confirm","Ask for confirmation"],["complete","Complete immediately"],["inspection","Log inspection only"],["open_dashboard","Open task in Maintenance panel"],["disabled","Disabled"]].map(([v,l])=>`<option value="${v}" ${nfcAction===v?'selected':''}>${l}</option>`).join('');
-    const runtimeRule = (t.rules||[]).find(r=>r.type==='runtime') || {};
-    const runtimeMethod = runtimeRule.above !== undefined ? 'above_threshold' : runtimeRule.states ? 'specific_state' : 'entity_on';
-    const runtimeStateText = Array.isArray(runtimeRule.states) ? runtimeRule.states.join(', ') : 'running,on,heating,cooling';
-    const counterRule = (t.rules||[]).find(r=>r.type==='counter') || {};
-    const actualTimeRule = (t.rules||[]).find(r=>r.type==='time');
-    const timeRule = actualTimeRule || {value:90, unit:'days'};
-    const calendarRule = (t.rules||[]).find(r=>r.type==='calendar') || {};
-    const timeInterval = this.intervalFromRule(timeRule, 90, 'days');
-    const runtimeInterval = this.intervalFromRule(runtimeRule, 100, 'hours');
-    const hasTimeRule = !!actualTimeRule;
-    const hasRuntimeRule = !!runtimeRule.entity;
-    const hasCounterRule = !!counterRule.entity;
-    const hasCalendarRule = !!calendarRule.id || calendarRule.type === 'calendar';
-    let scheduleValue = 'time';
-    if (hasTimeRule && hasRuntimeRule) scheduleValue = t.rule_logic === 'all' ? 'time_and_runtime' : 'time_or_runtime';
-    else if (hasTimeRule && hasCounterRule) scheduleValue = t.rule_logic === 'all' ? 'time_and_meter' : 'time_or_meter';
-    else if (hasRuntimeRule) scheduleValue = 'runtime';
-    else if (hasCounterRule) scheduleValue = 'meter';
-    else if (hasCalendarRule) scheduleValue = 'calendar';
-    const counterSourceMode = counterRule.source_mode || 'cumulative';
-    const sourceUnit = counterRule.source_unit || (counterRule.entity && this._hass?.states?.[counterRule.entity]?.attributes?.unit_of_measurement) || '';
-    const counterUnit = counterRule.target_unit || counterRule.unit || (counterSourceMode === 'rate' ? this.totalizedTargetUnit(sourceUnit) : sourceUnit) || 'units';
-    const counterDisplayUnit = counterRule.target_display_unit || counterUnit;
-    const counterDisplayAmount = counterRule.target_display_value ?? this.convertUsageAmount(counterRule.amount || 1000, counterUnit, counterDisplayUnit);
-    const categoryOptions = this.categories().map(c=>`<option value="${this.escape(c)}" ${this.category(t)===c?'selected':''}>${this.escape(c)}</option>`).join('');
-    const calKind = calendarRule.calendar_kind || calendarRule.calendar_type || 'nth_weekday';
-    const calNth = String(calendarRule.nth ?? 2);
-    const calWeekday = String(calendarRule.weekday ?? 1);
-    const calMonth = String(calendarRule.month ?? '');
-    const calDay = String(calendarRule.day ?? 1);
-    const calTime = `${String(calendarRule.hour ?? 9).padStart(2,'0')}:${String(calendarRule.minute ?? 0).padStart(2,'0')}`;
-    const baselineMode = t.baseline_method || 'today';
-    const seasonal = t.seasonal || {};
-    const seasonalEnabled = !!seasonal.enabled;
-    const seasonalSeasons = Array.isArray(seasonal.seasons) ? seasonal.seasons : ((seasonal.season && seasonal.season !== 'custom') ? [seasonal.season] : []);
-    const seasonalCustomEnabled = seasonal.custom_enabled !== undefined ? (!!seasonal.custom_enabled && !seasonalSeasons.length) : (!seasonalSeasons.length || seasonal.season === 'custom');
-    const seasonalStartMonth = seasonal.start_month || 5;
-    const seasonalStartDay = seasonal.start_day || 1;
-    const seasonalEndMonth = seasonal.end_month || 9;
-    const seasonalEndDay = seasonal.end_day || 30;
-    const seasonalStartDate = this.seasonalDateValue(seasonalStartMonth, seasonalStartDay);
-    const seasonalEndDate = this.seasonalDateValue(seasonalEndMonth, seasonalEndDay);
-    const seasonalShowInactive = seasonal.show_when_inactive !== false;
-    const seasonalPauseUsage = seasonal.pause_usage_when_inactive !== false;
-
-    return `<div class="modal-scrim" data-action="modal-scrim"><div class="modal" data-modal-content>
-      <div class="modal-head"><div><h2>${isEdit ? 'Edit maintenance task' : 'Add maintenance task'}</h2><div class="muted">Create or edit the task using the existing schedule model. Phase 5 refreshes layout only.</div></div><button class="btn" data-action="close-modal">Close</button></div>
-
-      <div class="form-section">
-        <h3>Basics</h3><p class="section-note">Name the maintenance item in plain language and choose a category so dashboards and reports can group it.</p>
-        <div class="form-grid">
-          <div class="form-field span-6"><label>${this.label('Task name','The friendly name shown on dashboards and in notifications. Example: HVAC Filter Replacement.')}</label><input id="task-name" placeholder="Example: HVAC filter replacement" value="${this.escape(t.name || '')}"><div id="err-name" class="field-error">Please enter a task name.</div></div>
-          <div class="form-field span-6"><label>${this.label('Maintenance category','Optional. Used to group dashboard cards, filter tasks, calculate category health, and add context to notifications.')}</label><select id="task-category">${categoryOptions}</select></div>
-          <div class="form-field span-12"><label>${this.label('Description','Optional short description for the task card and future reference.')}</label><textarea id="task-description" placeholder="Optional: what this task covers and why it matters.">${this.escape(t.description || '')}</textarea></div>
-        </div>
-      </div>
-
-      <div class="form-section">
-        <h3>Maintenance Rule #1</h3><p class="section-note">This section maps to the existing schedule fields and saves the same task data shape as before.</p>
-        <div class="schedule-row">
-          <div class="form-field"><label>${this.label('Schedule type','Choose time, runtime hours, metered usage, or a combination. Runtime is duration. Metered usage uses the source entity unit.')}</label><select id="task-schedule">
-            <option value="time" ${scheduleValue==='time'?'selected':''}>Time interval</option>
-            <option value="runtime" ${scheduleValue==='runtime'?'selected':''}>Runtime hours</option>
-            <option value="meter" ${scheduleValue==='meter'?'selected':''}>Metered usage</option>
-            <option value="calendar" ${scheduleValue==='calendar'?'selected':''}>Calendar schedule</option>
-            <option value="time_or_runtime" ${scheduleValue==='time_or_runtime'?'selected':''}>Time or runtime, whichever comes first</option>
-            <option value="time_and_runtime" ${scheduleValue==='time_and_runtime'?'selected':''}>Time and runtime</option>
-            <option value="time_or_meter" ${scheduleValue==='time_or_meter'?'selected':''}>Time or metered usage, whichever comes first</option>
-            <option value="time_and_meter" ${scheduleValue==='time_and_meter'?'selected':''}>Time and metered usage</option>
-          </select></div>
-          <div class="form-field conditional time-fields"><label>${this.label('Time interval','For time-based rules, the task becomes due after this interval from the last completion.')}</label><div class="input-row"><input id="task-time-value" type="number" min="0.01" step="0.01" value="${this.escape(timeInterval.value)}"><select id="task-time-unit">${this.unitOptions(timeInterval.unit)}</select></div><div id="err-days" class="field-error">Enter a valid time interval.</div></div>
-        </div>
-        <div class="schedule-card conditional runtime-fields">
-          <h4>Runtime tracking</h4>
-          <div class="form-grid">
-            <div class="form-field span-6"><label>${this.label('Runtime tracking source','Choose the entity used to decide when equipment is running. Switches and binary sensors are easiest. Numeric sensors like W or RPM can use a threshold.')}</label><div class="field-caption">Runtime always counts time. A watts sensor usually means “hours above X watts,” not “watts used.”</div><ha-entity-picker id="task-runtime-entity" allow-custom-entity></ha-entity-picker><div id="runtime-source-hint" class="help"></div><div id="err-runtime-entity" class="field-error">Choose a runtime source for runtime-based tasks.</div></div>
-            <div class="form-field span-6"><label>${this.label('Runtime interval','The task becomes due after this amount of accumulated runtime since the last completion.')}</label><div class="input-row"><input id="task-runtime-value" type="number" min="0.01" step="0.01" value="${this.escape(runtimeInterval.value)}"><select id="task-runtime-interval-unit">${this.unitOptions(runtimeInterval.unit)}</select></div><div class="help">Runtime counts only while the selected running condition is true.</div><div id="err-runtime-hours" class="field-error">Enter valid runtime interval.</div></div>
-            <div class="form-field span-6"><label>${this.label('Counts as running when','Choose how Home Maintenance Manager should interpret the selected source entity.')}</label><select id="task-runtime-method"><option value="entity_on" ${runtimeMethod==='entity_on'?'selected':''}>Entity is ON</option><option value="above_threshold" ${runtimeMethod==='above_threshold'?'selected':''}>Numeric value is above threshold</option><option value="specific_state" ${runtimeMethod==='specific_state'?'selected':''}>Entity is in specific state(s)</option></select><div id="runtime-method-hint" class="help"></div></div>
-            <div class="form-field span-6 conditional threshold-fields"><label>${this.label('Running threshold','For numeric sensors, count runtime while the value is above this threshold. Example: power > 25 W means equipment is running.')}</label><input id="task-runtime-threshold" type="number" step="0.1" value="${runtimeRule.above ?? ''}" placeholder="Example: 25"><div id="err-runtime-threshold" class="field-error">Enter a valid threshold.</div></div>
-            <div class="form-field span-6 conditional state-fields"><label>${this.label('Running states','Comma-separated states that mean the equipment is running. Example: running, heating, cooling.')}</label><input id="task-runtime-states" value="${this.escape(runtimeStateText)}"><div class="help">State matching is exact and case-sensitive to Home Assistant state values.</div></div>
-          </div>
-        </div>
-        <div class="conditional calendar-fields">
-          <h4>Calendar schedule</h4>
-          <p class="section-note">Use this for tasks due on a calendar pattern, such as every 2nd Tuesday of the month.</p>
-          <div class="two">
-            <div><label>${this.label('Calendar pattern','Choose a monthly weekday pattern or a specific month/day.')}</label><select id="task-calendar-kind"><option value="nth_weekday" ${calKind==='nth_weekday'?'selected':''}>Monthly weekday pattern</option><option value="month_day" ${calKind==='month_day'?'selected':''}>Specific month/day</option></select></div>
-            <div><label>${this.label('Due time','The time of day the calendar task becomes due.')}</label><input id="task-calendar-time" type="time" value="${this.escape(calTime)}"></div>
-          </div>
-          <div class="two calendar-nth-fields">
-            <div><label>${this.label('Which week?','Example: 2nd Tuesday means choose 2nd and Tuesday.')}</label><select id="task-calendar-nth"><option value="1" ${calNth==='1'?'selected':''}>1st</option><option value="2" ${calNth==='2'?'selected':''}>2nd</option><option value="3" ${calNth==='3'?'selected':''}>3rd</option><option value="4" ${calNth==='4'?'selected':''}>4th</option><option value="-1" ${calNth==='-1'?'selected':''}>Last</option></select></div>
-            <div><label>${this.label('Weekday','The weekday for the calendar schedule.')}</label><select id="task-calendar-weekday">${this.weekdayOptions(calWeekday)}</select></div>
-          </div>
-          <div class="two calendar-month-day-fields">
-            <div><label>${this.label('Month','Leave blank for every month, or choose a month for annual tasks.')}</label><select id="task-calendar-month"><option value="" ${!calMonth?'selected':''}>Every month</option>${Array.from({length:12},(_,i)=>`<option value="${i+1}" ${calMonth===String(i+1)?'selected':''}>${new Date(2020,i,1).toLocaleString(undefined,{month:'long'})}</option>`).join('')}</select></div>
-            <div><label>${this.label('Day of month','If the day does not exist in a month, the last day of that month is used.')}</label><input id="task-calendar-day" type="number" min="1" max="31" value="${this.escape(calDay)}"></div>
-          </div>
-        </div>
-        <div class="conditional runtime-fields analysis-box">
-          <div><b>Threshold helper</b></div>
-          <div class="help">For numeric sensors, analyze recent history to estimate OFF and RUNNING ranges and recommend a starting threshold.</div>
-          <div class="analysis-controls">
-            <div><label>${this.label('How far back to analyze','Longer periods are better for equipment that runs on schedules. Last 30 days is a good default.')}</label><select id="analysis-days"><option value="1">Last 24 hours</option><option value="7">Last 7 days</option><option value="30" selected>Last 30 days</option><option value="90">Last 90 days</option><option value="365">Last year</option></select></div>
-            <div class="task-actions"><button class="btn small" type="button" data-action="analyze-runtime">Analyze source</button><button class="btn small" type="button" data-action="use-threshold">Use recommended threshold</button></div>
-          </div>
-          <div id="runtime-analysis">${this.renderRuntimeAnalysis()}</div>
-        </div>
-        <div class="schedule-card conditional meter-fields">
-          <h4>Metered usage tracking</h4>
-          <div class="form-grid">
-            <div class="form-field span-6"><label>${this.label('Metered usage source','Choose either a cumulative meter, like total gallons/kWh/miles, or a rate sensor like gal/min that HMM can totalize.')}</label><div class="field-caption">If this sensor is a rate, Home Maintenance Manager can create its own internal totalizer.</div><ha-entity-picker id="task-meter-entity" allow-custom-entity></ha-entity-picker><div id="meter-source-hint" class="help"></div><div id="err-meter-entity" class="field-error">Choose a metered usage source.</div></div>
-            <div class="form-field span-6"><label>${this.label('Usage amount','The task becomes due after this amount of totalized usage since the last completion.')}</label><div class="input-row"><input id="task-meter-amount" type="number" min="0.1" step="0.1" value="${this.escape(counterDisplayAmount)}"><div class="field-caption">every <select id="task-meter-target-unit">${this.usageUnitOptions(counterUnit, counterDisplayUnit)}</select><span id="task-meter-unit" class="hidden">${this.escape(counterUnit)}</span></div></div><div id="err-meter-amount" class="field-error">Enter a valid usage amount.</div></div>
-            <div class="form-field span-6"><label>${this.label('Meter source type','Cumulative meters already contain a total. Rate sensors such as gal/min must be totalized over time. Reset/session counters increase during a session and then drop back to zero.')}</label><select id="task-meter-source-type"><option value="cumulative_total" ${!['rate','session_total','reset_counter'].includes(counterSourceMode)?'selected':''}>Cumulative meter - already total</option><option value="rate" ${counterSourceMode==='rate'?'selected':''}>Rate sensor - let HMM totalize it</option><option value="session_total" ${['session_total','reset_counter'].includes(counterSourceMode)?'selected':''}>Reset/session counter - add positive deltas</option></select><div id="meter-type-hint" class="help"></div></div>
-            <div class="form-field span-6"><div class="info-box" id="meter-explain-box">Metered usage uses a baseline at task creation/completion. HMM subtracts that baseline from the current total to calculate usage used.</div></div>
-          </div>
-        </div>
-      </div>
-
-      <div class="form-section">
         <h3>Maintenance Rule #2</h3><p class="section-note">A second independent maintenance rule is planned for a future phase.</p>
         <div class="editor-placeholder">
           Existing combined schedule choices in Maintenance Rule #1 continue to save through the current compatible rules data. Phase 5 does not add a new backend rule shape or new required fields.
@@ -2735,7 +2439,6 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     this.shadowRoot.querySelectorAll('[data-import-step]').forEach(el=>el.onclick=()=>{ this.captureImportSelections(); this.captureImportWizardOptions(); const target=Number(el.dataset.importStep||1); if (this.canMoveToImportStep(target)) { this.importWizardStep=target; this.render(); } });
     this.shadowRoot.querySelectorAll('[data-action="import-step-next"]').forEach(el=>el.onclick=()=>{ this.captureImportSelections(); this.captureImportWizardOptions(); const target=Math.min(4,(this.importWizardStep||1)+1); if (this.canMoveToImportStep(target)) { this.importWizardStep=target; this.render(); } });
     this.shadowRoot.querySelectorAll('[data-action="import-step-prev"]').forEach(el=>el.onclick=()=>{ this.captureImportSelections(); this.captureImportWizardOptions(); this.importWizardStep=Math.max(1,(this.importWizardStep||1)-1); this.render(); });
-    this.shadowRoot.querySelectorAll('[data-entity-filter]').forEach(el=>el.onclick=()=>{ this.captureEntityMapping(); this.importEntityFilter=el.dataset.entityFilter; this.importEntityQueueIndex=0; this.render(); });
     this.shadowRoot.querySelectorAll('[data-entity-queue-index]').forEach(el=>el.onclick=()=>{ this.captureEntityMapping(); this.importEntityQueueIndex=Number(el.dataset.entityQueueIndex||0); this.render(); });
     this.shadowRoot.querySelectorAll('[data-action="entity-queue-next"]').forEach(el=>el.onclick=()=>{ this.captureEntityMapping(); this.advanceEntityQueue(1); this.render(); });
     this.shadowRoot.querySelectorAll('[data-action="entity-queue-prev"]').forEach(el=>el.onclick=()=>{ this.captureEntityMapping(); this.advanceEntityQueue(-1); this.render(); });

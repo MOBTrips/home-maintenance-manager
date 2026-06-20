@@ -1,5 +1,6 @@
 ## 0.7.4
 
+- Polished the v0.7.4 UI refresh for mobile wrapping, dialog sizing, import wizard consistency, and stale helper cleanup with a Phase 8 regression test plan.
 - Refreshed the import wizard into a four-step task-by-task configuration flow with native entity pickers, clearer review/import-complete screens, and a Phase 7 test plan while preserving backend import compatibility.
 - Refreshed the History screen into a date-grouped timeline using existing completion/activity history data, category icons, supported status chips, and a Phase 6 test plan.
 - Refreshed the task editor layout into Phase 5 sections while preserving existing create/edit, schedule, seasonal, reminder, NFC, delete, and saved-data behavior plus a Phase 5 test plan.
