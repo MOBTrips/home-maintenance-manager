@@ -181,6 +181,24 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
       .hmm-avatar { width:96px; height:96px; border-radius:24px; display:flex; align-items:center; justify-content:center; background:linear-gradient(135deg, var(--primary-color), var(--accent-color, #03a9f4)); color:var(--text-primary-color); box-shadow:0 8px 24px rgba(0,0,0,.18); }
       .hmm-avatar svg { width:70px; height:70px; }
       .status-title { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+      .detail-dialog { width:min(1040px, 100%); }
+      .detail-dialog .modal-head { margin-bottom:14px; }
+      .detail-dialog-body { display:grid; gap:18px; }
+      .detail-summary { display:grid; grid-template-columns:96px minmax(0, 1fr); gap:16px; align-items:center; }
+      .detail-summary-main { min-width:0; display:grid; gap:8px; }
+      .detail-summary-title { font-size:22px; font-weight:800; overflow:hidden; text-overflow:ellipsis; }
+      .detail-section { border:1px solid var(--divider-color); border-radius:16px; padding:16px; background:var(--secondary-background-color); }
+      .detail-section .section-header { margin:0 0 12px; }
+      .detail-info-grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(180px, 1fr)); gap:10px; }
+      .detail-info-item { border:1px solid var(--divider-color); border-radius:12px; padding:10px; background:var(--card-background-color); }
+      .detail-info-label { color:var(--secondary-text-color); font-size:12px; margin-bottom:4px; }
+      .detail-info-value { font-weight:700; overflow-wrap:anywhere; }
+      .detail-two-column { display:grid; grid-template-columns:1fr 1fr; gap:16px; align-items:start; }
+      .detail-history-list { display:grid; gap:10px; }
+      .detail-note { white-space:pre-wrap; line-height:1.5; }
+      .detail-primary-actions { display:flex; gap:8px; flex-wrap:wrap; }
+      .detail-primary-actions .btn.primary { font-weight:800; }
+      @media(max-width: 800px){ .detail-summary, .detail-two-column { grid-template-columns:1fr; } }
       .summary-grid { display:grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap:10px; margin:12px 0; }
       .summary-tile { background:var(--card-background-color); border:1px solid var(--divider-color); border-radius:14px; padding:12px; }
       .summary-tile .value { font-size:22px; font-weight:700; margin-top:4px; }
@@ -1898,6 +1916,70 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     window.dispatchEvent(new CustomEvent('location-changed'));
   }
 
+  detailInfoItem(label, value) {
+    return `<div class="detail-info-item"><div class="detail-info-label">${this.escape(label)}</div><div class="detail-info-value">${value}</div></div>`;
+  }
+
+  renderDetailSection(title, content, subtitle = '') {
+    return `<section class="detail-section">${this.renderSectionHeader(title, { level: 3, subtitle })}${content}</section>`;
+  }
+
+  renderRuntimeTrackingDetail(t) {
+    const items = [];
+    const rules = t.rules || [];
+    for (const r of rules) {
+      if ((r.type === 'runtime' || r.type === 'counter') && r.entity) {
+        const state = this.entityState(r.entity);
+        const stateValue = state ? this.escape(state.state + (state.attributes?.unit_of_measurement ? ' '+state.attributes.unit_of_measurement : '')) : 'Unavailable';
+        items.push(this.detailInfoItem(`${this.ruleTypeLabel(r.type)} entity`, this.escape(r.entity)));
+        items.push(this.detailInfoItem('Current state', stateValue));
+        if (r.type === 'runtime') items.push(this.detailInfoItem('Detection', `${this.escape(this.runtimeMethodLabel(r.entity))}${r.above !== undefined ? ' > '+this.escape(r.above) : ''}`));
+        if (r.type === 'counter') items.push(this.detailInfoItem('Baseline', `${this.escape(r.baseline ?? 0)} ${this.escape(r.target_unit || r.unit || '')}`));
+      }
+    }
+    if (t.linked_entities?.length) items.unshift(this.detailInfoItem('Linked entities', this.escape(t.linked_entities.join(', '))));
+    return items.length ? `<div class="detail-info-grid">${items.join('')}</div>` : '<p class="muted">No runtime, metered usage, or linked entity tracking is configured.</p>';
+  }
+
+  renderReminderDetail(t) {
+    const mode = t.notification_mode || 'global';
+    const labels = {
+      global: 'Use global notification settings',
+      disabled: 'Disabled for this task',
+      none: 'Disabled for this task',
+      persistent: 'Home Assistant persistent notification',
+      mobile: 'Mobile app notification',
+      both: 'Home Assistant + mobile app',
+      automation_only: 'Automation only',
+    };
+    const items = [
+      this.detailInfoItem('Notification behavior', this.escape(labels[mode] || this.friendlyStatus(mode))),
+      this.detailInfoItem('Mobile override', this.escape(t.mobile_notify_service || 'Use global target')),
+    ];
+    return `<div class="detail-info-grid">${items.join('')}</div>`;
+  }
+
+  renderNfcDetail(t, scan) {
+    const tags = t.nfc_tags?.length ? t.nfc_tags.join(', ') : 'No NFC tags assigned';
+    const lastScan = scan ? `${this.dateShort(scan.at)}${scan.scanner_name ? ' by '+this.escape(scan.scanner_name) : ''}` : 'Never';
+    const items = [
+      this.detailInfoItem('Action', this.escape(this.nfcActionLabel(t.nfc_action))),
+      this.detailInfoItem('Tags', this.escape(tags)),
+      this.detailInfoItem('Last scan', lastScan),
+    ];
+    return `<div class="detail-info-grid">${items.join('')}</div>`;
+  }
+
+  renderTaskDetailHistory(completed, recent) {
+    const completions = completed.length
+      ? completed.map(i=>`<div class="history-item"><b>${this.dateShort(i.completed_at || i.at)}</b><div class="muted">${this.escape(i.method || i.completed_by || i.activity || 'Completed')}${i.notes ? ' - '+this.escape(i.notes) : ''}</div></div>`).join('')
+      : '<p class="muted">No completions yet.</p>';
+    const activity = recent.length
+      ? recent.map(i=>`<div class="history-item"><b>${this.escape(i.activity || i.type || 'activity')}</b><div class="muted">${this.dateShort(i.at)}${i.scanner_name ? ' • '+this.escape(i.scanner_name) : ''}${i.notes ? ' - '+this.escape(i.notes) : ''}</div></div>`).join('')
+      : '<p class="muted">No activity yet.</p>';
+    return `<div class="detail-two-column"><div><h4>Completion history</h4><div class="detail-history-list">${completions}</div></div><div><h4>Recent activity</h4><div class="detail-history-list">${activity}</div></div></div>`;
+  }
+
   renderTaskDetailModal(t) {
     const status = this.taskStatus(t);
     const scan = this.lastNfcScan(t);
@@ -1905,46 +1987,45 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     const completed = (t.completion_history || []).slice().sort((a,b)=>String(b.completed_at||b.at||'').localeCompare(String(a.completed_at||a.at||''))).slice(0,8);
     const progress = t.summary || {};
     const percent = this.percent(t);
-    const seasonalCard = this.seasonalSummary(t);
-    const trackingCard = this.trackingSourceHtml(t);
     const scheduleLabel = (t.rules || []).map(r => this.ruleTypeLabel(r.type)).join(' + ') || 'Not configured';
     const nextDueLabel = status === 'season_paused' && progress.next_season_start ? `Season opens ${this.dateShort(progress.next_season_start)}` : this.dateShort(progress.next_due);
-    return `<div class="modal-scrim" data-action="detail-scrim"><div class="modal" data-modal-content>
-      <div class="modal-head"><div><h2>${this.escape(t.name || t.id)}</h2><div class="muted">Task details, schedule progress, seasonal status, and quick actions.</div></div><button class="btn" data-action="close-detail">Close</button></div>
-      <div class="detail-hero">
+    const taskId = this.escape(t.id || '');
+    const summary = this.renderDetailSection('Summary', `
+      <div class="detail-summary">
         <div class="hmm-avatar">${this.detailIconSvg()}</div>
-        <div>
-          <div class="status-title"><span class="pill ${status}">${this.friendlyStatus(status)}</span><span class="category-pill">${this.escape(this.category(t))}</span></div>
-          <h3 style="margin:10px 0 4px">${this.escape(t.equipment_name || 'No asset specified')}</h3>
-          <div class="muted">${this.escape(scheduleLabel)}</div>
-          <div class="progress big"><div class="bar" style="width:${percent}%"></div></div>
-          <div class="muted">${percent}% used${progress.season_active === false ? ' • inactive seasonal window' : ''}</div>
+        <div class="detail-summary-main">
+          <div class="status-title">${this.renderTaskStatusChip(status)}<span class="category-pill">${this.escape(this.category(t))}</span></div>
+          <div class="detail-summary-title">${this.escape(t.equipment_name || 'No asset specified')}</div>
+          <div class="muted">${this.escape(scheduleLabel)}${progress.season_active === false ? ' • inactive seasonal window' : ''}</div>
+          <div class="task-progress-row"><div class="progress big"><div class="bar" style="width:${percent}%"></div></div><b>${percent}% used</b></div>
+          <div class="detail-primary-actions"><button class="btn primary" data-complete="${taskId}">Complete Task</button><button class="btn" data-snooze="${taskId}">Snooze 7 days</button>${this.taskGeneratedDeviceId(t) ? `<button class="btn" data-open-task-device="${taskId}">Open HA Device</button>` : ''}<button class="btn" data-edit-from-detail="${taskId}">Edit task</button></div>
         </div>
       </div>
-      <div class="summary-grid">
-        <div class="summary-tile"><div class="muted">Status</div><div class="value">${this.friendlyStatus(status)}</div></div>
-        <div class="summary-tile"><div class="muted">Next due</div><div class="value">${this.escape(nextDueLabel)}</div></div>
-        <div class="summary-tile"><div class="muted">Last completed</div><div class="value">${this.dateShort(t.last_completed || progress.last_completed)}</div></div>
-        <div class="summary-tile"><div class="muted">Completion count</div><div class="value">${this.escape(progress.completion_count ?? (t.completion_history || []).length ?? 0)}</div></div>
+      <div class="detail-info-grid">
+        ${this.detailInfoItem('Status', this.escape(this.friendlyStatus(status)))}
+        ${this.detailInfoItem('Next due', this.escape(nextDueLabel))}
+        ${this.detailInfoItem('Last completed', this.escape(this.dateShort(t.last_completed || progress.last_completed)))}
+        ${this.detailInfoItem('Completion count', this.escape(progress.completion_count ?? (t.completion_history || []).length ?? 0))}
+        ${this.detailInfoItem('Category', this.escape(this.category(t)))}
+        ${this.detailInfoItem('Area', this.escape(t.area || 'Not specified'))}
       </div>
-      <div class="detail-card-grid">
-        <div class="form-section"><h3>Schedule progress</h3>${this.ruleProgressHtml(t)}</div>
-        <div class="form-section"><h3>Overview</h3><div class="detail-list">
-          <div class="key">Category</div><div>${this.escape(this.category(t))}</div>
-          <div class="key">Asset</div><div>${this.escape(t.equipment_name || 'Not specified')}</div>
-          <div class="key">Area</div><div>${this.escape(t.area || 'Not specified')}</div>
-          <div class="key">NFC action</div><div>${this.escape(this.nfcActionLabel(t.nfc_action))}</div>
-          <div class="key">Last NFC scan</div><div>${scan ? `${this.dateShort(scan.at)}${scan.scanner_name ? ' by '+this.escape(scan.scanner_name) : ''}` : 'Never'}</div>
-        </div>
-        <div class="task-actions"><button class="btn primary" data-complete="${this.escape(t.id)}">Mark complete</button><button class="btn" data-snooze="${this.escape(t.id)}">Snooze 7 days</button>${this.taskGeneratedDeviceId(t) ? `<button class="btn" data-open-task-device="${this.escape(t.id)}">Open HA Device</button>` : ''}<button class="btn" data-edit-from-detail="${this.escape(t.id)}">Edit task</button></div></div>
-      </div>
-      ${seasonalCard}
-      ${trackingCard}
-      ${t.instructions ? `<div class="form-section"><h3>Instructions</h3><div style="white-space:pre-wrap">${this.escape(t.instructions)}</div></div>` : ''}
-      <div class="form-section"><h3>Completion history</h3>${completed.length ? completed.map(i=>`<div class="history-item"><b>${this.dateShort(i.completed_at || i.at)}</b><div class="muted">${this.escape(i.method || i.completed_by || i.activity || 'Completed')}${i.notes ? ' - '+this.escape(i.notes) : ''}</div></div>`).join('') : '<p class="muted">No completions yet.</p>'}</div>
-      <div class="form-section"><h3>Recent activity</h3>${recent.length ? recent.map(i=>`<div class="history-item"><b>${this.escape(i.activity || i.type || 'activity')}</b><div class="muted">${this.dateShort(i.at)}${i.scanner_name ? ' • '+this.escape(i.scanner_name) : ''}${i.notes ? ' - '+this.escape(i.notes) : ''}</div></div>`).join('') : '<p class="muted">No activity yet.</p>'}</div>
-      <div class="modal-actions-bottom"><button class="btn" data-action="close-detail">Close</button><div class="right">${this.taskGeneratedDeviceId(t) ? `<button class="btn" data-open-task-device="${this.escape(t.id)}">Open HA Device</button>` : ''}<button class="btn primary" data-complete="${this.escape(t.id)}">Mark complete</button></div></div>
-    </div></div>`;
+    `);
+    const schedule = this.renderDetailSection('Schedule', this.ruleProgressHtml(t), 'Progress for the currently configured schedule rules.');
+    const runtime = this.renderDetailSection('Runtime Tracking', this.renderRuntimeTrackingDetail(t), 'Runtime, metered usage, and linked entity sources.');
+    const reminders = this.renderDetailSection('Reminders', this.renderReminderDetail(t), 'Task notification behavior.');
+    const nfc = this.renderDetailSection('NFC', this.renderNfcDetail(t, scan), 'Tag assignment and last scan context.');
+    const notes = this.renderDetailSection('Notes', `${t.description ? `<p class="detail-note">${this.escape(t.description)}</p>` : ''}${t.instructions ? `<p class="detail-note">${this.escape(t.instructions)}</p>` : ''}${!t.description && !t.instructions ? '<p class="muted">No notes or instructions yet.</p>' : ''}`);
+    const history = this.renderDetailSection('History', this.renderTaskDetailHistory(completed, recent));
+    return this.renderDialogLayout({
+      title: t.name || t.id,
+      subtitle: 'Task details, schedule progress, and quick actions.',
+      ariaLabel: 'Task details',
+      className: 'detail-dialog',
+      scrimAction: 'detail-scrim',
+      closeAction: 'close-detail',
+      body: `<div class="detail-dialog-body">${summary}<div class="detail-two-column">${schedule}${runtime}</div><div class="detail-two-column">${reminders}${nfc}</div>${notes}${history}</div>`,
+      footer: `<button class="btn" data-action="close-detail">Close</button><div class="right">${this.taskGeneratedDeviceId(t) ? `<button class="btn" data-open-task-device="${taskId}">Open HA Device</button>` : ''}<button class="btn primary" data-complete="${taskId}">Complete Task</button></div>`,
+    });
   }
 
   renderModal() {
