@@ -150,6 +150,25 @@ class MeteredUsageTests(unittest.TestCase):
         self.assertEqual(progress.detail, "300.0/3600.0 s")
         self.assertFalse(progress.due)
 
+    def test_meter_source_mode_is_preserved_in_task_storage(self) -> None:
+        task = models.MaintenanceTask.from_dict({
+            "id": "session",
+            "name": "Session",
+            "rules": [
+                {
+                    "id": "counter_1",
+                    "type": "counter",
+                    "entity": "sensor.toothbrush_duration",
+                    "amount": 3600,
+                    "unit": "s",
+                    "source_mode": "session_total",
+                }
+            ],
+        })
+
+        self.assertEqual(task.as_dict()["rules"][0]["source_mode"], "session_total")
+        self.assertEqual(units.normalize_meter_source_mode("reset_counter"), "session_total")
+
     def test_time_unit_conversion_for_meter_targets(self) -> None:
         self.assertEqual(units.convert_usage_amount(60, "minutes", "s"), 3600)
         self.assertEqual(units.convert_usage_amount(2, "hours", "s"), 7200)

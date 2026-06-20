@@ -66,6 +66,7 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
       this.tasks = taskData.tasks || [];
       this.metadata = meta || this.metadata;
       this.backupStatus = backupStatus || null;
+      this.restorePanelContext();
       try {
         const library = await this._hass.callWS({ type: "home_maintenance_manager/list_built_in_task_packs" });
         this.builtInTaskPacks = Array.isArray(library?.packs) ? library.packs : [];
@@ -348,17 +349,18 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
       .compact-rule-stack { display:grid; gap:5px; }
       .compact-rule-progress { display:grid; grid-template-columns:18px minmax(70px, 1fr) 36px; gap:6px; align-items:center; min-width:0; font-size:12px; color:var(--secondary-text-color); }
       .compact-rule-label { font-weight:800; color:var(--primary-text-color); }
-      .compact-mini-bar { height:7px; border-radius:999px; overflow:hidden; background:var(--secondary-background-color); }
-      .compact-mini-fill { height:100%; width:0%; background:var(--primary-color); }
+      .compact-mini-bar { height:7px; border-radius:999px; overflow:hidden; background:var(--secondary-background-color); display:block; min-width:0; }
+      .compact-mini-fill { display:block; height:100%; width:0%; background:var(--primary-color); }
       .compact-task-actions { display:flex; gap:6px; justify-content:flex-end; }
       .hmm-dialog { width:min(940px, 100%); }
       .hmm-dialog--narrow { width:min(620px, 100%); }
       .hmm-dialog-body { display:block; }
       @media(max-width: 800px){ .compact-task-row { grid-template-columns:1fr; align-items:start; } .compact-task-actions { justify-content:flex-start; flex-wrap:wrap; } .section-header { align-items:flex-start; flex-direction:column; } .task-card-head { flex-direction:column; } .task-date-grid { grid-template-columns:1fr; } .task-toolbar-footer { align-items:flex-start; flex-direction:column; } }
 
-      .import-wizard { width:min(1120px, 100%); padding:0; overflow:hidden; }
+      .import-wizard { width:min(1120px, 100%); padding:0; overflow:hidden; max-height:calc(100vh - 80px); display:flex; flex-direction:column; }
       .import-wizard .sticky-head { position:sticky; top:0; z-index:2; background:var(--card-background-color); padding:20px 22px 14px; border-bottom:1px solid var(--divider-color); margin:0; }
       .import-wizard h2 { margin:2px 0 4px; }
+      .import-wizard-body { overflow:auto; min-height:0; }
       .wizard-stepper { display:flex; gap:10px; padding:14px 22px; background:var(--secondary-background-color); border-bottom:1px solid var(--divider-color); overflow:auto; }
       .step { display:flex; align-items:center; gap:8px; border:1px solid var(--divider-color); border-radius:999px; padding:8px 12px; white-space:nowrap; color:var(--secondary-text-color); }
       .step b { display:inline-flex; width:22px; height:22px; border-radius:50%; align-items:center; justify-content:center; background:var(--divider-color); color:var(--primary-text-color); }
@@ -411,7 +413,7 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
       .summary-line > span, .summary-line > b { min-width:0; overflow-wrap:anywhere; }
       .sticky-actions { position:sticky; bottom:0; background:var(--card-background-color); padding:16px 22px; margin:0; }
       .empty-list { text-align:center; color:var(--secondary-text-color); padding:24px; }
-      @media(max-width: 800px){ .history-day { grid-template-columns:1fr; gap:8px; } .history-date-rail { position:static; } .history-day-list::before, .history-entry::before { display:none; } .history-entry-main { display:grid; gap:6px; } .history-entry-title { white-space:normal; } .task-config-layout { grid-template-columns:1fr; } .task-config-head, .task-requirement-head, .entity-context-title, .summary-line { display:grid; } .import-wizard-scrim { padding:0; } .import-wizard { min-height:100vh; max-height:none; border-radius:0; } .wizard-summary-grid { grid-template-columns:1fr 1fr; } .wizard-controls { flex-direction:column; align-items:stretch; } .review-list { max-height:none; } .modal-actions-bottom.sticky-actions { align-items:stretch; flex-direction:column; } .sticky-actions .right { justify-content:stretch; } .sticky-actions .right .btn { flex:1; } }
+      @media(max-width: 800px){ .history-day { grid-template-columns:1fr; gap:8px; } .history-date-rail { position:static; } .history-day-list::before, .history-entry::before { display:none; } .history-entry-main { display:grid; gap:6px; } .history-entry-title { white-space:normal; } .task-config-layout { grid-template-columns:1fr; } .task-config-head, .task-requirement-head, .entity-context-title, .summary-line { display:grid; } .import-wizard-scrim { padding:0; } .import-wizard { min-height:100vh; max-height:100vh; border-radius:0; } .wizard-summary-grid { grid-template-columns:1fr 1fr; } .wizard-controls { flex-direction:column; align-items:stretch; } .review-list { max-height:none; } .modal-actions-bottom.sticky-actions { align-items:stretch; flex-direction:column; } .sticky-actions .right { justify-content:stretch; } .sticky-actions .right .btn { flex:1; } }
     `;
   }
 
@@ -437,6 +439,45 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
       window.localStorage?.setItem('hmm-task-view-mode', this.viewMode);
     } catch {
       // Rendering should not depend on browser storage availability.
+    }
+  }
+
+  savePanelContext(taskId = '') {
+    try {
+      window.sessionStorage?.setItem('hmm-panel-context', JSON.stringify({
+        at: Date.now(),
+        tab: this.tab,
+        categoryFilter: this.categoryFilter,
+        statusFilter: this.statusFilter,
+        sortMode: this.sortMode,
+        viewMode: this.viewMode,
+        taskId,
+        modalMode: this.modal?.detail ? 'detail' : '',
+      }));
+    } catch {
+      // Navigation should continue even if browser storage is unavailable.
+    }
+  }
+
+  restorePanelContext() {
+    let context = null;
+    try {
+      const raw = window.sessionStorage?.getItem('hmm-panel-context');
+      if (!raw) return;
+      window.sessionStorage?.removeItem('hmm-panel-context');
+      context = JSON.parse(raw);
+    } catch {
+      return;
+    }
+    if (!context || Date.now() - Number(context.at || 0) > 30 * 60 * 1000) return;
+    if (['dashboard', 'tasks', 'history', 'settings'].includes(context.tab)) this.tab = context.tab;
+    if (typeof context.categoryFilter === 'string') this.categoryFilter = context.categoryFilter;
+    if (typeof context.statusFilter === 'string') this.statusFilter = context.statusFilter;
+    if (['urgent', 'category', 'name'].includes(context.sortMode)) this.sortMode = context.sortMode;
+    if (['comfortable', 'compact'].includes(context.viewMode)) this.viewMode = context.viewMode;
+    if (context.modalMode === 'detail' && context.taskId) {
+      const task = this.tasks.find(t => t.id === context.taskId);
+      if (task) this.modal = { detail: JSON.parse(JSON.stringify(task)) };
     }
   }
 
@@ -717,6 +758,12 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     const u = String(unit || '').toLowerCase().replace(/\s+/g, '');
     return ['w','a','v','%','°f','°c','rpm','hz'].includes(u);
   }
+  normalizeMeterSourceMode(mode) {
+    const value = String(mode || 'cumulative_total').toLowerCase();
+    if (['rate', 'rate_sensor'].includes(value)) return 'rate';
+    if (['session', 'session_total', 'reset_counter', 'resetting', 'resetting_counter'].includes(value)) return 'session_total';
+    return 'cumulative_total';
+  }
   totalizedTargetUnit(unit) {
     const raw = String(unit || '').trim();
     const u = raw.toLowerCase().replace(/\s+/g, '');
@@ -887,6 +934,24 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     return Math.max(0, Math.round(100 - overdue * 25 - upcoming * 8));
   }
 
+  urgentStatusPriority(task) {
+    const status = this.taskStatus(task).replaceAll('_', '-');
+    if (status === 'overdue') return 0;
+    if (['due', 'due-today', 'due-now'].includes(status)) return 1;
+    if (['upcoming', 'due-soon'].includes(status)) return 2;
+    if (['ok', 'healthy'].includes(status)) return 3;
+    if (status === 'unknown') return 4;
+    if (['paused', 'snoozed', 'season-paused'].includes(status)) return 5;
+    if (['completed', 'disabled'].includes(status)) return 6;
+    return 4;
+  }
+
+  taskDueTime(task) {
+    const raw = task?.summary?.next_due || task?.next_due || task?.due_date || '';
+    const parsed = raw ? Date.parse(raw) : NaN;
+    return Number.isFinite(parsed) ? parsed : Number.POSITIVE_INFINITY;
+  }
+
   filteredTasks() {
     let tasks = [...this.tasks];
     if (this.categoryFilter !== "All") tasks = tasks.filter(t => this.category(t) === this.categoryFilter);
@@ -895,8 +960,7 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
       if (this.statusFilter === "needs_attention") tasks = tasks.filter(t => ["due","overdue"].includes(this.taskStatus(t)));
       else tasks = tasks.filter(t => this.taskStatus(t) === this.statusFilter);
     }
-    const score = t => ({overdue:5,due:4,upcoming:3,snoozed:2,paused:1,season_paused:1,ok:0}[this.taskStatus(t)] ?? 0);
-    if (this.sortMode === "urgent") tasks.sort((a,b) => score(b) - score(a) || this.percent(b) - this.percent(a));
+    if (this.sortMode === "urgent") tasks.sort((a,b) => this.urgentStatusPriority(a) - this.urgentStatusPriority(b) || this.taskDueTime(a) - this.taskDueTime(b) || this.percent(b) - this.percent(a));
     if (this.sortMode === "category") tasks.sort((a,b) => this.category(a).localeCompare(this.category(b)) || (a.name||"").localeCompare(b.name||""));
     if (this.sortMode === "name") tasks.sort((a,b) => (a.name||"").localeCompare(b.name||""));
     return tasks;
@@ -1375,18 +1439,20 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
           <button class="btn" data-action="close-import-wizard">Close</button>
         </div>
         <div class="wizard-stepper">${steps}</div>
-        <div class="wizard-summary-grid">
-          <div class="summary-tile"><div class="summary-value">${total}</div><div class="muted">Tasks in file</div></div>
-          <div class="summary-tile"><div class="summary-value">${selected}</div><div class="muted">Selected</div></div>
-          <div class="summary-tile"><div class="summary-value">${taskRefs.length}</div><div class="muted">Task configs</div></div>
-          <div class="summary-tile"><div class="summary-value">${missing}</div><div class="muted">Missing entities</div></div>
-          <div class="summary-tile ${requiredMissing ? 'attention' : ''}"><div class="summary-value">${requiredMissing}</div><div class="muted">Required missing</div></div>
+        <div class="import-wizard-body">
+          <div class="wizard-summary-grid">
+            <div class="summary-tile"><div class="summary-value">${total}</div><div class="muted">Tasks in file</div></div>
+            <div class="summary-tile"><div class="summary-value">${selected}</div><div class="muted">Selected</div></div>
+            <div class="summary-tile"><div class="summary-value">${taskRefs.length}</div><div class="muted">Task configs</div></div>
+            <div class="summary-tile"><div class="summary-value">${missing}</div><div class="muted">Missing entities</div></div>
+            <div class="summary-tile ${requiredMissing ? 'attention' : ''}"><div class="summary-value">${requiredMissing}</div><div class="muted">Required missing</div></div>
+          </div>
+          ${warnings}
+          ${step===1 ? this.renderImportWizardSelectTasksStep(p, counts, entity, missing) : ''}
+          ${step===2 ? this.renderImportWizardConfigureStep(p) : ''}
+          ${step===3 ? this.renderImportWizardReviewStep(p, selected) : ''}
+          ${step===4 ? this.renderImportWizardCompleteStep() : ''}
         </div>
-        ${warnings}
-        ${step===1 ? this.renderImportWizardSelectTasksStep(p, counts, entity, missing) : ''}
-        ${step===2 ? this.renderImportWizardConfigureStep(p) : ''}
-        ${step===3 ? this.renderImportWizardReviewStep(p, selected) : ''}
-        ${step===4 ? this.renderImportWizardCompleteStep() : ''}
         <div class="modal-actions-bottom sticky-actions">
           <div><b>${selected}</b> selected of ${total} task${total === 1 ? '' : 's'}</div>
           <div class="right">
@@ -2071,6 +2137,7 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
       alert('Home Assistant has not registered this task device yet. Refresh or reload the integration after saving the task.');
       return;
     }
+    this.savePanelContext(task?.id || taskId || '');
     history.pushState(null, '', `/config/devices/device/${encodeURIComponent(deviceId)}`);
     window.dispatchEvent(new CustomEvent('location-changed'));
   }
@@ -2222,7 +2289,7 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     else if (hasRuntimeRule) scheduleValue = 'runtime';
     else if (hasCounterRule) scheduleValue = 'meter';
     else if (hasCalendarRule) scheduleValue = 'calendar';
-    const counterSourceMode = counterRule.source_mode || 'cumulative';
+    const counterSourceMode = this.normalizeMeterSourceMode(counterRule.source_mode);
     const sourceUnit = counterRule.source_unit || (counterRule.entity && this._hass?.states?.[counterRule.entity]?.attributes?.unit_of_measurement) || '';
     const counterUnit = counterRule.target_unit || counterRule.unit || (counterSourceMode === 'rate' ? this.totalizedTargetUnit(sourceUnit) : sourceUnit) || 'units';
     const counterDisplayUnit = counterRule.target_display_unit || counterUnit;
@@ -2315,7 +2382,7 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
           <div class="form-grid">
             <div class="form-field span-6"><label>${this.label('Metered usage source','Choose either a cumulative meter, like total gallons/kWh/miles, or a rate sensor like gal/min that HMM can totalize.')}</label><div class="field-caption">If this sensor is a rate, Home Maintenance Manager can create its own internal totalizer.</div><ha-entity-picker id="task-meter-entity" allow-custom-entity></ha-entity-picker><div id="meter-source-hint" class="help"></div><div id="err-meter-entity" class="field-error">Choose a metered usage source.</div></div>
             <div class="form-field span-6"><label>${this.label('Usage amount','The task becomes due after this amount of totalized usage since the last completion.')}</label><div class="input-row"><input id="task-meter-amount" type="number" min="0.1" step="0.1" value="${this.escape(counterDisplayAmount)}"><div class="field-caption">every <select id="task-meter-target-unit">${this.usageUnitOptions(counterUnit, counterDisplayUnit)}</select><span id="task-meter-unit" class="hidden">${this.escape(counterUnit)}</span></div></div><div id="err-meter-amount" class="field-error">Enter a valid usage amount.</div></div>
-            <div class="form-field span-6"><label>${this.label('Meter source type','Cumulative meters already contain a total. Rate sensors such as gal/min must be totalized over time. Reset/session counters increase during a session and then drop back to zero.')}</label><select id="task-meter-source-type"><option value="cumulative_total" ${!['rate','session_total','reset_counter'].includes(counterSourceMode)?'selected':''}>Cumulative meter - already total</option><option value="rate" ${counterSourceMode==='rate'?'selected':''}>Rate sensor - let HMM totalize it</option><option value="session_total" ${['session_total','reset_counter'].includes(counterSourceMode)?'selected':''}>Reset/session counter - add positive deltas</option></select><div id="meter-type-hint" class="help"></div></div>
+            <div class="form-field span-6"><label>${this.label('Meter source type','Cumulative meters already contain a total. Rate sensors such as gal/min must be totalized over time. Reset/session counters increase during a session and then drop back to zero.')}</label><select id="task-meter-source-type"><option value="cumulative_total" ${counterSourceMode==='cumulative_total'?'selected':''}>Cumulative meter - already total</option><option value="rate" ${counterSourceMode==='rate'?'selected':''}>Rate sensor - let HMM totalize it</option><option value="session_total" ${counterSourceMode==='session_total'?'selected':''}>Reset/session counter - add positive deltas</option></select><div id="meter-type-hint" class="help"></div></div>
             <div class="form-field span-6"><div class="info-box" id="meter-explain-box">Metered usage uses a baseline at task creation/completion. HMM subtracts that baseline from the current total to calculate usage used.</div></div>
           </div>
         </div>
@@ -2324,7 +2391,7 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
       <div class="form-section">
         <h3>Maintenance Rule #2</h3><p class="section-note">A second independent maintenance rule is planned for a future phase.</p>
         <div class="editor-placeholder">
-          Existing combined schedule choices in Maintenance Rule #1 continue to save through the current compatible rules data. Phase 5 does not add a new backend rule shape or new required fields.
+          A second maintenance rule will be available in a future release. For now, use Maintenance Rule #1 for this task’s schedule.
         </div>
       </div>
 
@@ -2477,6 +2544,8 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     const task = this.modal?.task || {};
     const runtimeRule = (task.rules || []).find(r => r.type === 'runtime') || {};
     const counterRule = (task.rules || []).find(r => r.type === 'counter') || {};
+    const meterSourceType = this.shadowRoot.getElementById('task-meter-source-type');
+    if (meterSourceType && counterRule.source_mode) meterSourceType.dataset.userTouched = '1';
     const entityPicker = this.shadowRoot.getElementById('task-runtime-entity');
     if (entityPicker) {
       entityPicker.hass = this._hass;
@@ -2499,7 +2568,6 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     }
     const schedule = this.shadowRoot.getElementById('task-schedule');
     const notify = this.shadowRoot.getElementById('task-notify');
-    const meterSourceType = this.shadowRoot.getElementById('task-meter-source-type');
     if (meterSourceType) meterSourceType.onchange = () => this.updateMeterUnit();
     const meterTargetUnit = this.shadowRoot.getElementById('task-meter-target-unit');
     if (meterTargetUnit) meterTargetUnit.onchange = () => this.updateMeterUnit();
@@ -2880,7 +2948,7 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
       typeEl.dataset.bound = '1';
       typeEl.addEventListener('change', () => { typeEl.dataset.userTouched = '1'; this.updateMeterUnit(); });
     }
-    const mode = typeEl?.value || 'cumulative';
+    const mode = this.normalizeMeterSourceMode(typeEl?.value);
     const targetUnit = mode === 'rate' ? this.totalizedTargetUnit(sourceUnit) : (sourceUnit || 'units');
     const targetSelect = this.shadowRoot.getElementById('task-meter-target-unit');
     if (targetSelect) {
@@ -2986,7 +3054,7 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     const runtimeUnit = q('task-runtime-interval-unit')?.value || 'hours';
     const meterEntity = q('task-meter-entity')?.value || '';
     const meterDisplayAmount = Number(q('task-meter-amount')?.value || 0);
-    const meterSourceType = q('task-meter-source-type')?.value || 'cumulative';
+    const meterSourceType = this.normalizeMeterSourceMode(q('task-meter-source-type')?.value);
     const notifyBehavior = q('task-notify-behavior')?.value || 'global';
     const notify = notifyBehavior === 'custom' ? (q('task-notify')?.value || 'persistent') : notifyBehavior;
     const mobile = q('task-mobile')?.value || '';
