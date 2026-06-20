@@ -1,5 +1,6 @@
 ## 0.7.4
 
+- Refreshed the dashboard with a Phase 2 Home Health card, Attention Summary, clearer section hierarchy, and a dashboard-specific test plan.
 - Added Phase 1 UI foundation components for shared status colors, task status chips, compact task rows, section headers, dialog layout, and dashboard metric cards.
 - Updated README documentation links and added a v0.7.4 Phase 1 UI Foundation test plan.
 

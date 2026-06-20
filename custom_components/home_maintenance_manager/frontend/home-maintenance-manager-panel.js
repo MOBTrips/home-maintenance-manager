@@ -138,6 +138,21 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
       .metric-card .metric-card-label { color:var(--secondary-text-color); }
       .metric-card .metric { line-height:1; }
       .metric-card .progress { margin:4px 0; }
+      .dashboard-stack { display:grid; gap:20px; }
+      .dashboard-hero-grid { display:grid; grid-template-columns:minmax(280px, 1.3fr) minmax(260px, .9fr); gap:16px; align-items:stretch; }
+      .home-health-card { display:grid; grid-template-columns:minmax(130px, .5fr) minmax(0, 1fr); gap:18px; align-items:center; }
+      .health-score-block { display:flex; flex-direction:column; gap:8px; }
+      .health-score-value { font-size:52px; line-height:1; font-weight:800; }
+      .health-score-label { color:var(--secondary-text-color); }
+      .health-breakdown { display:grid; gap:10px; }
+      .health-breakdown-row { display:grid; grid-template-columns:minmax(90px, .8fr) minmax(90px, 1fr) 42px; gap:10px; align-items:center; font-size:13px; }
+      .health-breakdown-name { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+      .health-breakdown-value { text-align:right; color:var(--secondary-text-color); }
+      .attention-grid { display:grid; grid-template-columns:repeat(4, minmax(0, 1fr)); gap:12px; }
+      .attention-grid .metric-card { min-height:104px; padding:16px; }
+      .dashboard-section { display:grid; gap:12px; }
+      @media(max-width: 900px){ .dashboard-hero-grid, .home-health-card { grid-template-columns:1fr; } .attention-grid { grid-template-columns:repeat(2, minmax(0, 1fr)); } }
+      @media(max-width: 520px){ .attention-grid { grid-template-columns:1fr; } .health-breakdown-row { grid-template-columns:minmax(80px, .8fr) minmax(80px, 1fr) 38px; } }
       .muted { color: var(--secondary-text-color); }
       .pill { display:inline-block; border-radius:999px; padding:5px 10px; font-size:12px; font-weight:700; text-transform:uppercase; background: var(--hmm-status-neutral-bg); color:var(--hmm-status-neutral-text); }
       .pill.ok { background:var(--hmm-status-healthy-bg); color:var(--hmm-status-healthy-text); }
@@ -492,6 +507,46 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     </div>`;
   }
 
+  healthStatus(score) {
+    if (score >= 85) return 'ok';
+    if (score >= 70) return 'upcoming';
+    if (score >= 50) return 'due';
+    return 'overdue';
+  }
+
+  renderHomeHealthDashboardCard(counts, activeCategories) {
+    const score = this.homeHealthScore(counts);
+    const categories = activeCategories.slice(0, 5).map(category => {
+      const stats = this.categoryStats(category);
+      return `<div class="health-breakdown-row">
+        <div class="health-breakdown-name">${this.escape(category)}</div>
+        <div class="progress"><div class="bar" style="width:${stats.score}%"></div></div>
+        <div class="health-breakdown-value">${stats.score}%</div>
+      </div>`;
+    }).join('');
+    return `<div class="card home-health-card">
+      <div class="health-score-block">
+        <div class="health-score-label">Home Health</div>
+        <div class="health-score-value">${score}%</div>
+        ${this.renderTaskStatusChip(this.healthStatus(score), { label: score >= 85 ? 'Healthy' : score >= 70 ? 'Watch' : score >= 50 ? 'Needs Attention' : 'Critical' })}
+        <div class="muted">Simple score from overdue and due-today tasks.</div>
+      </div>
+      <div class="health-breakdown">
+        <div class="status-title"><b>Category health</b><span class="muted">${activeCategories.length ? `${activeCategories.length} active` : 'No active categories'}</span></div>
+        ${categories || '<div class="muted">Create tasks to see category health here.</div>'}
+      </div>
+    </div>`;
+  }
+
+  renderAttentionSummary(counts) {
+    return `<div class="attention-grid">
+      ${this.renderDashboardMetricCard({ label: 'Overdue', value: counts.overdue, status: counts.overdue ? 'overdue' : 'ok', help: 'Past due tasks' })}
+      ${this.renderDashboardMetricCard({ label: 'Due Today', value: counts.dueToday, status: counts.dueToday ? 'due' : 'ok', help: 'Tasks due now' })}
+      ${this.renderDashboardMetricCard({ label: 'Due Soon', value: counts.dueSoon, status: counts.dueSoon ? 'upcoming' : 'ok', help: 'Upcoming status tasks' })}
+      ${this.renderDashboardMetricCard({ label: 'Upcoming', value: counts.upcoming, status: 'ok', help: 'On-track tasks' })}
+    </div>`;
+  }
+
   ruleTypeLabel(type) {
     return { time:'Time interval', runtime:'Runtime hours', counter:'Metered usage', calendar:'Calendar/date' }[type] || String(type || 'Rule');
   }
@@ -743,6 +798,21 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     return { tasks, due, upcoming, ok, score };
   }
 
+  dashboardStatusCounts(tasks = this.tasks) {
+    return tasks.reduce((counts, task) => {
+      const status = this.taskStatus(task);
+      if (status === "overdue") counts.overdue += 1;
+      else if (status === "due") counts.dueToday += 1;
+      else if (status === "upcoming") counts.dueSoon += 1;
+      else if (status === "ok") counts.upcoming += 1;
+      return counts;
+    }, { overdue: 0, dueToday: 0, dueSoon: 0, upcoming: 0 });
+  }
+
+  homeHealthScore(counts = this.dashboardStatusCounts()) {
+    return Math.max(0, Math.min(100, 100 - counts.overdue * 20 - counts.dueToday * 12));
+  }
+
   healthScore() {
     if (!this.tasks.length) return 100;
     const overdue = this.tasks.filter(t => ["due", "overdue"].includes(this.taskStatus(t))).length;
@@ -803,21 +873,40 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
   }
 
   renderDashboard() {
-    const due = this.tasks.filter(t => ["due", "overdue"].includes(this.taskStatus(t))).length;
-    const upcoming = this.tasks.filter(t => this.taskStatus(t) === "upcoming").length;
-    const ok = this.tasks.filter(t => this.taskStatus(t) === "ok").length;
+    const counts = this.dashboardStatusCounts();
     const activeCategories = this.categories().filter(c => this.tasks.some(t => this.category(t) === c));
     return `
-      <div class="grid">
-        ${this.renderDashboardMetricCard({ label: 'Maintenance health', value: `${this.healthScore()}%`, progress: this.healthScore(), status: 'ok', help: 'Overall score based on due and upcoming tasks.' })}
-        ${this.renderDashboardMetricCard({ label: 'Needs attention', value: due, status: due ? 'due' : 'ok', help: 'Due or overdue tasks' })}
-        ${this.renderDashboardMetricCard({ label: 'Coming soon', value: upcoming, status: upcoming ? 'upcoming' : 'ok', help: 'Upcoming tasks' })}
-        ${this.renderDashboardMetricCard({ label: 'On track', value: ok, status: 'ok', help: 'OK tasks' })}
+      <div class="dashboard-stack">
+        <div class="dashboard-section">
+          ${this.renderSectionHeader('Dashboard', { subtitle: 'Home Health and tasks needing attention.' })}
+          <div class="dashboard-hero-grid">
+            ${this.renderHomeHealthDashboardCard(counts, activeCategories)}
+            <div class="card">
+              <div class="task-title">What needs attention</div>
+              <p class="muted">Counts use the current task status data already loaded by Home Maintenance Manager.</p>
+              <div class="summary-list">
+                <div class="summary-line"><span>Overdue</span><b>${counts.overdue}</b></div>
+                <div class="summary-line"><span>Due today</span><b>${counts.dueToday}</b></div>
+                <div class="summary-line"><span>Due soon</span><b>${counts.dueSoon}</b></div>
+                <div class="summary-line"><span>Upcoming</span><b>${counts.upcoming}</b></div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="dashboard-section">
+          ${this.renderSectionHeader('Attention Summary', { subtitle: 'Overdue and due-today tasks are the highest priority.' })}
+          ${this.renderAttentionSummary(counts)}
+        </div>
+        <div class="dashboard-section">
+          ${this.renderSectionHeader('Categories', { subtitle: activeCategories.length ? 'Existing category cards and actions are unchanged.' : 'No categories yet.' })}
+          <div class="grid">${activeCategories.length ? activeCategories.map(c => this.renderCategoryCard(c)).join("") : this.renderEmptyTasks()}</div>
+        </div>
+        <div class="dashboard-section">
+          ${this.renderSectionHeader('Next up', { subtitle: 'Same task feed preview, sorted by progress used.' })}
+          <div class="grid">${this.tasks.length ? this.tasks.slice().sort((a,b)=>this.percent(b)-this.percent(a)).slice(0,6).map(t=>this.renderTaskCard(t)).join("") : this.renderEmptyTasks()}</div>
+        </div>
       </div>
-      <h2>Categories</h2>
-      <div class="grid">${activeCategories.length ? activeCategories.map(c => this.renderCategoryCard(c)).join("") : this.renderEmptyTasks()}</div>
-      <h2>Next up</h2>
-      <div class="grid">${this.tasks.length ? this.tasks.slice().sort((a,b)=>this.percent(b)-this.percent(a)).slice(0,6).map(t=>this.renderTaskCard(t)).join("") : this.renderEmptyTasks()}</div>`;
+    `;
   }
 
   renderCategoryCard(category) {
