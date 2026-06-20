@@ -1522,7 +1522,7 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     const refs = [];
     this.selectedImportTasks().forEach(task => {
       (task.entities || []).forEach((entity, index) => {
-        if (entity.status !== 'missing') return;
+        if (entity.status !== 'missing' && !entity.auto_mapped) return;
         refs.push({
           ...entity,
           key: `${task.id}::${entity.entity_id || entity.id || index}::${index}`,
@@ -1557,7 +1557,10 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
   }
 
   mappingValueForTaskRef(ref) {
-    return this.importEntityMapping?.[ref.key] || '';
+    if (this.importEntityMapping && Object.prototype.hasOwnProperty.call(this.importEntityMapping, ref.key)) {
+      return this.importEntityMapping[ref.key] || '';
+    }
+    return ref.auto_mapped ? (ref.mapped_entity_id || '') : '';
   }
 
   isMappedEntityValue(value) {
@@ -1688,20 +1691,24 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     const domains = this.importRequirementDomains(ref);
     const domainText = domains.length ? domains.join(', ') : (ref.domain || 'Any');
     const title = ref.entity_requirement_label || ref.entity_requirement_name || ref.name || ref.entity_id;
+    const autoMapped = !!ref.auto_mapped && !this.importEntityMapping?.[ref.key];
+    const reason = ref.auto_map_reason || 'Using mock_device QA entity found in Home Assistant.';
     return `<div class="task-requirement-card">
       <div class="task-requirement-head">
         <div>
           <b>${this.escape(title)}</b>
           <div class="muted">${this.escape(ref.role || 'entity')} • ${this.escape(ref.required ? 'Required' : 'Optional')} • Placeholder <code>${this.escape(ref.entity_id)}</code></div>
         </div>
-        <span class="pill ${ref.required && !mapped ? 'warn' : mapped ? 'ok' : ''}">${mapped ? 'Mapped' : ref.required ? 'Required' : 'Optional'}</span>
+        <span class="pill ${ref.required && !mapped ? 'warn' : mapped ? 'ok' : ''}">${autoMapped ? 'Auto-mapped' : mapped ? 'Mapped' : ref.required ? 'Required' : 'Optional'}</span>
       </div>
       ${ref.description ? `<p class="muted">${this.escape(ref.description)}</p>` : ''}
+      ${autoMapped ? `<div class="info-box"><b>Auto-mapped:</b> ${this.escape(reason)}<br><code>${this.escape(ref.mapped_entity_id || '')}</code></div>` : ''}
       <div class="entity-meta-grid">
         <div class="entity-meta-tile"><div class="key">Domain</div><div>${this.escape(domainText)}</div></div>
         <div class="entity-meta-tile"><div class="key">Device class</div><div>${this.escape(ref.device_class || 'Any')}</div></div>
         <div class="entity-meta-tile"><div class="key">State class</div><div>${this.escape(ref.state_class || 'Any')}</div></div>
         <div class="entity-meta-tile"><div class="key">Unit</div><div>${this.escape(ref.unit_of_measurement || 'Any')}</div></div>
+        ${mapped ? `<div class="entity-meta-tile"><div class="key">Mapped entity</div><div><code>${this.escape(value)}</code></div></div>` : ''}
       </div>
       <div class="task-requirement-picker">
         <ha-entity-picker data-task-map-picker="${this.escape(ref.key)}" data-include-domains="${this.escape(domains.join(','))}" allow-custom-entity></ha-entity-picker>
@@ -2522,7 +2529,8 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
       const id=el.dataset.taskMapPicker;
       const domains=(el.dataset.includeDomains || '').split(',').map(v=>v.trim()).filter(Boolean);
       if (domains.length) el.includeDomains=domains;
-      const v=this.importEntityMapping?.[id];
+      const ref=this.importTaskEntityRefs().find(item=>item.key===id);
+      const v=ref ? this.mappingValueForTaskRef(ref) : this.importEntityMapping?.[id];
       if (v && !['__unresolved__','__clear__'].includes(v)) el.value=v;
       el.addEventListener('value-changed', ev=>{ const value=ev.detail?.value; if (value) this.importEntityMapping[id]=value; else delete this.importEntityMapping[id]; this.render(); });
     });

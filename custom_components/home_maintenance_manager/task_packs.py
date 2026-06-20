@@ -217,6 +217,16 @@ def normalize_entity_requirements(package: dict[str, Any]) -> list[dict[str, Any
             raw_keywords = [raw_keywords]
         elif not isinstance(raw_keywords, list):
             raw_keywords = []
+        raw_preferred_ids = item.get("preferred_entity_ids") or []
+        if isinstance(raw_preferred_ids, str):
+            raw_preferred_ids = [raw_preferred_ids]
+        elif not isinstance(raw_preferred_ids, list):
+            raw_preferred_ids = []
+        preferred_entity_id = _clean_string(item.get("preferred_entity_id"))
+        preferred_entity_ids = []
+        if preferred_entity_id:
+            preferred_entity_ids.append(preferred_entity_id)
+        preferred_entity_ids.extend(str(entity_id).strip() for entity_id in raw_preferred_ids if str(entity_id).strip())
         requirements.append({
             "id": req_id,
             "key": _clean_string(item.get("key"), req_id),
@@ -233,6 +243,11 @@ def normalize_entity_requirements(package: dict[str, Any]) -> list[dict[str, Any
             "unit": _clean_string(item.get("unit")),
             "suggested_keywords": [str(keyword).strip().lower() for keyword in raw_keywords if str(keyword).strip()],
             "task_ids": [str(task_id).strip() for task_id in (item.get("task_ids") or []) if str(task_id).strip()],
+            "preferred_entity_id": preferred_entity_id,
+            "preferred_entity_ids": list(dict.fromkeys(preferred_entity_ids)),
+            "qa_auto_map": bool(item.get("qa_auto_map", False)),
+            "auto_map_when_available": bool(item.get("auto_map_when_available", False)),
+            "auto_map_reason": _clean_string(item.get("auto_map_reason")),
         })
     return requirements
 
@@ -268,6 +283,8 @@ def _entity_mapping_aliases(entity_ref: str, requirements: list[dict[str, Any]] 
 
 
 def _entity_mapping_action(entity_ref: str, entity_mapping: dict[str, Any], requirements: list[dict[str, Any]] | None = None) -> Any:
+    if entity_ref in entity_mapping:
+        return entity_mapping[entity_ref]
     for alias in _entity_mapping_aliases(entity_ref, requirements):
         if alias in entity_mapping:
             return entity_mapping[alias]

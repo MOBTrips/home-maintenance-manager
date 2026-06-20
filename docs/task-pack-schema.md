@@ -80,6 +80,9 @@ Entity requirements describe Home Assistant entities a template can use. Use pla
   "state_class": "total_increasing",
   "unit_of_measurement": "h",
   "suggested_keywords": ["hot tub", "pump", "runtime"],
+  "preferred_entity_id": "sensor.mock_device_hot_tub_pump_runtime",
+  "qa_auto_map": true,
+  "auto_map_reason": "Using mock_device QA entity found in Home Assistant.",
   "task_ids": ["pack_hot_tub_clean_filter_runtime"]
 }
 ```
@@ -98,8 +101,29 @@ Recommended entity requirement metadata:
 | `state_class` | Expected state class, such as `total_increasing`. |
 | `unit_of_measurement` | Expected unit, such as `h`. |
 | `suggested_keywords` | Words used to rank local entity suggestions by name, entity ID, area, or device context. |
+| `preferred_entity_id` | Optional exact Home Assistant entity ID hint for QA auto-mapping. |
+| `preferred_entity_ids` | Optional ordered list of exact entity ID hints. The first existing entity is used. |
+| `qa_auto_map` | Optional boolean. Enables safe QA auto-mapping for this requirement. |
+| `auto_map_when_available` | Optional boolean. Enables auto-mapping when a preferred entity exists. |
+| `auto_map_reason` | Optional user-facing reason shown in the import wizard when auto-mapped. |
 
 For metered `counter` requirements, `unit_of_measurement` is used as a compatibility contract. HMM rejects final mappings whose source unit belongs to a different family, such as mapping a W power sensor to a gal volume task. Compatible units in the same family can be mapped, and HMM replaces stale task-pack unit metadata with the mapped entity unit during import.
+
+### QA Auto-Mapping
+
+Task Packs may include preferred entity hints for generated QA environments, such as public mock entities from a separate `mock_device` integration. This is intended to make repeatable release testing faster without weakening the privacy-safe placeholder model.
+
+Auto-mapping only happens when all of the following are true:
+
+- The package is a Task Pack.
+- The task still references an `hmm://entity/<requirement_id>` placeholder.
+- The requirement sets `qa_auto_map: true` or `auto_map_when_available: true`.
+- `preferred_entity_id` or one of `preferred_entity_ids` exactly matches an entity currently present in Home Assistant.
+- The preferred entity is a real Home Assistant entity ID, not another `hmm://` placeholder.
+
+When multiple `preferred_entity_ids` are provided, HMM uses the first one that exists. The import preview marks the requirement as auto-mapped, counts it as found, shows the mapped entity ID and reason, and still allows the user to override it before import. Explicit user mappings always win over automatic mappings.
+
+Do not use preferred entity hints for private household entities in externally shared packs. Normal Task Packs must continue to use placeholders and let the user choose their own local entities during preview.
 
 ## Task Templates
 

@@ -584,9 +584,51 @@ class MaintenanceCoordinator:
                     "suggested_keywords": requirement.get("suggested_keywords") or [],
                     "required": bool(requirement.get("required", ref.get("required"))),
                     "role": requirement.get("role") or ref.get("role"),
+                    "preferred_entity_id": requirement.get("preferred_entity_id"),
+                    "preferred_entity_ids": requirement.get("preferred_entity_ids") or [],
+                    "qa_auto_map": bool(requirement.get("qa_auto_map")),
+                    "auto_map_when_available": bool(requirement.get("auto_map_when_available")),
+                    "auto_map_reason": requirement.get("auto_map_reason") or "",
                 }
             refs.append(ref)
         return refs
+
+    def _resolve_requirement_preferred_entity(self, requirement: dict[str, Any], entity_ids: set[str]) -> str | None:
+        """Return the first preferred entity that exists exactly in Home Assistant."""
+        if not (
+            bool(requirement.get("qa_auto_map"))
+            or bool(requirement.get("auto_map_when_available"))
+        ):
+            return None
+        preferred: list[str] = []
+        preferred_entity_id = str(requirement.get("preferred_entity_id") or "").strip()
+        if preferred_entity_id:
+            preferred.append(preferred_entity_id)
+        for entity_id in requirement.get("preferred_entity_ids") or []:
+            entity_id = str(entity_id or "").strip()
+            if entity_id:
+                preferred.append(entity_id)
+        for entity_id in dict.fromkeys(preferred):
+            if entity_id.startswith("hmm://"):
+                continue
+            if entity_id in entity_ids:
+                return entity_id
+        return None
+
+    def _task_pack_auto_entity_mapping(self, requirements: list[dict[str, Any]], entity_ids: set[str] | None = None) -> dict[str, str]:
+        """Return opt-in Task Pack preferred-entity mappings for existing HA entities."""
+        available_entity_ids = entity_ids if entity_ids is not None else set(self.hass.states.async_entity_ids())
+        mapping: dict[str, str] = {}
+        for requirement in requirements:
+            mapped_entity_id = self._resolve_requirement_preferred_entity(requirement, available_entity_ids)
+            if not mapped_entity_id:
+                continue
+            req_id = str(requirement.get("id") or "").strip()
+            req_key = str(requirement.get("key") or "").strip()
+            for ref in {req_id, req_key, f"hmm://entity/{req_id}" if req_id else "", f"hmm://entity/{req_key}" if req_key else ""}:
+                if ref:
+                    mapping[ref] = mapped_entity_id
+        return mapping
 
     def _entity_registry_context(self) -> tuple[dict[str, Any], dict[str, str], dict[str, str]]:
         """Return registry metadata used for ranked import suggestions."""
@@ -743,6 +785,7 @@ class MaintenanceCoordinator:
         entity_ids = set(self.hass.states.async_entity_ids())
         registry_context = self._entity_registry_context()
         requirements = parsed.get("entity_requirements") if isinstance(parsed.get("entity_requirements"), list) else []
+        auto_entity_mapping = self._task_pack_auto_entity_mapping(requirements, entity_ids) if package_type == TASK_PACK_TYPE else {}
         preview_tasks = []
         counts = {"new": 0, "update": 0, "duplicate": 0, "deleted": 0, "invalid": 0, "conflict": 0}
         entity_counts = {"found": 0, "missing": 0, "required_missing": 0}
@@ -765,10 +808,15 @@ class MaintenanceCoordinator:
             required_missing = False
             for ref in self._task_entity_references_with_requirements(item, requirements):
                 entity_ref = str(ref["entity_id"])
-                found = entity_ref in entity_ids
+                auto_mapped_entity_id = auto_entity_mapping.get(entity_ref)
+                found = entity_ref in entity_ids or bool(auto_mapped_entity_id)
                 ref = dict(ref)
                 ref["status"] = "found" if found else "missing"
                 ref["suggestions"] = []
+                ref["auto_mapped"] = bool(auto_mapped_entity_id)
+                ref["mapped_entity_id"] = auto_mapped_entity_id or (entity_ref if entity_ref in entity_ids else "")
+                ref["preferred_entity_id"] = ref.get("preferred_entity_id") or auto_mapped_entity_id or ""
+                ref["auto_map_reason"] = ref.get("auto_map_reason") or ""
                 if not found:
                     ref["suggestions"] = self._rank_entity_suggestions(ref, item, entity_ids, registry_context)
                     entity_counts["missing"] += 1
@@ -812,11 +860,13 @@ class MaintenanceCoordinator:
             selected = {str(t["id"]) for t in preview.get("tasks", []) if t.get("selected")}
         filtered_package = dict(parsed)
         requirements = parsed.get("entity_requirements") if isinstance(parsed.get("entity_requirements"), list) else []
-        entity_metadata = self._entity_metadata(self._mapped_entity_ids(entity_mapping, task_entity_mapping))
+        auto_entity_mapping = self._task_pack_auto_entity_mapping(requirements) if package_type == TASK_PACK_TYPE else {}
+        merged_global_mapping = {**auto_entity_mapping, **(entity_mapping or {})}
+        entity_metadata = self._entity_metadata(self._mapped_entity_ids(merged_global_mapping, task_entity_mapping))
         tasks = []
         for item in raw_tasks:
             if isinstance(item, dict) and str(item.get("id")) in selected:
-                task_mapping = entity_mapping_for_task(str(item.get("id")), entity_mapping, task_entity_mapping)
+                task_mapping = entity_mapping_for_task(str(item.get("id")), merged_global_mapping, task_entity_mapping)
                 data = apply_task_pack_entity_mapping(
                     dict(item),
                     task_mapping,
