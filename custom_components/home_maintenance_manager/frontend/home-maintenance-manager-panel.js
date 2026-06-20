@@ -26,6 +26,7 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     this.categoryFilter = "All";
     this.statusFilter = "All";
     this.sortMode = "urgent";
+    this.viewMode = this.loadViewModePreference();
     this.runtimeAnalysis = null;
     this.runtimeAnalysisLoading = false;
     this.analysisDays = 30;
@@ -193,6 +194,18 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
       .detail-card-grid { display:grid; grid-template-columns: 1fr 1fr; gap:16px; }
       @media(max-width: 800px){ .detail-card-grid, .detail-hero { grid-template-columns:1fr; } .hmm-avatar { width:76px; height:76px; border-radius:18px; } }
       .task-title { font-size:20px; font-weight:700; margin:0 0 6px; }
+      .task-card { display:flex; flex-direction:column; gap:12px; }
+      .task-card-head { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; }
+      .task-card-title-row { min-width:0; display:flex; align-items:center; gap:10px; }
+      .task-card-title-row .task-title { margin:0; min-width:0; overflow:hidden; text-overflow:ellipsis; }
+      .task-card-meta { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+      .task-progress-row { display:grid; grid-template-columns:minmax(0, 1fr) auto; gap:10px; align-items:center; }
+      .task-progress-row .progress { margin:0; }
+      .task-date-grid { display:grid; grid-template-columns:1fr 1fr; gap:8px; color:var(--secondary-text-color); font-size:13px; }
+      .task-toolbar-footer { display:flex; justify-content:space-between; align-items:center; gap:12px; margin-top:12px; flex-wrap:wrap; }
+      .view-mode-toggle { display:inline-flex; gap:4px; padding:4px; border:1px solid var(--divider-color); border-radius:999px; background:var(--card-background-color); }
+      .view-mode-toggle button { border:0; border-radius:999px; padding:8px 12px; cursor:pointer; background:transparent; color:var(--primary-text-color); }
+      .view-mode-toggle button.active { background:var(--primary-color); color:var(--text-primary-color); }
       .list { display:flex; flex-direction:column; gap:12px; }
       .two { display:grid; grid-template-columns: 1fr 1fr; gap:12px; }
       .form-grid { display:grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap:14px 18px; align-items:start; }
@@ -303,7 +316,7 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
       .hmm-dialog { width:min(940px, 100%); }
       .hmm-dialog--narrow { width:min(620px, 100%); }
       .hmm-dialog-body { display:block; }
-      @media(max-width: 800px){ .compact-task-row { grid-template-columns:1fr; align-items:start; } .compact-task-actions { justify-content:flex-start; } .section-header { align-items:flex-start; flex-direction:column; } }
+      @media(max-width: 800px){ .compact-task-row { grid-template-columns:1fr; align-items:start; } .compact-task-actions { justify-content:flex-start; flex-wrap:wrap; } .section-header { align-items:flex-start; flex-direction:column; } .task-card-head { flex-direction:column; } .task-date-grid { grid-template-columns:1fr; } .task-toolbar-footer { align-items:flex-start; flex-direction:column; } }
 
       .import-wizard { width:min(1120px, 100%); padding:0; overflow:hidden; }
       .import-wizard .sticky-head { position:sticky; top:0; z-index:2; background:var(--card-background-color); padding:20px 22px 14px; border-bottom:1px solid var(--divider-color); margin:0; }
@@ -378,6 +391,23 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
   slug(value) { return (value || "maintenance_task").toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "") || "maintenance_task"; }
   escape(value) { return String(value ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c])); }
   label(text, tip) { return `<span class="field-label"><span>${text}</span><span class="tip" title="${this.escape(tip)}">?</span></span>`; }
+  loadViewModePreference() {
+    try {
+      const value = window.localStorage?.getItem('hmm-task-view-mode');
+      return value === 'compact' ? 'compact' : 'comfortable';
+    } catch {
+      return 'comfortable';
+    }
+  }
+
+  saveViewModePreference(mode) {
+    this.viewMode = mode === 'compact' ? 'compact' : 'comfortable';
+    try {
+      window.localStorage?.setItem('hmm-task-view-mode', this.viewMode);
+    } catch {
+      // Rendering should not depend on browser storage availability.
+    }
+  }
 
   friendlyStatus(status) {
     const map = { ok:'OK', upcoming:'Upcoming', due:'Due', overdue:'Overdue', paused:'Paused', snoozed:'Snoozed', season_paused:'Season Paused', unknown:'Unknown' };
@@ -472,7 +502,13 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
       <div class="compact-task-main">${this.renderCategoryIcon(category)}<span class="compact-task-title">${this.escape(t.name || t.id)}</span></div>
       <div>${this.renderTaskStatusChip(status, { compact: true })}</div>
       <div class="compact-rule-stack">${rules.slice(0, 2).map(r => this.renderCompactRuleProgress(r)).join('')}</div>
-      <div class="compact-task-actions"><button class="btn small primary" data-complete="${taskId}">Done</button><button class="btn small" data-view-task="${taskId}">View</button></div>
+      <div class="compact-task-actions">
+        <button class="btn small primary" data-complete="${taskId}">Done</button>
+        <button class="btn small" data-snooze="${taskId}">Snooze</button>
+        ${this.taskGeneratedDeviceId(t) ? `<button class="btn small" data-open-task-device="${taskId}">Device</button>` : ''}
+        <button class="btn small" data-view-task="${taskId}">View</button>
+        <button class="btn small" data-edit="${taskId}">Edit</button>
+      </div>
     </div>`;
   }
 
@@ -929,7 +965,13 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
         <div><label>Filter by status</label><select id="status-filter">${statusOptions}</select></div>
         <div><label>Sort tasks</label><select id="sort-mode"><option value="urgent" ${this.sortMode==='urgent'?'selected':''}>Most urgent first</option><option value="category" ${this.sortMode==='category'?'selected':''}>Category</option><option value="name" ${this.sortMode==='name'?'selected':''}>Name</option></select></div>
       </div>
-      <div class="help">Categories now organize the dashboard, task list, health score, and notification context.</div>
+      <div class="task-toolbar-footer">
+        <div class="help">Categories organize the dashboard, task list, health score, and notification context.</div>
+        <div class="view-mode-toggle" role="group" aria-label="Task view mode">
+          <button class="${this.viewMode === 'comfortable' ? 'active' : ''}" data-view-mode="comfortable" type="button">Comfortable</button>
+          <button class="${this.viewMode === 'compact' ? 'active' : ''}" data-view-mode="compact" type="button">Compact</button>
+        </div>
+      </div>
     </div>`;
   }
 
@@ -943,9 +985,14 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
         if (!groups.has(c)) groups.set(c, []);
         groups.get(c).push(task);
       }
-      return `${this.renderFilters()}${Array.from(groups.entries()).map(([category, group]) => `<div class="category-header"><h2>${this.escape(category)}</h2><span class="muted">${group.length} task${group.length === 1 ? "" : "s"}</span></div><div class="grid">${group.map(t => this.renderTaskCard(t)).join("")}</div>`).join("") || `<div class="card empty">No tasks match the current filters.</div>`}`;
+      return `${this.renderFilters()}${Array.from(groups.entries()).map(([category, group]) => `<div class="category-header"><h2>${this.escape(category)}</h2><span class="muted">${group.length} task${group.length === 1 ? "" : "s"}</span></div>${this.renderTaskList(group)}`).join("") || `<div class="card empty">No tasks match the current filters.</div>`}`;
     }
-    return `${this.renderFilters()}<div class="grid">${tasks.length ? tasks.map(t => this.renderTaskCard(t)).join("") : `<div class="card empty">No tasks match the current filters.</div>`}</div>`;
+    return `${this.renderFilters()}${tasks.length ? this.renderTaskList(tasks) : `<div class="card empty">No tasks match the current filters.</div>`}`;
+  }
+
+  renderTaskList(tasks) {
+    if (this.viewMode === 'compact') return `<div class="compact-task-list">${tasks.map(t => this.renderCompactTaskRow(t)).join("")}</div>`;
+    return `<div class="grid">${tasks.map(t => this.renderTaskCard(t)).join("")}</div>`;
   }
 
   renderEmptyTasks() { return `<div class="card empty"><h2>No maintenance tasks yet</h2><p>Create your first task, like HVAC filter replacement, RO filter replacement, or pool filter cleaning.</p><button class="btn primary" data-action="new-task">Add maintenance task</button></div>`; }
@@ -953,20 +1000,25 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
   renderTaskCard(t) {
     const status = this.taskStatus(t);
     const category = this.category(t);
-    return `<div class="card">
-      <div class="task-title">${this.escape(t.name || t.id)}</div>
-      <span class="category-pill">${this.escape(category)}</span>
-      <span class="pill ${status}">${this.escape(status)}</span>
+    const taskId = this.escape(t.id || '');
+    const percent = this.percent(t);
+    return `<div class="card task-card">
+      <div class="task-card-head">
+        <div class="task-card-title-row">${this.renderCategoryIcon(category)}<div class="task-title">${this.escape(t.name || t.id)}</div></div>
+        ${this.renderTaskStatusChip(status)}
+      </div>
+      <div class="task-card-meta"><span class="category-pill">${this.escape(category)}</span>${t.nfc_tags?.length ? `<span class="category-pill">${this.escape(t.nfc_tags.length)} NFC</span>` : ''}</div>
       ${t.equipment_name ? `<div class="muted">Equipment: ${this.escape(t.equipment_name)}</div>` : ""}
-      <div class="progress"><div class="bar" style="width:${this.percent(t)}%"></div></div>
-      <div><b>${this.percent(t)}%</b> used</div>
-      <div class="muted">Next due: ${this.dateShort(t.summary?.next_due)}</div>
-      <div class="muted">Last completed: ${this.dateShort(t.last_completed || t.summary?.last_completed)}</div>
+      <div class="task-progress-row"><div class="progress"><div class="bar" style="width:${percent}%"></div></div><b>${percent}% used</b></div>
+      <div class="task-date-grid">
+        <div>Next due: ${this.dateShort(t.summary?.next_due)}</div>
+        <div>Last completed: ${this.dateShort(t.last_completed || t.summary?.last_completed)}</div>
+      </div>
       <div class="task-actions">
-        <button class="btn small primary" data-complete="${this.escape(t.id)}">Mark complete</button>
-        <button class="btn small" data-snooze="${this.escape(t.id)}">Snooze 7 days</button>
-        ${this.taskGeneratedDeviceId(t) ? `<button class="btn small" data-open-task-device="${this.escape(t.id)}">Open HA Device</button>` : ''}
-        <button class="btn small" data-view-task="${this.escape(t.id)}">View</button><button class="btn small" data-edit="${this.escape(t.id)}">Edit</button>
+        <button class="btn small primary" data-complete="${taskId}">Mark complete</button>
+        <button class="btn small" data-snooze="${taskId}">Snooze 7 days</button>
+        ${this.taskGeneratedDeviceId(t) ? `<button class="btn small" data-open-task-device="${taskId}">Open HA Device</button>` : ''}
+        <button class="btn small" data-view-task="${taskId}">View</button><button class="btn small" data-edit="${taskId}">Edit</button>
       </div>
     </div>`;
   }
@@ -2365,6 +2417,7 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     if (statusFilter) statusFilter.onchange = () => { this.statusFilter = statusFilter.value; this.render(); };
     const sortMode = this.shadowRoot.getElementById('sort-mode');
     if (sortMode) sortMode.onchange = () => { this.sortMode = sortMode.value; this.render(); };
+    this.shadowRoot.querySelectorAll('[data-view-mode]').forEach(el=>el.onclick=()=>{ this.saveViewModePreference(el.dataset.viewMode); this.render(); });
 
     const task = this.modal?.task || {};
     const runtimeRule = (task.rules || []).find(r => r.type === 'runtime') || {};
