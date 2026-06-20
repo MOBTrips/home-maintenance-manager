@@ -268,6 +268,8 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
       .form-section { border:1px solid var(--divider-color); border-radius:18px; padding:16px; margin:16px 0; background: var(--secondary-background-color); }
       .form-section h3 { margin:0 0 4px; font-size:18px; }
       .section-note { color: var(--secondary-text-color); font-size:13px; margin:0 0 12px; }
+      .editor-placeholder { border:1px dashed var(--divider-color); border-radius:14px; padding:14px; background:var(--card-background-color); color:var(--secondary-text-color); }
+      .field-spacer { height:12px; }
       .field-label { display:flex; align-items:center; gap:6px; }
       .tip { display:inline-flex; align-items:center; justify-content:center; width:18px; height:18px; border-radius:50%; background: var(--primary-color); color: var(--text-primary-color); font-size:12px; font-weight:700; cursor:help; }
       .hidden { display:none !important; }
@@ -2090,10 +2092,10 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     const seasonalPauseUsage = seasonal.pause_usage_when_inactive !== false;
 
     return `<div class="modal-scrim" data-action="modal-scrim"><div class="modal" data-modal-content>
-      <div class="modal-head"><div><h2>${isEdit ? 'Edit maintenance task' : 'Add maintenance task'}</h2><div class="muted">This one-page setup is grouped into sections. Start simple; advanced fields can be left blank.</div></div><button class="btn" data-action="close-modal">Close</button></div>
+      <div class="modal-head"><div><h2>${isEdit ? 'Edit maintenance task' : 'Add maintenance task'}</h2><div class="muted">Create or edit the task using the existing schedule model. Phase 5 refreshes layout only.</div></div><button class="btn" data-action="close-modal">Close</button></div>
 
       <div class="form-section">
-        <h3>1. Task basics</h3><p class="section-note">Name the maintenance item in plain language and choose a category so dashboards and reports can group it.</p>
+        <h3>Basics</h3><p class="section-note">Name the maintenance item in plain language and choose a category so dashboards and reports can group it.</p>
         <div class="form-grid">
           <div class="form-field span-6"><label>${this.label('Task name','The friendly name shown on dashboards and in notifications. Example: HVAC Filter Replacement.')}</label><input id="task-name" placeholder="Example: HVAC filter replacement" value="${this.escape(t.name || '')}"><div id="err-name" class="field-error">Please enter a task name.</div></div>
           <div class="form-field span-6"><label>${this.label('Maintenance category','Optional. Used to group dashboard cards, filter tasks, calculate category health, and add context to notifications.')}</label><select id="task-category">${categoryOptions}</select></div>
@@ -2102,17 +2104,7 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
       </div>
 
       <div class="form-section">
-        <h3>2. Asset being maintained</h3><p class="section-note">Choose the real-world equipment or Home Assistant device this task belongs to. Usage sensors are selected later in the schedule section so they are not duplicated here.</p>
-        <div class="two">
-          <div><label>${this.label('Area','Choose the Home Assistant area where the maintenance happens, such as Garage or Pool House. Selecting a Home Assistant device can fill this automatically when the device has an area.')}</label><select id="task-area">${areaOptions}</select></div>
-          <div><label>${this.label('Home Assistant device (optional)','Select the device being maintained only if it exists in Home Assistant. Leave blank for offline equipment like RO filters, smoke detectors, or mower blades.')}</label><select id="task-device">${deviceOptions}</select></div>
-        </div>
-        <label>${this.label('Equipment name','Use this for real-world equipment even when there is no Home Assistant device. If left blank and a Home Assistant device is selected, HMM will use the device name.')}</label><input id="task-equipment-name" placeholder="Example: RO water filter" value="${this.escape(t.equipment_name || '')}">
-        <div class="info-box">Clean setup model: the asset/device answers “what is being maintained.” The schedule section answers “what data source tracks it.” Runtime and meter source entities are automatically associated with the task when saved.</div>
-      </div>
-
-      <div class="form-section">
-        <h3>3. Maintenance schedule</h3><p class="section-note">Choose when the task becomes due. Runtime counts hours while something is running. Metered usage counts a sensor value like gallons, kWh, miles, grams, or cycles.</p>
+        <h3>Maintenance Rule #1</h3><p class="section-note">This section maps to the existing schedule fields and saves the same task data shape as before.</p>
         <div class="schedule-row">
           <div class="form-field"><label>${this.label('Schedule type','Choose time, runtime hours, metered usage, or a combination. Runtime is duration. Metered usage uses the source entity unit.')}</label><select id="task-schedule">
             <option value="time" ${scheduleValue==='time'?'selected':''}>Time interval</option>
@@ -2152,32 +2144,6 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
             <div><label>${this.label('Day of month','If the day does not exist in a month, the last day of that month is used.')}</label><input id="task-calendar-day" type="number" min="1" max="31" value="${this.escape(calDay)}"></div>
           </div>
         </div>
-        <div class="seasonal-box">
-          <h4>Seasonal active window</h4>
-          <p class="section-note">Optional. Use this when the same time, runtime, metered, or calendar rule should only be active during part of the year.</p>
-          <label class="check-row"><input id="task-seasonal-enabled" type="checkbox" ${seasonalEnabled?'checked':''}> Only active during a season/window</label>
-          <div class="conditional seasonal-fields">
-            <div><label>${this.label('Active seasons','Choose one or more preset seasons. The task is active when any selected season is active.')}</label>
-              <div class="season-grid">
-                <label class="check-row"><input id="task-seasonal-spring" data-seasonal-preset="spring" type="checkbox" ${seasonalSeasons.includes('spring')?'checked':''}> Spring (Mar 1–May 31)</label>
-                <label class="check-row"><input id="task-seasonal-summer" data-seasonal-preset="summer" type="checkbox" ${seasonalSeasons.includes('summer')?'checked':''}> Summer (Jun 1–Aug 31)</label>
-                <label class="check-row"><input id="task-seasonal-fall" data-seasonal-preset="fall" type="checkbox" ${seasonalSeasons.includes('fall')?'checked':''}> Fall (Sep 1–Nov 30)</label>
-                <label class="check-row"><input id="task-seasonal-winter" data-seasonal-preset="winter" type="checkbox" ${seasonalSeasons.includes('winter')?'checked':''}> Winter (Dec 1–Feb 28)</label>
-              </div>
-            </div>
-            <label class="check-row"><input id="task-seasonal-custom-enabled" type="checkbox" ${seasonalCustomEnabled?'checked':''}> Use a custom date range instead</label>
-            <div id="err-seasonal-choice" class="field-error">Choose one or more seasons, or use a custom date range.</div>
-            <div class="two seasonal-custom-fields">
-              <div><label>${this.label('Custom start','Choose the month and day this custom active window starts.')}</label><div class="two"><select id="task-seasonal-start-month">${this.monthOptions(seasonalStartMonth)}</select><select id="task-seasonal-start-day">${this.dayOptions(seasonalStartDay)}</select></div></div>
-              <div><label>${this.label('Custom end','Choose the month and day this custom active window ends. Ranges can cross New Year.')}</label><div class="two"><select id="task-seasonal-end-month">${this.monthOptions(seasonalEndMonth)}</select><select id="task-seasonal-end-day">${this.dayOptions(seasonalEndDay)}</select></div></div>
-            </div>
-            <div class="two">
-              <div><label>${this.label('Inactive display','Choose whether paused seasonal tasks stay visible on dashboards.')}</label><label class="check-row"><input id="task-seasonal-show-inactive" type="checkbox" ${seasonalShowInactive?'checked':''}> Show when inactive</label></div>
-              <div><label>${this.label('Usage tracking','For runtime/rate-metered tasks, choose whether usage accumulates outside the active season.')}</label><label class="check-row"><input id="task-seasonal-pause-usage" type="checkbox" ${seasonalPauseUsage?'checked':''}> Pause usage while inactive</label></div>
-            </div>
-            <div class="info-box">Outside the active window, status becomes Season Paused and due/upcoming notifications are held. When the window opens, the normal schedule logic resumes.</div>
-          </div>
-        </div>
         <div class="conditional runtime-fields analysis-box">
           <div><b>Threshold helper</b></div>
           <div class="help">For numeric sensors, analyze recent history to estimate OFF and RUNNING ranges and recommend a starting threshold.</div>
@@ -2195,12 +2161,6 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
             <div class="form-field span-6"><label>${this.label('Meter source type','Cumulative meters already contain a total. Rate sensors such as gal/min must be totalized over time. Reset/session counters increase during a session and then drop back to zero.')}</label><select id="task-meter-source-type"><option value="cumulative_total" ${!['rate','session_total','reset_counter'].includes(counterSourceMode)?'selected':''}>Cumulative meter - already total</option><option value="rate" ${counterSourceMode==='rate'?'selected':''}>Rate sensor - let HMM totalize it</option><option value="session_total" ${['session_total','reset_counter'].includes(counterSourceMode)?'selected':''}>Reset/session counter - add positive deltas</option></select><div id="meter-type-hint" class="help"></div></div>
             <div class="form-field span-6"><div class="info-box" id="meter-explain-box">Metered usage uses a baseline at task creation/completion. HMM subtracts that baseline from the current total to calculate usage used.</div></div>
           </div>
-        </div>
-        <div class="baseline-box">
-          <label>${this.label('When was it last done?','Sets the starting point for the first due date. You can enter an exact completion date/time or how long ago the maintenance was done.')}</label>
-          <select id="task-baseline"><option value="today" ${baselineMode==='today'?'selected':''}>Today / now</option><option value="specific" ${baselineMode==='specific'?'selected':''}>Specific date and time</option><option value="ago" ${baselineMode==='ago'?'selected':''}>A certain time ago</option><option value="unknown" ${baselineMode==='unknown'?'selected':''}>Unknown / start today</option></select>
-          <div class="form-grid conditional baseline-specific-fields"><div class="form-field span-6"><label>${this.label('Last completed date/time','The exact date and time this task was last completed.')}</label><input id="task-baseline-datetime" type="datetime-local" value="${this.escape(this.localDatetimeValue(t.last_completed))}"></div></div>
-          <div class="form-grid conditional baseline-ago-fields"><div class="form-field span-6"><label>${this.label('How long ago?','Example: 6 months ago, 2 weeks ago, or 30 minutes ago.')}</label><div class="input-row"><input id="task-baseline-ago-value" type="number" min="0" step="0.01" value="${this.escape(t.baseline_ago_value || 0)}"><select id="task-baseline-ago-unit">${this.unitOptions(t.baseline_ago_unit || 'days')}</select></div></div></div>
         </div>
       </div>
 
@@ -2294,10 +2254,10 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     const seasonalPauseUsage = seasonal.pause_usage_when_inactive !== false;
 
     return `<div class="modal-scrim" data-action="modal-scrim"><div class="modal" data-modal-content>
-      <div class="modal-head"><div><h2>${isEdit ? 'Edit maintenance task' : 'Add maintenance task'}</h2><div class="muted">This one-page setup is grouped into sections. Start simple; advanced fields can be left blank.</div></div><button class="btn" data-action="close-modal">Close</button></div>
+      <div class="modal-head"><div><h2>${isEdit ? 'Edit maintenance task' : 'Add maintenance task'}</h2><div class="muted">Create or edit the task using the existing schedule model. Phase 5 refreshes layout only.</div></div><button class="btn" data-action="close-modal">Close</button></div>
 
       <div class="form-section">
-        <h3>1. Task basics</h3><p class="section-note">Name the maintenance item in plain language and choose a category so dashboards and reports can group it.</p>
+        <h3>Basics</h3><p class="section-note">Name the maintenance item in plain language and choose a category so dashboards and reports can group it.</p>
         <div class="form-grid">
           <div class="form-field span-6"><label>${this.label('Task name','The friendly name shown on dashboards and in notifications. Example: HVAC Filter Replacement.')}</label><input id="task-name" placeholder="Example: HVAC filter replacement" value="${this.escape(t.name || '')}"><div id="err-name" class="field-error">Please enter a task name.</div></div>
           <div class="form-field span-6"><label>${this.label('Maintenance category','Optional. Used to group dashboard cards, filter tasks, calculate category health, and add context to notifications.')}</label><select id="task-category">${categoryOptions}</select></div>
@@ -2306,17 +2266,7 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
       </div>
 
       <div class="form-section">
-        <h3>2. Asset being maintained</h3><p class="section-note">Choose the real-world equipment or Home Assistant device this task belongs to. Usage sensors are selected later in the schedule section so they are not duplicated here.</p>
-        <div class="two">
-          <div><label>${this.label('Area','Choose the Home Assistant area where the maintenance happens, such as Garage or Pool House. Selecting a Home Assistant device can fill this automatically when the device has an area.')}</label><select id="task-area">${areaOptions}</select></div>
-          <div><label>${this.label('Home Assistant device (optional)','Select the device being maintained only if it exists in Home Assistant. Leave blank for offline equipment like RO filters, smoke detectors, or mower blades.')}</label><select id="task-device">${deviceOptions}</select></div>
-        </div>
-        <label>${this.label('Equipment name','Use this for real-world equipment even when there is no Home Assistant device. If left blank and a Home Assistant device is selected, HMM will use the device name.')}</label><input id="task-equipment-name" placeholder="Example: RO water filter" value="${this.escape(t.equipment_name || '')}">
-        <div class="info-box">Clean setup model: the asset/device answers “what is being maintained.” The schedule section answers “what data source tracks it.” Runtime and meter source entities are automatically associated with the task when saved.</div>
-      </div>
-
-      <div class="form-section">
-        <h3>3. Maintenance schedule</h3><p class="section-note">Choose when the task becomes due. Runtime counts hours while something is running. Metered usage counts a sensor value like gallons, kWh, miles, grams, or cycles.</p>
+        <h3>Maintenance Rule #1</h3><p class="section-note">This section maps to the existing schedule fields and saves the same task data shape as before.</p>
         <div class="schedule-row">
           <div class="form-field"><label>${this.label('Schedule type','Choose time, runtime hours, metered usage, or a combination. Runtime is duration. Metered usage uses the source entity unit.')}</label><select id="task-schedule">
             <option value="time" ${scheduleValue==='time'?'selected':''}>Time interval</option>
@@ -2356,8 +2306,37 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
             <div><label>${this.label('Day of month','If the day does not exist in a month, the last day of that month is used.')}</label><input id="task-calendar-day" type="number" min="1" max="31" value="${this.escape(calDay)}"></div>
           </div>
         </div>
+        <div class="conditional runtime-fields analysis-box">
+          <div><b>Threshold helper</b></div>
+          <div class="help">For numeric sensors, analyze recent history to estimate OFF and RUNNING ranges and recommend a starting threshold.</div>
+          <div class="analysis-controls">
+            <div><label>${this.label('How far back to analyze','Longer periods are better for equipment that runs on schedules. Last 30 days is a good default.')}</label><select id="analysis-days"><option value="1">Last 24 hours</option><option value="7">Last 7 days</option><option value="30" selected>Last 30 days</option><option value="90">Last 90 days</option><option value="365">Last year</option></select></div>
+            <div class="task-actions"><button class="btn small" type="button" data-action="analyze-runtime">Analyze source</button><button class="btn small" type="button" data-action="use-threshold">Use recommended threshold</button></div>
+          </div>
+          <div id="runtime-analysis">${this.renderRuntimeAnalysis()}</div>
+        </div>
+        <div class="schedule-card conditional meter-fields">
+          <h4>Metered usage tracking</h4>
+          <div class="form-grid">
+            <div class="form-field span-6"><label>${this.label('Metered usage source','Choose either a cumulative meter, like total gallons/kWh/miles, or a rate sensor like gal/min that HMM can totalize.')}</label><div class="field-caption">If this sensor is a rate, Home Maintenance Manager can create its own internal totalizer.</div><ha-entity-picker id="task-meter-entity" allow-custom-entity></ha-entity-picker><div id="meter-source-hint" class="help"></div><div id="err-meter-entity" class="field-error">Choose a metered usage source.</div></div>
+            <div class="form-field span-6"><label>${this.label('Usage amount','The task becomes due after this amount of totalized usage since the last completion.')}</label><div class="input-row"><input id="task-meter-amount" type="number" min="0.1" step="0.1" value="${this.escape(counterDisplayAmount)}"><div class="field-caption">every <select id="task-meter-target-unit">${this.usageUnitOptions(counterUnit, counterDisplayUnit)}</select><span id="task-meter-unit" class="hidden">${this.escape(counterUnit)}</span></div></div><div id="err-meter-amount" class="field-error">Enter a valid usage amount.</div></div>
+            <div class="form-field span-6"><label>${this.label('Meter source type','Cumulative meters already contain a total. Rate sensors such as gal/min must be totalized over time. Reset/session counters increase during a session and then drop back to zero.')}</label><select id="task-meter-source-type"><option value="cumulative_total" ${!['rate','session_total','reset_counter'].includes(counterSourceMode)?'selected':''}>Cumulative meter - already total</option><option value="rate" ${counterSourceMode==='rate'?'selected':''}>Rate sensor - let HMM totalize it</option><option value="session_total" ${['session_total','reset_counter'].includes(counterSourceMode)?'selected':''}>Reset/session counter - add positive deltas</option></select><div id="meter-type-hint" class="help"></div></div>
+            <div class="form-field span-6"><div class="info-box" id="meter-explain-box">Metered usage uses a baseline at task creation/completion. HMM subtracts that baseline from the current total to calculate usage used.</div></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="form-section">
+        <h3>Maintenance Rule #2</h3><p class="section-note">A second independent maintenance rule is planned for a future phase.</p>
+        <div class="editor-placeholder">
+          Existing combined schedule choices in Maintenance Rule #1 continue to save through the current compatible rules data. Phase 5 does not add a new backend rule shape or new required fields.
+        </div>
+      </div>
+
+      <div class="form-section">
+        <h3>Seasonal Restrictions</h3><p class="section-note">Existing seasonal window support is preserved. No new seasonal behavior is introduced in Phase 5.</p>
         <div class="seasonal-box">
-          <h4>Seasonal active window</h4>
+          <h4>Active window</h4>
           <p class="section-note">Optional. Use this when the same time, runtime, metered, or calendar rule should only be active during part of the year.</p>
           <label class="check-row"><input id="task-seasonal-enabled" type="checkbox" ${seasonalEnabled?'checked':''}> Only active during a season/window</label>
           <div class="conditional seasonal-fields">
@@ -2382,34 +2361,10 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
             <div class="info-box">Outside the active window, status becomes Season Paused and due/upcoming notifications are held. When the window opens, the normal schedule logic resumes.</div>
           </div>
         </div>
-        <div class="conditional runtime-fields analysis-box">
-          <div><b>Threshold helper</b></div>
-          <div class="help">For numeric sensors, analyze recent history to estimate OFF and RUNNING ranges and recommend a starting threshold.</div>
-          <div class="analysis-controls">
-            <div><label>${this.label('How far back to analyze','Longer periods are better for equipment that runs on schedules. Last 30 days is a good default.')}</label><select id="analysis-days"><option value="1">Last 24 hours</option><option value="7">Last 7 days</option><option value="30" selected>Last 30 days</option><option value="90">Last 90 days</option><option value="365">Last year</option></select></div>
-            <div class="task-actions"><button class="btn small" type="button" data-action="analyze-runtime">Analyze source</button><button class="btn small" type="button" data-action="use-threshold">Use recommended threshold</button></div>
-          </div>
-          <div id="runtime-analysis">${this.renderRuntimeAnalysis()}</div>
-        </div>
-        <div class="schedule-card conditional meter-fields">
-          <h4>Metered usage tracking</h4>
-          <div class="form-grid">
-            <div class="form-field span-6"><label>${this.label('Metered usage source','Choose either a cumulative meter, like total gallons/kWh/miles, or a rate sensor like gal/min that HMM can totalize.')}</label><div class="field-caption">If this sensor is a rate, Home Maintenance Manager can create its own internal totalizer.</div><ha-entity-picker id="task-meter-entity" allow-custom-entity></ha-entity-picker><div id="meter-source-hint" class="help"></div><div id="err-meter-entity" class="field-error">Choose a metered usage source.</div></div>
-            <div class="form-field span-6"><label>${this.label('Usage amount','The task becomes due after this amount of totalized usage since the last completion.')}</label><div class="input-row"><input id="task-meter-amount" type="number" min="0.1" step="0.1" value="${this.escape(counterDisplayAmount)}"><div class="field-caption">every <select id="task-meter-target-unit">${this.usageUnitOptions(counterUnit, counterDisplayUnit)}</select><span id="task-meter-unit" class="hidden">${this.escape(counterUnit)}</span></div></div><div id="err-meter-amount" class="field-error">Enter a valid usage amount.</div></div>
-            <div class="form-field span-6"><label>${this.label('Meter source type','Cumulative meters already contain a total. Rate sensors such as gal/min must be totalized over time. Reset/session counters increase during a session and then drop back to zero.')}</label><select id="task-meter-source-type"><option value="cumulative_total" ${!['rate','session_total','reset_counter'].includes(counterSourceMode)?'selected':''}>Cumulative meter - already total</option><option value="rate" ${counterSourceMode==='rate'?'selected':''}>Rate sensor - let HMM totalize it</option><option value="session_total" ${['session_total','reset_counter'].includes(counterSourceMode)?'selected':''}>Reset/session counter - add positive deltas</option></select><div id="meter-type-hint" class="help"></div></div>
-            <div class="form-field span-6"><div class="info-box" id="meter-explain-box">Metered usage uses a baseline at task creation/completion. HMM subtracts that baseline from the current total to calculate usage used.</div></div>
-          </div>
-        </div>
-        <div class="baseline-box">
-          <label>${this.label('When was it last done?','Sets the starting point for the first due date. You can enter an exact completion date/time or how long ago the maintenance was done.')}</label>
-          <select id="task-baseline"><option value="today" ${baselineMode==='today'?'selected':''}>Today / now</option><option value="specific" ${baselineMode==='specific'?'selected':''}>Specific date and time</option><option value="ago" ${baselineMode==='ago'?'selected':''}>A certain time ago</option><option value="unknown" ${baselineMode==='unknown'?'selected':''}>Unknown / start today</option></select>
-          <div class="form-grid conditional baseline-specific-fields"><div class="form-field span-6"><label>${this.label('Last completed date/time','The exact date and time this task was last completed.')}</label><input id="task-baseline-datetime" type="datetime-local" value="${this.escape(this.localDatetimeValue(t.last_completed))}"></div></div>
-          <div class="form-grid conditional baseline-ago-fields"><div class="form-field span-6"><label>${this.label('How long ago?','Example: 6 months ago, 2 weeks ago, or 30 minutes ago.')}</label><div class="input-row"><input id="task-baseline-ago-value" type="number" min="0" step="0.01" value="${this.escape(t.baseline_ago_value || 0)}"><select id="task-baseline-ago-unit">${this.unitOptions(t.baseline_ago_unit || 'days')}</select></div></div></div>
-        </div>
       </div>
 
       <div class="form-section">
-        <h3>4. Reminders</h3><p class="section-note">Notifications are managed globally in Settings. Most tasks should use the global default. Override only for critical or low-priority tasks.</p>
+        <h3>Reminders</h3><p class="section-note">Notifications are managed globally in Settings. Most tasks should use the global default. Override only for critical or low-priority tasks.</p>
         <div class="form-grid">
           <div class="form-field span-6"><label>${this.label('Notification behavior','Use global settings for normal tasks. Disable for low-priority tasks. Override for special tasks that need different notification behavior.')}</label><select id="task-notify-behavior">${notifyBehaviorOptions}</select></div>
           <div class="form-field span-6 conditional custom-notify-fields"><label>${this.label('Task override method','Only shown when Override for this task is selected.')}</label><select id="task-notify">${notifyOptions}</select></div>
@@ -2418,7 +2373,7 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
       </div>
 
       <div class="form-section">
-        <h3>5. NFC Tag</h3><p class="section-note">Attach a Home Assistant NFC tag so scanning the equipment can open, complete, confirm, or log the maintenance task.</p>
+        <h3>NFC</h3><p class="section-note">Attach a Home Assistant NFC tag so scanning the equipment can open, complete, confirm, or log the maintenance task.</p>
         <div class="form-grid">
           <div class="form-field span-6"><label>${this.label('NFC tag','Choose a registered Home Assistant NFC tag. Scanning it can be used to complete, confirm, or log this task.')}</label><select id="task-nfc">${tagOptions}</select></div>
           <div class="form-field span-6"><label>${this.label('When this tag is scanned','Choose the NFC workflow. Ask for confirmation is safest; Complete immediately is fastest for trusted locations.')}</label><select id="task-nfc-action">${nfcActionOptions}</select><div class="help">Scanning a HA NFC tag opens Home Assistant and also fires a tag_scanned event that HMM handles.</div></div>
@@ -2426,7 +2381,24 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
       </div>
 
       <div class="form-section">
-        <h3>6. Instructions</h3><p class="section-note">Optional homeowner-friendly notes. Add the steps someone should follow when doing the task.</p>
+        <h3>Entity Tracking</h3><p class="section-note">Choose the real-world equipment or Home Assistant device this task belongs to. Runtime and meter source entities remain configured in Maintenance Rule #1.</p>
+        <div class="two">
+          <div><label>${this.label('Area','Choose the Home Assistant area where the maintenance happens, such as Garage or Pool House. Selecting a Home Assistant device can fill this automatically when the device has an area.')}</label><select id="task-area">${areaOptions}</select></div>
+          <div><label>${this.label('Home Assistant device (optional)','Select the device being maintained only if it exists in Home Assistant. Leave blank for offline equipment like RO filters, smoke detectors, or mower blades.')}</label><select id="task-device">${deviceOptions}</select></div>
+        </div>
+        <label>${this.label('Equipment name','Use this for real-world equipment even when there is no Home Assistant device. If left blank and a Home Assistant device is selected, HMM will use the device name.')}</label><input id="task-equipment-name" placeholder="Example: RO water filter" value="${this.escape(t.equipment_name || '')}">
+        <div class="info-box">Clean setup model: the asset/device answers "what is being maintained." Maintenance Rule #1 answers "what data source tracks it." Runtime and meter source entities are automatically associated with the task when saved.</div>
+      </div>
+
+      <div class="form-section">
+        <h3>Advanced</h3><p class="section-note">Set the initial baseline and optional homeowner-friendly notes. These fields use the existing saved task shape.</p>
+        <div class="baseline-box">
+          <label>${this.label('When was it last done?','Sets the starting point for the first due date. You can enter an exact completion date/time or how long ago the maintenance was done.')}</label>
+          <select id="task-baseline"><option value="today" ${baselineMode==='today'?'selected':''}>Today / now</option><option value="specific" ${baselineMode==='specific'?'selected':''}>Specific date and time</option><option value="ago" ${baselineMode==='ago'?'selected':''}>A certain time ago</option><option value="unknown" ${baselineMode==='unknown'?'selected':''}>Unknown / start today</option></select>
+          <div class="form-grid conditional baseline-specific-fields"><div class="form-field span-6"><label>${this.label('Last completed date/time','The exact date and time this task was last completed.')}</label><input id="task-baseline-datetime" type="datetime-local" value="${this.escape(this.localDatetimeValue(t.last_completed))}"></div></div>
+          <div class="form-grid conditional baseline-ago-fields"><div class="form-field span-6"><label>${this.label('How long ago?','Example: 6 months ago, 2 weeks ago, or 30 minutes ago.')}</label><div class="input-row"><input id="task-baseline-ago-value" type="number" min="0" step="0.01" value="${this.escape(t.baseline_ago_value || 0)}"><select id="task-baseline-ago-unit">${this.unitOptions(t.baseline_ago_unit || 'days')}</select></div></div></div>
+        </div>
+        <div class="field-spacer"></div>
         <label>${this.label('Instructions','Optional markdown-style instructions or checklist notes. Example: Turn off power, remove filter, clean, reinstall.')}</label><textarea id="task-instructions" placeholder="1. Turn off equipment\n2. Perform maintenance\n3. Mark complete">${this.escape(t.instructions || '')}</textarea>
       </div>
 
