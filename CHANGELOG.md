@@ -1,5 +1,6 @@
 ## 0.7.4
 
+- Fixed reviewed imports so task-by-task entity configuration can map the same Task Pack placeholder to different real Home Assistant entities per selected task while preserving legacy global entity mapping support.
 - Polished the v0.7.4 UI refresh for mobile wrapping, dialog sizing, import wizard consistency, and stale helper cleanup with a Phase 8 regression test plan.
 - Refreshed the import wizard into a four-step task-by-task configuration flow with native entity pickers, clearer review/import-complete screens, and a Phase 7 test plan while preserving backend import compatibility.
 - Refreshed the History screen into a date-grouped timeline using existing completion/activity history data, category icons, supported status chips, and a Phase 6 test plan.

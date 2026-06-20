@@ -1356,9 +1356,8 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     const step = Math.max(1, Math.min(Number(this.importWizardStep || 1), 4));
     const warnings = (p.warnings || []).map(w=>`<div class="wizard-alert">${this.escape(w)}</div>`).join('');
     const requiredComplete = this.requiredImportMappingsComplete();
-    const conflicts = this.importMappingConflicts();
-    const canReview = selected > 0 && requiredComplete && !conflicts.length;
-    const canApply = selected > 0 && requiredComplete && !conflicts.length;
+    const canReview = selected > 0 && requiredComplete;
+    const canApply = selected > 0 && requiredComplete;
     const steps = [[1,'Select Tasks'],[2,'Configure Tasks'],[3,'Review Import'],[4,'Import Complete']]
       .map(([num,label])=>`<button class="step ${step===num?'active':''}" data-import-step="${num}"><b>${num}</b>${label}</button>`).join('');
     const footer = step === 4
@@ -1384,7 +1383,6 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
           <div class="summary-tile ${requiredMissing ? 'attention' : ''}"><div class="summary-value">${requiredMissing}</div><div class="muted">Required missing</div></div>
         </div>
         ${warnings}
-        ${conflicts.length && step !== 4 ? `<div class="wizard-warning"><b>Mapping conflict:</b> ${this.escape(conflicts[0])}</div>` : ''}
         ${step===1 ? this.renderImportWizardSelectTasksStep(p, counts, entity, missing) : ''}
         ${step===2 ? this.renderImportWizardConfigureStep(p) : ''}
         ${step===3 ? this.renderImportWizardReviewStep(p, selected) : ''}
@@ -1505,27 +1503,30 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     return this.importTaskEntityRefs().filter(ref => ref.required).every(ref => this.isMappedEntityValue(this.mappingValueForTaskRef(ref)));
   }
 
-  importMappingConflicts() {
-    const byEntity = new Map();
+  importBackendEntityMapping() {
+    const choices = new Map();
     for (const ref of this.importTaskEntityRefs()) {
-      const value = this.mappingValueForTaskRef(ref);
-      const action = this.isMappedEntityValue(value) ? value : (ref.required ? '' : '__clear__');
-      if (!action) continue;
-      const existing = byEntity.get(ref.entity_id);
-      if (existing && existing !== action) {
-        return [`${ref.entity_id} has different task-specific choices. Use the same choice for that placeholder or import those tasks separately.`];
-      }
-      byEntity.set(ref.entity_id, action);
+      const action = this.mappingValueForTaskRef(ref);
+      const backendAction = this.isMappedEntityValue(action) ? action : (!ref.required ? '__clear__' : '');
+      if (!backendAction) continue;
+      if (!choices.has(ref.entity_id)) choices.set(ref.entity_id, new Set());
+      choices.get(ref.entity_id).add(backendAction);
     }
-    return [];
+    const mapping = {};
+    choices.forEach((values, entityId) => {
+      if (values.size === 1) mapping[entityId] = Array.from(values)[0];
+    });
+    return mapping;
   }
 
-  importBackendEntityMapping() {
+  importBackendTaskEntityMapping() {
     const mapping = {};
     for (const ref of this.importTaskEntityRefs()) {
       const action = this.mappingValueForTaskRef(ref);
-      if (this.isMappedEntityValue(action)) mapping[ref.entity_id] = action;
-      else if (!ref.required && !mapping[ref.entity_id]) mapping[ref.entity_id] = '__clear__';
+      const backendAction = this.isMappedEntityValue(action) ? action : (!ref.required ? '__clear__' : '');
+      if (!backendAction) continue;
+      if (!mapping[ref.taskId]) mapping[ref.taskId] = {};
+      mapping[ref.taskId][ref.entity_id] = backendAction;
     }
     return mapping;
   }
@@ -1918,11 +1919,6 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
         alert('Select required entities for each configured task before reviewing the import.');
         return false;
       }
-      const conflicts = this.importMappingConflicts();
-      if (conflicts.length) {
-        alert(conflicts[0]);
-        return false;
-      }
     }
     return true;
   }
@@ -1933,13 +1929,11 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     const selected_ids = this.selectedImportIds();
     if (!selected_ids.length) { alert('Select at least one task to import.'); return; }
     if (!this.requiredImportMappingsComplete()) { alert('Select required entities for each configured task before importing.'); return; }
-    const conflicts = this.importMappingConflicts();
-    if (conflicts.length) { alert(conflicts[0]); return; }
     if (this.importMode === 'replace' && !confirm(`Replace existing HMM tasks with ${selected_ids.length} selected imported task(s)? This cannot be undone except by restoring a backup or importing another export.`)) return;
     try {
       const import_settings = !!this.shadowRoot.getElementById('import-settings')?.checked;
       const restore_deleted = !!this.shadowRoot.getElementById('restore-deleted')?.checked;
-      const result = await this._hass.callWS({ type: 'home_maintenance_manager/import_apply', mode: this.importMode, data: this.importPackage, selected_ids, import_settings, restore_deleted, entity_mapping: this.importBackendEntityMapping() });
+      const result = await this._hass.callWS({ type: 'home_maintenance_manager/import_apply', mode: this.importMode, data: this.importPackage, selected_ids, import_settings, restore_deleted, entity_mapping: this.importBackendEntityMapping(), task_entity_mapping: this.importBackendTaskEntityMapping() });
       this.importApplyResult = result;
       this.importWizardStep = 4;
       await this.loadData();

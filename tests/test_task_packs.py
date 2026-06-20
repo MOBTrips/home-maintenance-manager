@@ -18,6 +18,7 @@ TASK_PACK_FORMAT = task_packs.TASK_PACK_FORMAT
 apply_task_pack_entity_mapping = task_packs.apply_task_pack_entity_mapping
 build_task_pack_package = task_packs.build_task_pack_package
 enforce_task_pack_merge_mode = task_packs.enforce_task_pack_merge_mode
+entity_mapping_for_task = task_packs.entity_mapping_for_task
 installed_pack_record = task_packs.installed_pack_record
 is_task_pack_package = task_packs.is_task_pack_package
 list_built_in_task_pack_metadata = task_packs.list_built_in_task_pack_metadata
@@ -397,6 +398,51 @@ class TaskPackTests(unittest.TestCase):
         )
         self.assertEqual(mapped["linked_entities"], [])
         self.assertNotIn("hmm://entity/", json.dumps(mapped))
+
+    def test_task_specific_mapping_allows_shared_placeholder_to_map_differently(self) -> None:
+        requirements = [{"id": "runtime_source", "required": True}]
+        first_task = {
+            "id": "air_filter",
+            "name": "Air filter",
+            "rules": [{"id": "runtime", "type": "runtime", "entity": "hmm://entity/runtime_source"}],
+        }
+        second_task = {
+            "id": "humidifier_pad",
+            "name": "Humidifier pad",
+            "rules": [{"id": "runtime", "type": "runtime", "entity": "hmm://entity/runtime_source"}],
+        }
+        task_entity_mapping = {
+            "air_filter": {"hmm://entity/runtime_source": "sensor.air_handler_runtime"},
+            "humidifier_pad": {"hmm://entity/runtime_source": "sensor.humidifier_runtime"},
+        }
+
+        first_mapping = entity_mapping_for_task(first_task["id"], {}, task_entity_mapping)
+        second_mapping = entity_mapping_for_task(second_task["id"], {}, task_entity_mapping)
+        first_mapped = apply_task_pack_entity_mapping(first_task, first_mapping, requirements)
+        second_mapped = apply_task_pack_entity_mapping(second_task, second_mapping, requirements)
+
+        self.assertEqual(first_mapped["rules"][0]["entity"], "sensor.air_handler_runtime")
+        self.assertEqual(second_mapped["rules"][0]["entity"], "sensor.humidifier_runtime")
+
+    def test_task_specific_mapping_overrides_global_mapping_for_one_task(self) -> None:
+        global_mapping = {"hmm://entity/runtime_source": "sensor.default_runtime"}
+        task_entity_mapping = {
+            "air_filter": {"hmm://entity/runtime_source": "sensor.air_handler_runtime"},
+        }
+
+        first_mapping = entity_mapping_for_task("air_filter", global_mapping, task_entity_mapping)
+        fallback_mapping = entity_mapping_for_task("water_heater", global_mapping, task_entity_mapping)
+
+        self.assertEqual(first_mapping["hmm://entity/runtime_source"], "sensor.air_handler_runtime")
+        self.assertEqual(fallback_mapping["hmm://entity/runtime_source"], "sensor.default_runtime")
+
+    def test_task_specific_flat_key_mapping_is_supported(self) -> None:
+        mapping = entity_mapping_for_task(
+            "air_filter",
+            {},
+            {"air_filter::hmm://entity/runtime_source": "sensor.air_handler_runtime"},
+        )
+        self.assertEqual(mapping["hmm://entity/runtime_source"], "sensor.air_handler_runtime")
 
     def test_task_pack_import_mode_rejects_replace(self) -> None:
         self.assertEqual(enforce_task_pack_merge_mode("merge"), "merge")

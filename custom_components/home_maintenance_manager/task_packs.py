@@ -276,6 +276,28 @@ def _entity_mapping_action(entity_ref: str, entity_mapping: dict[str, Any], requ
     return entity_ref
 
 
+def entity_mapping_for_task(
+    task_id: str,
+    entity_mapping: dict[str, Any] | None = None,
+    task_entity_mapping: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Return global entity mapping with task-specific choices applied."""
+    task_id = str(task_id)
+    merged = dict(entity_mapping or {})
+    scoped = task_entity_mapping or {}
+    nested = scoped.get(task_id)
+    if isinstance(nested, dict):
+        merged.update(nested)
+    prefix = f"{task_id}::"
+    for key, value in scoped.items():
+        if isinstance(value, dict):
+            continue
+        key_text = str(key)
+        if key_text.startswith(prefix):
+            merged[key_text.removeprefix(prefix)] = value
+    return merged
+
+
 def _mark_unresolved_entity_pause(task_data: dict[str, Any]) -> None:
     task_data["paused"] = True
     provenance = dict(task_data.get("provenance") or {})

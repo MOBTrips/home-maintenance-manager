@@ -18,6 +18,7 @@ from .task_packs import (
     apply_task_pack_entity_mapping,
     build_task_pack_package,
     enforce_task_pack_merge_mode,
+    entity_mapping_for_task,
     is_task_pack_package,
     list_built_in_task_pack_metadata,
     load_built_in_task_pack,
@@ -686,6 +687,25 @@ class MaintenanceCoordinator:
         metadata = self._entity_metadata([str(v) for v in (entity_mapping or {}).values() if isinstance(v, str) and "." in v])
         return apply_task_pack_entity_mapping(task_data, entity_mapping, entity_metadata=metadata, strict=True)
 
+    def _mapped_entity_ids(
+        self,
+        entity_mapping: dict[str, Any] | None = None,
+        task_entity_mapping: dict[str, Any] | None = None,
+    ) -> list[str]:
+        mapped: list[str] = []
+        for value in (entity_mapping or {}).values():
+            if isinstance(value, str) and "." in value and not value.startswith("hmm://"):
+                mapped.append(value)
+        for task_mapping in (task_entity_mapping or {}).values():
+            if isinstance(task_mapping, dict):
+                values = task_mapping.values()
+            else:
+                values = [task_mapping]
+            for value in values:
+                if isinstance(value, str) and "." in value and not value.startswith("hmm://"):
+                    mapped.append(value)
+        return mapped
+
     def _package_tasks(self, package: dict[str, Any]) -> tuple[str, list[dict[str, Any]], dict[str, Any]]:
         """Parse a backup export or task-pack shaped package."""
         if not isinstance(package, dict):
@@ -778,7 +798,7 @@ class MaintenanceCoordinator:
             "warnings": (["Task Packs are templates and always merge. Settings, history, NFC tags, device IDs, tombstones, and private notification targets are ignored."] if package_type == TASK_PACK_TYPE else []) + (["Required missing entities will pause affected runtime/counter tasks unless remapped."] if entity_counts["required_missing"] else []),
         }
 
-    async def async_apply_import_preview(self, package: dict[str, Any], selected_ids: list[str] | None = None, mode: str = "merge", entity_mapping: dict[str, Any] | None = None, import_settings: bool = True, restore_deleted: bool = False) -> dict[str, Any]:
+    async def async_apply_import_preview(self, package: dict[str, Any], selected_ids: list[str] | None = None, mode: str = "merge", entity_mapping: dict[str, Any] | None = None, import_settings: bool = True, restore_deleted: bool = False, task_entity_mapping: dict[str, Any] | None = None) -> dict[str, Any]:
         """Apply a reviewed import selection."""
         package_type, raw_tasks, parsed = self._package_tasks(package)
         if package_type == TASK_PACK_TYPE:
@@ -791,22 +811,18 @@ class MaintenanceCoordinator:
             selected = {str(t["id"]) for t in preview.get("tasks", []) if t.get("selected")}
         filtered_package = dict(parsed)
         requirements = parsed.get("entity_requirements") if isinstance(parsed.get("entity_requirements"), list) else []
-        mapped_entities = [
-            str(value)
-            for value in (entity_mapping or {}).values()
-            if isinstance(value, str) and "." in value and not value.startswith("hmm://")
-        ]
-        entity_metadata = self._entity_metadata(mapped_entities)
+        entity_metadata = self._entity_metadata(self._mapped_entity_ids(entity_mapping, task_entity_mapping))
         tasks = []
         for item in raw_tasks:
             if isinstance(item, dict) and str(item.get("id")) in selected:
+                task_mapping = entity_mapping_for_task(str(item.get("id")), entity_mapping, task_entity_mapping)
                 data = apply_task_pack_entity_mapping(
                     dict(item),
-                    entity_mapping,
+                    task_mapping,
                     requirements,
                     entity_metadata,
                     strict=True,
-                ) if package_type == TASK_PACK_TYPE else self._apply_entity_mapping_to_task_data(dict(item), entity_mapping)
+                ) if package_type == TASK_PACK_TYPE else self._apply_entity_mapping_to_task_data(dict(item), task_mapping)
                 if str(data.get("id")) in self.deleted_task_ids and not restore_deleted and package_type != "backup":
                     continue
                 tasks.append(data)

@@ -271,6 +271,7 @@ async def websocket_import_preview(hass: HomeAssistant, connection, msg) -> None
     vol.Optional("mode", default="merge"): vol.In(["merge", "replace"]),
     vol.Optional("selected_ids", default=None): vol.Any([cv.string], None),
     vol.Optional("entity_mapping", default={}): dict,
+    vol.Optional("task_entity_mapping", default={}): dict,
     vol.Optional("import_settings", default=True): cv.boolean,
     vol.Optional("restore_deleted", default=False): cv.boolean,
 })
@@ -290,6 +291,7 @@ async def websocket_import_apply(hass: HomeAssistant, connection, msg) -> None:
             msg.get("entity_mapping") or {},
             bool(msg.get("import_settings", True)),
             bool(msg.get("restore_deleted", False)),
+            msg.get("task_entity_mapping") or {},
         )
     except ValueError as err:
         connection.send_error(msg["id"], "invalid_import", str(err))
