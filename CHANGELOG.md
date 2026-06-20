@@ -1,5 +1,6 @@
 ## 0.7.4
 
+- Refreshed the History screen into a date-grouped timeline using existing completion/activity history data, category icons, supported status chips, and a Phase 6 test plan.
 - Refreshed the task editor layout into Phase 5 sections while preserving existing create/edit, schedule, seasonal, reminder, NFC, delete, and saved-data behavior plus a Phase 5 test plan.
 - Refreshed the task detail dialog as an informational view with Summary, Schedule, Runtime Tracking, Reminders, NFC, Notes, and History sections plus a Phase 4 test plan.
 - Refreshed the Tasks tab with improved Comfortable cards, a persisted Compact view mode, and a Phase 3 task list test plan.

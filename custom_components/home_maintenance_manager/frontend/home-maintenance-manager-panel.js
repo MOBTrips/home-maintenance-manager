@@ -262,6 +262,23 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
       .modal-head { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:8px; }
       .empty { text-align:center; padding:40px 16px; }
       .history-item { border-left:4px solid var(--primary-color); padding-left:12px; }
+      .history-screen { display:grid; gap:18px; }
+      .history-timeline { display:grid; gap:22px; }
+      .history-day { display:grid; grid-template-columns:180px 1fr; gap:18px; align-items:start; }
+      .history-date-rail { position:sticky; top:12px; display:flex; gap:10px; align-items:flex-start; color:var(--secondary-text-color); }
+      .history-date-marker { width:12px; height:12px; border-radius:50%; background:var(--primary-color); box-shadow:0 0 0 4px rgba(3,169,244,.14); margin-top:4px; flex:0 0 auto; }
+      .history-date-label { display:grid; gap:2px; }
+      .history-date-label b { color:var(--primary-text-color); }
+      .history-day-list { position:relative; display:grid; gap:10px; }
+      .history-day-list::before { content:""; position:absolute; left:-24px; top:4px; bottom:4px; width:1px; background:var(--divider-color); }
+      .history-entry { position:relative; display:grid; grid-template-columns:auto minmax(0,1fr); gap:12px; align-items:start; padding:12px 14px; border:1px solid var(--divider-color); border-radius:12px; background:var(--card-background-color); }
+      .history-entry::before { content:""; position:absolute; left:-29px; top:18px; width:9px; height:9px; border-radius:50%; background:var(--card-background-color); border:2px solid var(--primary-color); }
+      .history-entry-icon { display:flex; align-items:center; gap:8px; min-width:0; }
+      .history-entry-content { min-width:0; display:grid; gap:6px; }
+      .history-entry-main { display:flex; justify-content:space-between; gap:12px; align-items:flex-start; }
+      .history-entry-title { min-width:0; font-weight:700; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+      .history-entry-meta { display:flex; gap:8px; align-items:center; flex-wrap:wrap; color:var(--secondary-text-color); font-size:13px; }
+      .history-entry-notes { color:var(--secondary-text-color); font-size:13px; }
       .tag-row { display:flex; justify-content:space-between; gap:12px; align-items:center; border-bottom:1px solid var(--divider-color); padding:10px 0; }
       .detail-list { display:grid; grid-template-columns: 180px 1fr; gap:8px 12px; margin:12px 0; }
       .detail-list .key { color: var(--secondary-text-color); }
@@ -400,7 +417,7 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
       .summary-line { display:flex; justify-content:space-between; gap:12px; border-bottom:1px solid var(--divider-color); padding:8px 0; }
       .sticky-actions { position:sticky; bottom:0; background:var(--card-background-color); padding:16px 22px; margin:0; }
       .empty-list { text-align:center; color:var(--secondary-text-color); padding:24px; }
-      @media(max-width: 800px){ .entity-map-row, .entity-queue-layout { grid-template-columns:1fr; } .import-wizard-scrim { padding:0; } .import-wizard { min-height:100vh; border-radius:0; } .wizard-summary-grid { grid-template-columns:1fr 1fr; } .wizard-controls { flex-direction:column; align-items:stretch; } .review-list { max-height:none; } .modal-actions-bottom.sticky-actions { align-items:stretch; flex-direction:column; } .sticky-actions .right { justify-content:stretch; } .sticky-actions .right .btn { flex:1; } }
+      @media(max-width: 800px){ .history-day { grid-template-columns:1fr; gap:8px; } .history-date-rail { position:static; } .history-day-list::before, .history-entry::before { display:none; } .history-entry-main { display:grid; gap:6px; } .history-entry-title { white-space:normal; } .entity-map-row, .entity-queue-layout { grid-template-columns:1fr; } .import-wizard-scrim { padding:0; } .import-wizard { min-height:100vh; border-radius:0; } .wizard-summary-grid { grid-template-columns:1fr 1fr; } .wizard-controls { flex-direction:column; align-items:stretch; } .review-list { max-height:none; } .modal-actions-bottom.sticky-actions { align-items:stretch; flex-direction:column; } .sticky-actions .right { justify-content:stretch; } .sticky-actions .right .btn { flex:1; } }
     `;
   }
 
@@ -1043,9 +1060,122 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     </div>`;
   }
 
+  historyTimestamp(item) {
+    return item.completed_at || item.at || item.created_at || '';
+  }
+
+  historyActivityLabel(item) {
+    const raw = String(item.activity || item.type || item.method || 'activity').replaceAll('_', ' ');
+    return raw.replace(/\b\w/g, c => c.toUpperCase());
+  }
+
+  historyActivityIcon(item) {
+    const kind = String(item.activity || item.type || item.method || '').toLowerCase();
+    if (kind.includes('completed')) return 'mdi:check-circle-outline';
+    if (kind.includes('snooz')) return 'mdi:clock-outline';
+    if (kind.includes('nfc')) return 'mdi:nfc';
+    if (kind.includes('inspection')) return 'mdi:clipboard-search-outline';
+    if (kind.includes('note')) return 'mdi:note-text-outline';
+    return 'mdi:history';
+  }
+
+  historyStatusChip(item) {
+    const kind = String(item.activity || item.type || item.method || '').toLowerCase();
+    if (kind.includes('completed')) return this.renderTaskStatusChip('healthy', { compact: true, label: 'Completed' });
+    if (kind.includes('snooz')) return this.renderTaskStatusChip('paused', { compact: true, label: 'Snoozed' });
+    return '';
+  }
+
+  historyDateKey(timestamp) {
+    if (!timestamp) return 'unknown';
+    const d = new Date(timestamp);
+    if (Number.isNaN(d.getTime())) return 'unknown';
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  }
+
+  historyDateLabel(timestamp) {
+    if (!timestamp) return { primary: 'Date not recorded', secondary: 'Unknown time' };
+    const d = new Date(timestamp);
+    if (Number.isNaN(d.getTime())) return { primary: 'Date not recorded', secondary: timestamp };
+    return {
+      primary: d.toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' }),
+      secondary: d.toLocaleDateString(undefined, { year: 'numeric' }),
+    };
+  }
+
+  historyTimeLabel(timestamp) {
+    if (!timestamp) return 'Time not recorded';
+    const d = new Date(timestamp);
+    if (Number.isNaN(d.getTime())) return timestamp;
+    return d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+  }
+
+  historyItems() {
+    const items = [];
+    this.tasks.forEach(t => {
+      const task = t.name || t.id || 'Maintenance task';
+      const category = this.category(t);
+      const taskId = t.id || '';
+      (t.completion_history || []).forEach(i => items.push({ ...i, task, taskId, category, activity: 'completed', source: 'completion' }));
+      (t.activity_history || []).forEach(i => items.push({ ...i, task, taskId, category, source: 'activity' }));
+    });
+    const deduped = new Map();
+    items.forEach(i => {
+      const timestamp = this.historyTimestamp(i);
+      const label = this.historyActivityLabel(i);
+      const key = [i.taskId, timestamp, label, i.notes || '', i.scanner_name || ''].join('|');
+      if (!deduped.has(key) || i.source === 'completion') deduped.set(key, { ...i, timestamp, label });
+    });
+    return Array.from(deduped.values())
+      .sort((a, b) => String(b.timestamp || '').localeCompare(String(a.timestamp || '')))
+      .slice(0, 100);
+  }
+
+  renderHistoryEntry(item) {
+    const timestamp = item.timestamp || this.historyTimestamp(item);
+    const category = item.category || 'General';
+    const label = item.label || this.historyActivityLabel(item);
+    const meta = [
+      this.historyTimeLabel(timestamp),
+      item.method ? this.historyActivityLabel({ activity: item.method }) : '',
+      item.scanner_name ? item.scanner_name : '',
+    ].filter(Boolean);
+    return `<div class="history-entry">
+      <div class="history-entry-icon">${this.renderCategoryIcon(category)}<ha-icon icon="${this.historyActivityIcon(item)}"></ha-icon></div>
+      <div class="history-entry-content">
+        <div class="history-entry-main">
+          <div class="history-entry-title">${this.escape(item.task)}</div>
+          ${this.historyStatusChip(item)}
+        </div>
+        <div class="history-entry-meta"><span class="category-pill">${this.escape(category)}</span><span>${this.escape(label)}</span>${meta.map(m => `<span>${this.escape(m)}</span>`).join('')}</div>
+        ${item.notes ? `<div class="history-entry-notes">${this.escape(item.notes)}</div>` : ''}
+      </div>
+    </div>`;
+  }
+
   renderHistory() {
-    const items = this.tasks.flatMap(t => (t.activity_history || []).map(i => ({...i, task:t.name, category:this.category(t)}))).sort((a,b)=>String(b.at||"").localeCompare(String(a.at||""))).slice(0,100);
-    return `<div class="list">${items.length ? items.map(i => `<div class="card history-item"><b>${this.escape(i.task)}</b> <span class="category-pill">${this.escape(i.category)}</span><div class="muted">${this.escape(i.activity || i.type || 'activity')} • ${this.dateShort(i.at)} ${i.notes ? ' - '+this.escape(i.notes) : ''}</div></div>`).join("") : `<div class="card empty">No maintenance history yet.</div>`}</div>`;
+    const items = this.historyItems();
+    const groups = new Map();
+    items.forEach(item => {
+      const key = this.historyDateKey(item.timestamp);
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(item);
+    });
+    const timeline = Array.from(groups.entries()).map(([, group]) => {
+      const label = this.historyDateLabel(group[0]?.timestamp);
+      return `<section class="history-day">
+        <div class="history-date-rail"><span class="history-date-marker"></span><div class="history-date-label"><b>${this.escape(label.primary)}</b><span>${this.escape(label.secondary)} - ${group.length} ${group.length === 1 ? 'entry' : 'entries'}</span></div></div>
+        <div class="history-day-list">${group.map(item => this.renderHistoryEntry(item)).join('')}</div>
+      </section>`;
+    }).join('');
+    const empty = `<div class="card empty"><h2>No maintenance history yet.</h2><p class="muted">Completed tasks and logged activity will appear here after maintenance is recorded.</p></div>`;
+    return `<div class="history-screen">
+      ${this.renderSectionHeader('History', { subtitle: items.length ? 'Recent completions and task activity grouped by date.' : 'Maintenance activity will appear here after tasks are completed or logged.' })}
+      ${items.length ? `<div class="history-timeline">${timeline}</div>` : empty}
+    </div>`;
   }
 
   nfcActionLabel(action) {
