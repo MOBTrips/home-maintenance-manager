@@ -29,6 +29,13 @@ BUILT_IN_PACK_DIRS = (
     Path(__file__).resolve().parents[2] / "task_packs",
     Path(__file__).resolve().parent / "task_packs",
 )
+SERVICE_DUE_ENTITY_FIELDS = (
+    "entity",
+    "binary_due_entity",
+    "status_entity",
+    "remaining_percent_entity",
+    "next_due_timestamp_entity",
+)
 
 RUNTIME_HISTORY_FIELDS = {
     "runtime_seconds",
@@ -350,23 +357,26 @@ def apply_task_pack_entity_mapping(
         if not isinstance(rule, dict):
             continue
         new_rule = dict(rule)
-        if new_rule.get("entity"):
-            original = str(new_rule.get("entity"))
+        entity_fields = SERVICE_DUE_ENTITY_FIELDS if new_rule.get("type") == "service_due" else ("entity",)
+        for field in entity_fields:
+            if not new_rule.get(field):
+                continue
+            original = str(new_rule.get(field))
             action = _entity_mapping_action(original, mapping, requirements)
             if action in (None, "", "__clear__"):
-                new_rule.pop("entity", None)
+                new_rule.pop(field, None)
                 if new_rule.get("type") in ("runtime", "counter", "service_due"):
                     _mark_unresolved_entity_pause(data)
             elif action == "__unresolved__":
-                new_rule["entity"] = original
+                new_rule[field] = original
                 if new_rule.get("type") in ("runtime", "counter", "service_due"):
                     _mark_unresolved_entity_pause(data)
             else:
                 mapped_entity = str(action)
-                new_rule["entity"] = mapped_entity
+                new_rule[field] = mapped_entity
                 requirement = _requirement_for_ref(original, requirements or [])
                 entity_meta = metadata.get(mapped_entity, {})
-                if new_rule.get("type") == "counter" and entity_meta:
+                if field == "entity" and new_rule.get("type") == "counter" and entity_meta:
                     actual_unit = entity_meta.get("unit_of_measurement") or entity_meta.get("unit")
                     expected_unit = (
                         requirement.get("unit_of_measurement")
@@ -458,10 +468,12 @@ def _template_tasks_with_entity_requirements(
             if not isinstance(rule, dict):
                 continue
             new_rule = dict(rule)
-            if new_rule.get("entity"):
-                role = str(new_rule.get("type") or "rule_entity")
-                required = role in {"runtime", "counter", "service_due"}
-                new_rule["entity"] = requirement_for(new_rule.get("entity"), task_id, role, required)
+            entity_fields = SERVICE_DUE_ENTITY_FIELDS if new_rule.get("type") == "service_due" else ("entity",)
+            for field in entity_fields:
+                if new_rule.get(field):
+                    role = str(new_rule.get("type") or "rule_entity")
+                    required = role in {"runtime", "counter", "service_due"}
+                    new_rule[field] = requirement_for(new_rule.get(field), task_id, role, required)
             rules.append(new_rule)
         task["rules"] = rules
         templated_tasks.append(task)
@@ -508,9 +520,11 @@ def sanitize_task_pack_task(
         if not isinstance(rule, dict):
             continue
         new_rule = dict(rule)
-        entity_ref = new_rule.get("entity")
-        if entity_ref is not None:
-            new_rule["entity"] = str(entity_ref)
+        entity_fields = SERVICE_DUE_ENTITY_FIELDS if new_rule.get("type") == "service_due" else ("entity",)
+        for field in entity_fields:
+            entity_ref = new_rule.get(field)
+            if entity_ref is not None:
+                new_rule[field] = str(entity_ref)
         rules.append(new_rule)
     data["rules"] = rules
     return data

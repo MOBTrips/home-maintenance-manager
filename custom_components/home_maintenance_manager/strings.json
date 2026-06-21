@@ -94,6 +94,19 @@
           "specific_states": "Specific states"
         }
       },
+      "task_service_due_rule": {
+        "title": "Service due schedule",
+        "description": "Choose the entity that reports service due state, remaining percentage, or next due timestamp.",
+        "data": {
+          "navigation": "Navigation",
+          "service_entity": "Service due source entity",
+          "service_due_type": "Service signal type",
+          "due_states": "Due states",
+          "ok_states": "OK states",
+          "threshold_percent": "Due threshold percent",
+          "unavailable_behavior": "Unavailable behavior"
+        }
+      },
       "task_last_performed": {
         "title": "When was it last done?",
         "description": "This sets the starting point so the countdown begins immediately. If unsure, choose Unknown / start tracking today.",

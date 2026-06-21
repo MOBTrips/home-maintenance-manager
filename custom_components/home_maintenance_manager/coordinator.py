@@ -61,6 +61,26 @@ _STATUS_EVENT_MAP = {
     "completed": "notify_completed",
     "snoozed": "notify_snoozed",
 }
+SERVICE_DUE_ENTITY_FIELDS = (
+    "entity",
+    "binary_due_entity",
+    "status_entity",
+    "remaining_percent_entity",
+    "next_due_timestamp_entity",
+)
+
+
+def _rule_entity_fields(rule: dict[str, Any]) -> tuple[str, ...]:
+    return SERVICE_DUE_ENTITY_FIELDS if rule.get("type") == "service_due" else ("entity",)
+
+
+def _rule_has_unresolved_required_entity(rule: dict[str, Any]) -> bool:
+    if rule.get("type") not in {"runtime", "counter", "service_due"}:
+        return False
+    values = [str(rule.get(field) or "") for field in _rule_entity_fields(rule) if rule.get(field)]
+    if not values:
+        return True
+    return any(value.startswith("hmm://entity/") for value in values)
 
 
 class MaintenanceCoordinator:
@@ -434,12 +454,7 @@ class MaintenanceCoordinator:
             task_data = self._normalize_nfc_config(dict(item))
             if not is_task_pack:
                 task_data = self._ensure_task_provenance(task_data, "imported", "imported")
-            elif any(
-                isinstance(rule, dict)
-                and rule.get("type") in ("runtime", "counter", "service_due")
-                and str(rule.get("entity") or "").startswith("hmm://entity/")
-                for rule in task_data.get("rules") or []
-            ):
+            elif any(isinstance(rule, dict) and _rule_has_unresolved_required_entity(rule) for rule in task_data.get("rules") or []):
                 task_data["paused"] = True
                 provenance = dict(task_data.get("provenance") or {})
                 provenance["pause_reason"] = "unresolved_required_entity"
@@ -447,9 +462,7 @@ class MaintenanceCoordinator:
             task_id = str(task_data["id"])
             task_data["id"] = task_id
             if task_data.get("paused") and any(
-                isinstance(rule, dict)
-                and rule.get("type") in ("runtime", "counter", "service_due")
-                and (not rule.get("entity") or str(rule.get("entity") or "").startswith("hmm://entity/"))
+                isinstance(rule, dict) and _rule_has_unresolved_required_entity(rule)
                 for rule in task_data.get("rules") or []
             ):
                 paused_due_to_unresolved += 1
@@ -543,10 +556,14 @@ class MaintenanceCoordinator:
             if entity_id:
                 refs.append({"field": "linked_entities", "entity_id": str(entity_id), "required": False, "role": "linked_entity"})
         for idx, rule in enumerate(task_data.get("rules") or []):
-            if isinstance(rule, dict) and rule.get("entity"):
+            if not isinstance(rule, dict):
+                continue
+            for field in _rule_entity_fields(rule):
+                if not rule.get(field):
+                    continue
                 refs.append({
-                    "field": f"rules[{idx}].entity",
-                    "entity_id": str(rule.get("entity")),
+                    "field": f"rules[{idx}].{field}",
+                    "entity_id": str(rule.get(field)),
                     "required": str(rule.get("type") or "") in {"runtime", "counter", "service_due"},
                     "role": str(rule.get("type") or "rule_entity"),
                     "rule_id": str(rule.get("id") or idx),
@@ -916,8 +933,10 @@ class MaintenanceCoordinator:
         entity_ids = set()
         for task in self.tasks.values():
             for rule in task.rules:
-                if rule.get("type") in ("runtime", "counter", "service_due") and rule.get("entity"):
-                    entity_ids.add(rule["entity"])
+                if rule.get("type") in ("runtime", "counter", "service_due"):
+                    for field in _rule_entity_fields(rule):
+                        if rule.get(field):
+                            entity_ids.add(rule[field])
         for entity_id in entity_ids:
             self._unsub.append(async_track_state_change_event(self.hass, entity_id, self._state_changed))
         self._unsub.append(self.hass.bus.async_listen("tag_scanned", self._tag_scanned))

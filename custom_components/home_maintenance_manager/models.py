@@ -36,6 +36,13 @@ RULE_RUNTIME = "runtime"
 RULE_COUNTER = "counter"
 RULE_CALENDAR = "calendar"
 RULE_SERVICE_DUE = "service_due"
+SERVICE_DUE_ENTITY_FIELDS = (
+    "entity",
+    "binary_due_entity",
+    "status_entity",
+    "remaining_percent_entity",
+    "next_due_timestamp_entity",
+)
 LOGIC_ANY = "any"
 LOGIC_ALL = "all"
 LOGIC_PRIMARY = "primary"
@@ -94,8 +101,34 @@ def _legacy_schedule_due_logic(schedule_type: str | None) -> str | None:
         "time_and_meter": DUE_LOGIC_ALL,
         "time_or_metered": DUE_LOGIC_ANY,
         "time_and_metered": DUE_LOGIC_ALL,
+        "time_or_usage": DUE_LOGIC_ANY,
+        "time_and_usage": DUE_LOGIC_ALL,
     }
     return mapping.get(str(schedule_type or ""))
+
+
+def _service_due_entity_field(rule: dict[str, Any]) -> str:
+    service_type = str(rule.get("service_due_type") or rule.get("service_type") or rule.get("subtype") or rule.get("mode") or "binary").lower()
+    if service_type in {"status", "enum", "state"}:
+        return "status_entity"
+    if service_type in {"remaining_percent", "percent", "remaining"}:
+        return "remaining_percent_entity"
+    if service_type in {"next_due_timestamp", "timestamp", "next_due"}:
+        return "next_due_timestamp_entity"
+    return "binary_due_entity"
+
+
+def _service_due_entity(rule: dict[str, Any]) -> str | None:
+    entity_id = rule.get("entity")
+    if entity_id:
+        return str(entity_id)
+    field = _service_due_entity_field(rule)
+    if rule.get(field):
+        return str(rule.get(field))
+    for candidate in SERVICE_DUE_ENTITY_FIELDS[1:]:
+        if rule.get(candidate):
+            return str(rule.get(candidate))
+    return None
 
 
 def normalize_task_data(data: dict[str, Any]) -> dict[str, Any]:
@@ -520,7 +553,7 @@ class MaintenanceTask:
         return progress
 
     def _service_due_progress(self, hass: HomeAssistant, rule_id: str, name: str, rule: dict[str, Any]) -> RuleProgress | None:
-        entity_id = rule.get("entity")
+        entity_id = _service_due_entity(rule)
         if not entity_id:
             return RuleProgress(rule_id, RULE_SERVICE_DUE, name, 0, None, False, "Service source not configured", False, "missing_entity")
         state = hass.states.get(entity_id)
@@ -731,8 +764,9 @@ class MaintenanceTask:
                     due_dates.append(next_due)
             elif rule.get("type") == RULE_SERVICE_DUE:
                 service_type = str(rule.get("service_due_type") or rule.get("service_type") or rule.get("subtype") or rule.get("mode") or "").lower()
-                if service_type in {"next_due_timestamp", "timestamp", "next_due"} and rule.get("entity"):
-                    state = hass.states.get(rule["entity"])
+                entity_id = _service_due_entity(rule)
+                if service_type in {"next_due_timestamp", "timestamp", "next_due"} and entity_id:
+                    state = hass.states.get(entity_id)
                     next_due = _parse_due_timestamp(state.state) if state else None
                     if next_due:
                         due_dates.append(next_due)

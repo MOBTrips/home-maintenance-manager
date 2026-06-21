@@ -20,9 +20,11 @@ CATEGORIES = [
     "Yard", "Vehicle", "3D Printer", "Seasonal", "Safety", "Other",
 ]
 TIME_UNITS = ["days", "weeks", "months", "years"]
-SCHEDULE_TYPES = ["time", "usage", "time_or_usage", "time_and_usage"]
+SCHEDULE_TYPES = ["time", "usage", "service_due", "time_or_usage", "time_and_usage"]
 LAST_PERFORMED_MODES = ["today", "days_ago", "specific_date", "unknown"]
 RUNTIME_METHODS = ["entity_on", "above_threshold", "specific_state"]
+SERVICE_DUE_TYPES = ["binary", "status", "remaining_percent", "next_due_timestamp"]
+SERVICE_DUE_UNAVAILABLE_BEHAVIORS = ["ignore", "mark_due", "warning"]
 
 
 def _friendly_service_name(service: str) -> str:
@@ -302,7 +304,8 @@ class OptionsFlowHandler(config_entries.OptionsFlowWithReload):
         rules = task.get("rules") or []
         has_time = any(r.get("type") == "time" for r in rules)
         has_runtime = any(r.get("type") == "runtime" for r in rules)
-        default_type = "time_or_usage" if has_time and has_runtime and task.get("rule_logic") == "any" else "time_and_usage" if has_time and has_runtime else "usage" if has_runtime else "time"
+        has_service_due = any(r.get("type") == "service_due" for r in rules)
+        default_type = "time_or_usage" if has_time and has_runtime and task.get("rule_logic") == "any" else "time_and_usage" if has_time and has_runtime else "service_due" if has_service_due else "usage" if has_runtime else "time"
         if user_input is not None:
             if user_input.get("navigation") == "back":
                 return await self.async_step_task_equipment()
@@ -311,6 +314,8 @@ class OptionsFlowHandler(config_entries.OptionsFlowWithReload):
             self._task_in_progress = task
             if user_input["schedule_type"] in ("time", "time_or_usage", "time_and_usage"):
                 return await self.async_step_task_time_rule()
+            if user_input["schedule_type"] == "service_due":
+                return await self.async_step_task_service_due_rule()
             return await self.async_step_task_usage_rule()
         return self.async_show_form(
             step_id="task_schedule_type",
@@ -328,6 +333,7 @@ class OptionsFlowHandler(config_entries.OptionsFlowWithReload):
                         options=[
                             {"value": "time", "label": "Time based"},
                             {"value": "usage", "label": "Usage/runtime based"},
+                            {"value": "service_due", "label": "Service due"},
                             {"value": "time_or_usage", "label": "Time OR usage, whichever comes first"},
                             {"value": "time_and_usage", "label": "Time AND usage"},
                         ], mode=selector.SelectSelectorMode.LIST,
@@ -373,6 +379,68 @@ class OptionsFlowHandler(config_entries.OptionsFlowWithReload):
                 ),
                 vol.Required("time_unit", default=default_unit): selector.SelectSelector(
                     selector.SelectSelectorConfig(options=TIME_UNITS, mode=selector.SelectSelectorMode.DROPDOWN)
+                ),
+            })
+        )
+
+    async def async_step_task_service_due_rule(self, user_input=None):
+        task = self._task_in_progress or {}
+        old = next((r for r in task.get("rules", []) if r.get("type") == "service_due"), {})
+        if user_input is not None:
+            if user_input.get("navigation") == "back":
+                return await self.async_step_task_schedule_type()
+            service_type = user_input["service_due_type"]
+            rule: dict[str, Any] = {
+                "id": "service_due_1",
+                "type": "service_due",
+                "name": "Service due",
+                "entity": user_input["service_entity"],
+                "service_due_type": service_type,
+                "unavailable_behavior": user_input.get("unavailable_behavior") or "ignore",
+            }
+            if service_type == "status":
+                rule["due_states"] = _csv_to_list(user_input.get("due_states")) or ["due", "on", "true", "1", "yes"]
+                rule["ok_states"] = _csv_to_list(user_input.get("ok_states")) or ["ok", "off", "false", "0", "no"]
+            if service_type == "remaining_percent":
+                rule["threshold_percent"] = float(user_input.get("threshold_percent") or 10)
+            task["_service_due_rule"] = rule
+            self._task_in_progress = task
+            return await self.async_step_task_last_performed()
+        return self.async_show_form(
+            step_id="task_service_due_rule",
+            data_schema=vol.Schema({
+                vol.Optional("navigation", default="continue"): selector.SelectSelector(
+                    selector.SelectSelectorConfig(
+                        options=[
+                            {"value": "continue", "label": "Continue"},
+                            {"value": "back", "label": "Back to schedule type"},
+                        ], mode=selector.SelectSelectorMode.DROPDOWN,
+                    )
+                ),
+                vol.Required("service_entity", default=old.get("entity") or None): selector.EntitySelector(),
+                vol.Required("service_due_type", default=old.get("service_due_type") or "binary"): selector.SelectSelector(
+                    selector.SelectSelectorConfig(
+                        options=[
+                            {"value": "binary", "label": "Binary due entity"},
+                            {"value": "status", "label": "Status enum/state entity"},
+                            {"value": "remaining_percent", "label": "Remaining percent entity"},
+                            {"value": "next_due_timestamp", "label": "Next due timestamp entity"},
+                        ], mode=selector.SelectSelectorMode.DROPDOWN,
+                    )
+                ),
+                vol.Optional("due_states", default=_list_to_csv(old.get("due_states") or ["due", "on", "true", "1", "yes"])): str,
+                vol.Optional("ok_states", default=_list_to_csv(old.get("ok_states") or ["ok", "off", "false", "0", "no"])): str,
+                vol.Optional("threshold_percent", default=float(old.get("threshold_percent") or 10)): selector.NumberSelector(
+                    selector.NumberSelectorConfig(min=0, max=100, step=0.1, mode=selector.NumberSelectorMode.BOX)
+                ),
+                vol.Optional("unavailable_behavior", default=old.get("unavailable_behavior") or "ignore"): selector.SelectSelector(
+                    selector.SelectSelectorConfig(
+                        options=[
+                            {"value": "ignore", "label": "Ignore / not due"},
+                            {"value": "mark_due", "label": "Mark due"},
+                            {"value": "warning", "label": "Warning only"},
+                        ], mode=selector.SelectSelectorMode.DROPDOWN,
+                    )
                 ),
             })
         )
@@ -438,6 +506,8 @@ class OptionsFlowHandler(config_entries.OptionsFlowWithReload):
             if user_input.get("navigation") == "back":
                 if task.get("_schedule_type") in ("usage", "time_or_usage", "time_and_usage"):
                     return await self.async_step_task_usage_rule()
+                if task.get("_schedule_type") == "service_due":
+                    return await self.async_step_task_service_due_rule()
                 return await self.async_step_task_time_rule()
             # Compose rules from the wizard. Keep manually imported advanced rules only when editing advanced later.
             rules = []
@@ -445,10 +515,14 @@ class OptionsFlowHandler(config_entries.OptionsFlowWithReload):
                 rules.append(task["_time_rule"])
             if task.get("_runtime_rule"):
                 rules.append(task["_runtime_rule"])
+            if task.get("_service_due_rule"):
+                rules.append(task["_service_due_rule"])
             schedule_type = task.get("_schedule_type", "time")
             rule_logic = "all" if schedule_type == "time_and_usage" else "any"
+            due_logic = "all_rules_due" if schedule_type == "time_and_usage" else "any_rule_due" if schedule_type == "time_or_usage" else "rule1_only"
             task["rules"] = rules
             task["rule_logic"] = rule_logic
+            task["due_logic"] = due_logic
             task["primary_rule_id"] = None
             if not self._selected_task_id and not task.get("last_completed"):
                 task["last_completed"] = _baseline_from_input(user_input["last_performed_mode"], user_input.get("days_ago"), user_input.get("specific_date"))
@@ -625,9 +699,12 @@ class OptionsFlowHandler(config_entries.OptionsFlowWithReload):
                 if not isinstance(rules, list):
                     errors["rules_json"] = "invalid_json"
                 else:
+                    rule_logic = user_input.get("rule_logic", task.get("rule_logic", "any"))
+                    due_logic = "all_rules_due" if rule_logic == "all" else "rule1_only" if rule_logic == "primary" else "any_rule_due"
                     task.update({
                         "rules": rules,
-                        "rule_logic": user_input.get("rule_logic", task.get("rule_logic", "any")),
+                        "rule_logic": rule_logic,
+                        "due_logic": due_logic,
                         "primary_rule_id": user_input.get("primary_rule_id") or None,
                     })
                     return await self._save_task_and_return()

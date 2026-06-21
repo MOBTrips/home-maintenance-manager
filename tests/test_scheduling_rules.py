@@ -105,6 +105,22 @@ class ServiceDueRuleTests(unittest.TestCase):
         self.assertEqual(service_task(rule).status(FakeHass({"sensor.service": FakeState("2026-01-01T11:59:00+00:00")})), "due")
         self.assertEqual(service_task(rule).status(FakeHass({"sensor.service": FakeState("2026-01-02T12:00:00+00:00")})), "ok")
 
+    def test_service_due_uses_subtype_specific_entity_fields(self) -> None:
+        task = models.MaintenanceTask(
+            id="service",
+            name="Service",
+            last_completed="2026-01-01T12:00:00+00:00",
+            rules=[{
+                "id": "service_due_1",
+                "type": "service_due",
+                "service_due_type": "remaining_percent",
+                "remaining_percent_entity": "sensor.remaining",
+                "threshold_percent": 10,
+            }],
+        )
+
+        self.assertEqual(task.status(FakeHass({"sensor.remaining": FakeState("8", "%")})), "due")
+
     def test_service_due_unavailable_behavior(self) -> None:
         self.assertEqual(
             service_task({"service_due_type": "binary"}).status(FakeHass({"sensor.service": FakeState("unavailable")})),
@@ -156,6 +172,20 @@ class DueLogicTests(unittest.TestCase):
         self.assertEqual(task.due_logic, "all_rules_due")
         self.assertEqual(task.rule_logic, "all")
 
+    def test_migration_from_config_flow_combined_alias(self) -> None:
+        task = models.MaintenanceTask.from_dict({
+            "id": "legacy",
+            "name": "Legacy",
+            "schedule_type": "time_or_usage",
+            "rules": [
+                {"id": "time_1", "type": "time", "value": 1, "unit": "months"},
+                {"id": "runtime_2", "type": "runtime", "entity": "sensor.runtime", "value": 100, "unit": "hours"},
+            ],
+        })
+
+        self.assertEqual(task.due_logic, "any_rule_due")
+        self.assertEqual(task.rule_logic, "any")
+
     def test_task_pack_templates_service_due_entity(self) -> None:
         package = task_packs.build_task_pack_package(
             {"id": "service", "name": "Service", "version": "1.0"},
@@ -171,6 +201,32 @@ class DueLogicTests(unittest.TestCase):
         self.assertEqual(rule["entity"], "hmm://entity/binary_sensor_filter_due")
         self.assertEqual(requirement["role"], "service_due")
         self.assertTrue(requirement["required"])
+
+    def test_task_pack_templates_and_maps_service_due_subtype_entity_fields(self) -> None:
+        package = task_packs.build_task_pack_package(
+            {"id": "service", "name": "Service", "version": "1.0"},
+            [{
+                "id": "service",
+                "name": "Service",
+                "rules": [{
+                    "id": "service_due_1",
+                    "type": "service_due",
+                    "service_due_type": "remaining_percent",
+                    "remaining_percent_entity": "sensor.filter_remaining",
+                    "threshold_percent": 10,
+                }],
+            }],
+        )
+        placeholder = package["tasks"][0]["rules"][0]["remaining_percent_entity"]
+        self.assertEqual(placeholder, "hmm://entity/sensor_filter_remaining")
+
+        mapped = task_packs.apply_task_pack_entity_mapping(
+            package["tasks"][0],
+            {placeholder: "sensor.local_filter_remaining"},
+            package["entity_requirements"],
+            strict=True,
+        )
+        self.assertEqual(mapped["rules"][0]["remaining_percent_entity"], "sensor.local_filter_remaining")
 
 
 if __name__ == "__main__":
