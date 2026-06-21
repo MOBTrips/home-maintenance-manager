@@ -355,11 +355,11 @@ def apply_task_pack_entity_mapping(
             action = _entity_mapping_action(original, mapping, requirements)
             if action in (None, "", "__clear__"):
                 new_rule.pop("entity", None)
-                if new_rule.get("type") in ("runtime", "counter"):
+                if new_rule.get("type") in ("runtime", "counter", "service_due"):
                     _mark_unresolved_entity_pause(data)
             elif action == "__unresolved__":
                 new_rule["entity"] = original
-                if new_rule.get("type") in ("runtime", "counter"):
+                if new_rule.get("type") in ("runtime", "counter", "service_due"):
                     _mark_unresolved_entity_pause(data)
             else:
                 mapped_entity = str(action)
@@ -460,7 +460,7 @@ def _template_tasks_with_entity_requirements(
             new_rule = dict(rule)
             if new_rule.get("entity"):
                 role = str(new_rule.get("type") or "rule_entity")
-                required = role in {"runtime", "counter"}
+                required = role in {"runtime", "counter", "service_due"}
                 new_rule["entity"] = requirement_for(new_rule.get("entity"), task_id, role, required)
             rules.append(new_rule)
         task["rules"] = rules

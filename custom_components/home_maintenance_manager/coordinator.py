@@ -436,7 +436,7 @@ class MaintenanceCoordinator:
                 task_data = self._ensure_task_provenance(task_data, "imported", "imported")
             elif any(
                 isinstance(rule, dict)
-                and rule.get("type") in ("runtime", "counter")
+                and rule.get("type") in ("runtime", "counter", "service_due")
                 and str(rule.get("entity") or "").startswith("hmm://entity/")
                 for rule in task_data.get("rules") or []
             ):
@@ -448,7 +448,7 @@ class MaintenanceCoordinator:
             task_data["id"] = task_id
             if task_data.get("paused") and any(
                 isinstance(rule, dict)
-                and rule.get("type") in ("runtime", "counter")
+                and rule.get("type") in ("runtime", "counter", "service_due")
                 and (not rule.get("entity") or str(rule.get("entity") or "").startswith("hmm://entity/"))
                 for rule in task_data.get("rules") or []
             ):
@@ -547,7 +547,7 @@ class MaintenanceCoordinator:
                 refs.append({
                     "field": f"rules[{idx}].entity",
                     "entity_id": str(rule.get("entity")),
-                    "required": str(rule.get("type") or "") in {"runtime", "counter"},
+                    "required": str(rule.get("type") or "") in {"runtime", "counter", "service_due"},
                     "role": str(rule.get("type") or "rule_entity"),
                     "rule_id": str(rule.get("id") or idx),
                     "source_mode": rule.get("source_mode"),
@@ -916,7 +916,7 @@ class MaintenanceCoordinator:
         entity_ids = set()
         for task in self.tasks.values():
             for rule in task.rules:
-                if rule.get("type") in ("runtime", "counter") and rule.get("entity"):
+                if rule.get("type") in ("runtime", "counter", "service_due") and rule.get("entity"):
                     entity_ids.add(rule["entity"])
         for entity_id in entity_ids:
             self._unsub.append(async_track_state_change_event(self.hass, entity_id, self._state_changed))
@@ -926,7 +926,12 @@ class MaintenanceCoordinator:
 
     @callback
     def _state_changed(self, event) -> None:
-        self.hass.async_create_task(self._update_runtime())
+        self.hass.async_create_task(self._handle_tracked_state_changed())
+
+    async def _handle_tracked_state_changed(self) -> None:
+        await self._update_runtime()
+        self._notify()
+        await self.async_check_notifications()
 
     @callback
     def _tag_scanned(self, event: Event) -> None:

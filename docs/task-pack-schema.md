@@ -66,7 +66,7 @@ Example:
 
 ## Entity Requirements
 
-Entity requirements describe Home Assistant entities a template can use. Use placeholder references such as `hmm://entity/hot_tub_pump_runtime` in task rules.
+Entity requirements describe Home Assistant entities a template can use. Use placeholder references such as `hmm://entity/hot_tub_pump_runtime` in task rules. Runtime, metered usage, and service due rule entities are treated as required requirements when exported from local tasks.
 
 ```json
 {
@@ -107,7 +107,7 @@ Recommended entity requirement metadata:
 | `auto_map_when_available` | Optional boolean. Enables auto-mapping when a preferred entity exists. |
 | `auto_map_reason` | Optional user-facing reason shown in the import wizard when auto-mapped. |
 
-For metered `counter` requirements, `unit_of_measurement` is used as a compatibility contract. HMM rejects final mappings whose source unit belongs to a different family, such as mapping a W power sensor to a gal volume task. Compatible units in the same family can be mapped, and HMM replaces stale task-pack unit metadata with the mapped entity unit during import.
+For metered `counter` requirements, `unit_of_measurement` is used as a compatibility contract. HMM rejects final mappings whose source unit belongs to a different family, such as mapping a W power sensor to a gal volume task. Compatible units in the same family can be mapped, and HMM replaces stale task-pack unit metadata with the mapped entity unit during import. Service due requirements do not use unit compatibility, but unresolved required service due placeholders pause affected imported tasks until the user maps or edits the source.
 
 ### QA Auto-Mapping
 

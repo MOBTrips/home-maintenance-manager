@@ -83,7 +83,8 @@ HMM is designed to feel like a native Home Assistant tool: tasks can be tied to 
 | Runtime based | Maintenance depends on how long equipment has run. |
 | Metered usage | Maintenance depends on total usage such as gallons, kWh, miles, cycles, or other counters. |
 | Calendar based | Maintenance should happen on a specific recurring calendar pattern. |
-| Seasonal | A time, runtime, metered, or calendar task should only be active during part of the year. |
+| Service due | Maintenance depends on a Home Assistant entity that reports due state, remaining percent, or next due timestamp. |
+| Seasonal | A time, runtime, metered, calendar, or service due task should only be active during part of the year. |
 
 ## NFC workflows
 

@@ -36,6 +36,7 @@ TASK_SCHEMA = vol.Schema({
     vol.Optional("equipment_name", default=""): cv.string,
     vol.Optional("rules", default=[]): list,
     vol.Optional("rule_logic", default="any"): vol.In(["any", "all", "primary"]),
+    vol.Optional("due_logic", default=""): vol.Any(vol.In(["rule1_only", "any_rule_due", "all_rules_due"]), ""),
     vol.Optional("primary_rule_id", default=""): vol.Any(cv.string, None),
     vol.Optional("nfc_tags", default=[]): vol.All(cv.ensure_list, [cv.string]),
     vol.Optional("nfc_action", default="confirm"): vol.In(["complete", "confirm", "inspection", "open_dashboard", "disabled"]),

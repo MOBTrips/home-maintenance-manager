@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from calendar import monthrange
 import importlib.util
 from pathlib import Path
@@ -35,9 +35,15 @@ RULE_TIME = "time"
 RULE_RUNTIME = "runtime"
 RULE_COUNTER = "counter"
 RULE_CALENDAR = "calendar"
+RULE_SERVICE_DUE = "service_due"
 LOGIC_ANY = "any"
 LOGIC_ALL = "all"
 LOGIC_PRIMARY = "primary"
+DUE_LOGIC_RULE1_ONLY = "rule1_only"
+DUE_LOGIC_ANY = "any_rule_due"
+DUE_LOGIC_ALL = "all_rules_due"
+VALID_DUE_LOGIC = {DUE_LOGIC_RULE1_ONLY, DUE_LOGIC_ANY, DUE_LOGIC_ALL}
+_UNAVAILABLE_STATES = {"unknown", "unavailable", ""}
 
 
 
@@ -47,6 +53,74 @@ def _as_float(value: Any, default: float = 0.0) -> float:
         return float(value)
     except (TypeError, ValueError):
         return default
+
+
+def _as_list(value: Any) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, str):
+        return [item.strip() for item in value.split(",") if item.strip()]
+    if isinstance(value, list):
+        return [str(item).strip() for item in value if str(item).strip()]
+    return [str(value).strip()] if str(value).strip() else []
+
+
+def _truthy_state(value: Any) -> bool:
+    return str(value or "").strip().lower() in {"on", "true", "1", "yes"}
+
+
+def _falsey_state(value: Any) -> bool:
+    return str(value or "").strip().lower() in {"off", "false", "0", "no"}
+
+
+def _normalize_due_logic(data: dict[str, Any]) -> str:
+    value = str(data.get("due_logic") or "").strip()
+    if value in VALID_DUE_LOGIC:
+        return value
+    rule_logic = str(data.get("rule_logic") or "").strip()
+    rules = data.get("rules") if isinstance(data.get("rules"), list) else []
+    if rule_logic == LOGIC_ALL and len(rules) > 1:
+        return DUE_LOGIC_ALL
+    if rule_logic == LOGIC_PRIMARY or len(rules) <= 1:
+        return DUE_LOGIC_RULE1_ONLY
+    return DUE_LOGIC_ANY
+
+
+def _legacy_schedule_due_logic(schedule_type: str | None) -> str | None:
+    mapping = {
+        "time_or_runtime": DUE_LOGIC_ANY,
+        "time_and_runtime": DUE_LOGIC_ALL,
+        "time_or_meter": DUE_LOGIC_ANY,
+        "time_and_meter": DUE_LOGIC_ALL,
+        "time_or_metered": DUE_LOGIC_ANY,
+        "time_and_metered": DUE_LOGIC_ALL,
+    }
+    return mapping.get(str(schedule_type or ""))
+
+
+def normalize_task_data(data: dict[str, Any]) -> dict[str, Any]:
+    """Normalize old schedule editor shapes into the durable rules contract."""
+    normalized = dict(data)
+    rules = normalized.get("rules")
+    if isinstance(rules, list):
+        normalized["rules"] = [dict(rule) if isinstance(rule, dict) else rule for rule in rules]
+    else:
+        normalized["rules"] = []
+
+    legacy_due_logic = _legacy_schedule_due_logic(normalized.get("schedule_type") or normalized.get("_schedule_type"))
+    if legacy_due_logic and not normalized.get("due_logic"):
+        normalized["due_logic"] = legacy_due_logic
+    normalized["due_logic"] = _normalize_due_logic(normalized)
+
+    if normalized["due_logic"] == DUE_LOGIC_ALL:
+        normalized["rule_logic"] = LOGIC_ALL
+    elif normalized["due_logic"] == DUE_LOGIC_RULE1_ONLY:
+        normalized["rule_logic"] = LOGIC_PRIMARY if len(normalized["rules"]) > 1 else LOGIC_ANY
+        if normalized["rules"] and not normalized.get("primary_rule_id"):
+            normalized["primary_rule_id"] = str(normalized["rules"][0].get("id") or "rule_0")
+    elif normalized["due_logic"] == DUE_LOGIC_ANY:
+        normalized["rule_logic"] = LOGIC_ANY
+    return normalized
 
 
 def _interval_seconds(value: float, unit: str) -> float:
@@ -149,6 +223,22 @@ def _calendar_next_due_after(last: datetime, rule: dict[str, Any]) -> datetime |
     nth = int(_as_float(rule.get("nth"), 2))
     weekday = int(_as_float(rule.get("weekday"), 1))  # Monday=0, Tuesday=1
     return _next_nth_weekday_after(last, nth, weekday, hour, minute)
+
+
+def _parse_due_timestamp(value: Any) -> datetime | None:
+    if value in (None, ""):
+        return None
+    if isinstance(value, (int, float)):
+        try:
+            return datetime.fromtimestamp(float(value), tz=timezone.utc)
+        except (TypeError, ValueError, OSError):
+            return None
+    parsed = dt_util.parse_datetime(str(value))
+    if parsed is None:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed
 
 SEASON_PRESETS = {
     "spring": (3, 1, 5, 31),
@@ -274,6 +364,7 @@ class MaintenanceTask:
     equipment_name: str = ""
     rules: list[dict[str, Any]] = field(default_factory=list)
     rule_logic: str = LOGIC_ANY
+    due_logic: str | None = None
     primary_rule_id: str | None = None
     nfc_tags: list[str] = field(default_factory=list)
     nfc_action: str = "confirm"
@@ -308,6 +399,7 @@ class MaintenanceTask:
     @staticmethod
     def from_dict(data: dict[str, Any]) -> "MaintenanceTask":
         # Keep old storage forward-compatible if fields are added/removed between releases.
+        data = normalize_task_data(data)
         valid = set(MaintenanceTask.__dataclass_fields__.keys())
         filtered = {key: value for key, value in data.items() if key in valid}
         return MaintenanceTask(**filtered)
@@ -317,6 +409,7 @@ class MaintenanceTask:
 
     def update_config_from_dict(self, data: dict[str, Any]) -> None:
         """Update user-editable config while preserving runtime and history fields."""
+        data = normalize_task_data(data)
         preserve = {
             "runtime_seconds",
             "totalized_usage",
@@ -333,6 +426,16 @@ class MaintenanceTask:
         for key, value in data.items():
             if key in valid:
                 setattr(self, key, value)
+
+    def resolved_due_logic(self) -> str:
+        return _normalize_due_logic(self.as_dict())
+
+    def _progress_for_due_logic(self, progress: list[RuleProgress]) -> list[RuleProgress]:
+        if self.resolved_due_logic() == DUE_LOGIC_RULE1_ONLY and progress:
+            return progress[:1]
+        if self.due_logic in VALID_DUE_LOGIC:
+            return progress[:2]
+        return progress
 
     @property
     def device_identifier(self) -> tuple[str, str]:
@@ -410,7 +513,65 @@ class MaintenanceTask:
                 display_used = self._display_usage_value(used, rule)
                 display_amount = self._display_usage_value(amount, rule)
                 progress.append(RuleProgress(rule_id, rule_type, name, pct, display_amount - display_used, pct >= 1, f"{display_used:.1f}/{display_amount:.1f} {display_unit}"))
+            elif rule_type == RULE_SERVICE_DUE:
+                service_progress = self._service_due_progress(hass, rule_id, name, rule)
+                if service_progress:
+                    progress.append(service_progress)
         return progress
+
+    def _service_due_progress(self, hass: HomeAssistant, rule_id: str, name: str, rule: dict[str, Any]) -> RuleProgress | None:
+        entity_id = rule.get("entity")
+        if not entity_id:
+            return RuleProgress(rule_id, RULE_SERVICE_DUE, name, 0, None, False, "Service source not configured", False, "missing_entity")
+        state = hass.states.get(entity_id)
+        state_value = str(state.state).strip() if state else ""
+        unavailable_behavior = str(rule.get("unavailable_behavior") or "ignore").lower()
+        if not state or state_value.lower() in _UNAVAILABLE_STATES:
+            if unavailable_behavior in {"mark_due", "due"}:
+                return RuleProgress(rule_id, RULE_SERVICE_DUE, name, 1, 0, True, "Service source unavailable; configured as due")
+            return RuleProgress(rule_id, RULE_SERVICE_DUE, name, 0, None, False, "Service source unavailable", True, "service_unavailable")
+
+        service_type = str(rule.get("service_due_type") or rule.get("service_type") or rule.get("subtype") or rule.get("mode") or "binary").lower()
+        if service_type == "binary":
+            if _truthy_state(state_value):
+                return RuleProgress(rule_id, RULE_SERVICE_DUE, name, 1, 0, True, f"{entity_id} is due")
+            if _falsey_state(state_value):
+                return RuleProgress(rule_id, RULE_SERVICE_DUE, name, 0, None, False, f"{entity_id} is not due")
+            return RuleProgress(rule_id, RULE_SERVICE_DUE, name, 0, None, False, f"{entity_id} state is {state_value}")
+
+        if service_type in {"status", "enum", "state"}:
+            due_states = _as_list(rule.get("due_states")) or ["due", "on", "true", "replace", "service", "service_due"]
+            ok_states = _as_list(rule.get("ok_states")) or ["ok", "normal", "off", "false", "good", "none"]
+            if state_value in due_states:
+                return RuleProgress(rule_id, RULE_SERVICE_DUE, name, 1, 0, True, f"{entity_id} state {state_value} is due")
+            if state_value in ok_states:
+                return RuleProgress(rule_id, RULE_SERVICE_DUE, name, 0, None, False, f"{entity_id} state {state_value} is ok")
+            return RuleProgress(rule_id, RULE_SERVICE_DUE, name, 0, None, False, f"{entity_id} state {state_value} is not in configured due states")
+
+        if service_type in {"remaining_percent", "percent", "remaining"}:
+            threshold = _as_float(rule.get("threshold_percent") if rule.get("threshold_percent") is not None else rule.get("threshold"), 10)
+            try:
+                remaining = float(state_value)
+            except (TypeError, ValueError):
+                return RuleProgress(rule_id, RULE_SERVICE_DUE, name, 0, None, False, f"{entity_id} value is not numeric", False, "invalid_numeric_state")
+            due = remaining <= threshold
+            denominator = max(100 - threshold, 1)
+            pct = min(max((100 - remaining) / denominator, 0), 999)
+            return RuleProgress(rule_id, RULE_SERVICE_DUE, name, pct, remaining - threshold, due, f"{remaining:.1f}% remaining; due at {threshold:.1f}%")
+
+        if service_type in {"next_due_timestamp", "timestamp", "next_due"}:
+            due_at = _parse_due_timestamp(state_value)
+            if not due_at:
+                return RuleProgress(rule_id, RULE_SERVICE_DUE, name, 0, None, False, f"{entity_id} timestamp is invalid", False, "invalid_timestamp_state")
+            now = dt_util.utcnow()
+            if now.tzinfo is None:
+                now = now.replace(tzinfo=timezone.utc)
+            remaining_days = (due_at - now).total_seconds() / 86400
+            due = now >= due_at
+            pct = 1 if due else 0
+            return RuleProgress(rule_id, RULE_SERVICE_DUE, name, pct, remaining_days, due, f"Service due {due_at.isoformat()}")
+
+        return RuleProgress(rule_id, RULE_SERVICE_DUE, name, 0, None, False, f"Unknown service due type: {service_type}", False, "invalid_service_due_type")
 
     def status(self, hass: HomeAssistant) -> str:
         if self.paused:
@@ -424,14 +585,15 @@ class MaintenanceTask:
         progress = self.rule_progress(hass)
         if not progress:
             return "unknown"
-        valid_progress = [p for p in progress if p.valid]
+        valid_progress = [p for p in self._progress_for_due_logic(progress) if p.valid]
         if not valid_progress:
             return "unknown"
         due_flags = [p.due for p in valid_progress]
-        if self.rule_logic == LOGIC_ALL:
+        due_logic = self.resolved_due_logic()
+        if due_logic == DUE_LOGIC_ALL:
             is_due = all(due_flags)
-        elif self.rule_logic == LOGIC_PRIMARY and self.primary_rule_id:
-            is_due = next((p.due for p in valid_progress if p.rule_id == self.primary_rule_id), False)
+        elif due_logic == DUE_LOGIC_RULE1_ONLY:
+            is_due = bool(due_flags[0]) if due_flags else False
         else:
             is_due = any(due_flags)
         if is_due:
@@ -452,14 +614,14 @@ class MaintenanceTask:
         progress = self.rule_progress(hass)
         if not progress:
             return None
-        valid_progress = [p for p in progress if p.valid]
+        valid_progress = [p for p in self._progress_for_due_logic(progress) if p.valid]
         if not valid_progress:
             return None
-        if self.rule_logic == LOGIC_ALL:
+        due_logic = self.resolved_due_logic()
+        if due_logic == DUE_LOGIC_ALL:
             return min(p.percent_used for p in valid_progress) * 100
-        if self.rule_logic == LOGIC_PRIMARY and self.primary_rule_id:
-            primary = next((p for p in valid_progress if p.rule_id == self.primary_rule_id), valid_progress[0])
-            return primary.percent_used * 100
+        if due_logic == DUE_LOGIC_RULE1_ONLY:
+            return valid_progress[0].percent_used * 100
         return max(p.percent_used for p in valid_progress) * 100
 
     def days_remaining(self, hass: HomeAssistant) -> float | None:
@@ -475,6 +637,9 @@ class MaintenanceTask:
 
     def has_counter_rule(self) -> bool:
         return any(rule.get("type") == RULE_COUNTER for rule in self.rules)
+
+    def has_service_due_rule(self) -> bool:
+        return any(rule.get("type") == RULE_SERVICE_DUE for rule in self.rules)
 
     def counter_remaining(self, hass: HomeAssistant) -> float | None:
         values = [p.remaining for p in self.rule_progress(hass) if p.rule_type == RULE_COUNTER and p.remaining is not None]
@@ -564,6 +729,13 @@ class MaintenanceTask:
                 next_due = _calendar_next_due_after(last, rule)
                 if next_due:
                     due_dates.append(next_due)
+            elif rule.get("type") == RULE_SERVICE_DUE:
+                service_type = str(rule.get("service_due_type") or rule.get("service_type") or rule.get("subtype") or rule.get("mode") or "").lower()
+                if service_type in {"next_due_timestamp", "timestamp", "next_due"} and rule.get("entity"):
+                    state = hass.states.get(rule["entity"])
+                    next_due = _parse_due_timestamp(state.state) if state else None
+                    if next_due:
+                        due_dates.append(next_due)
         return min(due_dates) if due_dates else None
 
     def summary_attributes(self, hass: HomeAssistant) -> dict[str, Any]:

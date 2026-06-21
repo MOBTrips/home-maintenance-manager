@@ -1,5 +1,6 @@
 ## 0.7.4
 
+- Added Service due as a schedule type and replaced combined schedule dropdown choices with Maintenance Rule #1, optional Maintenance Rule #2, and Due Logic.
 - Fixed remaining release candidate issues for metered task creation, metered display units, session-counter accumulation, and import wizard task-configuration scroll position.
 - Fixed release QA issues in the v0.7.4 UI refresh: task editor placeholder copy, compact progress bars, urgent sorting, import wizard scrolling, metered source type persistence, and HA device navigation context.
 - Fixed reviewed imports so task-by-task entity configuration can map the same Task Pack placeholder to different real Home Assistant entities per selected task while preserving legacy global entity mapping support.

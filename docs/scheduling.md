@@ -1,6 +1,24 @@
 # Scheduling
 
-HMM supports several schedule types so maintenance can be based on time, runtime, usage, calendar patterns, or seasonal windows.
+HMM supports several schedule types so maintenance can be based on time, runtime, usage, calendar patterns, service indicators, or seasonal windows.
+
+## Maintenance rules and Due Logic
+
+Each task has Maintenance Rule #1 and can optionally use Maintenance Rule #2. Each rule uses one schedule type:
+
+- Time interval
+- Runtime hours
+- Metered usage
+- Calendar schedule
+- Service due
+
+Due Logic controls how the rules combine:
+
+- **Maintenance Rule #1 only**: only Rule #1 controls due state.
+- **Any maintenance rule is due**: the task is due when Rule #1 or Rule #2 is due.
+- **All maintenance rules are due**: the task is due only when Rule #1 and Rule #2 are both due.
+
+Older combined schedule choices, such as time-or-runtime and time-and-metered-usage, load as two maintenance rules with the matching Due Logic.
 
 ## Time-based schedules
 
@@ -54,6 +72,19 @@ Examples:
 - Inspect equipment on the first Saturday of each month.
 - Check supplies on the 15th of every month.
 - Perform a quarterly checklist on a specific weekday pattern.
+
+## Service due schedules
+
+Use this when another Home Assistant entity already reports maintenance state.
+
+Supported service due signals:
+
+- **Binary due entity**: due when the entity state is `on`, `true`, `1`, or `yes`; not due when `off`, `false`, `0`, or `no`.
+- **Status enum/state entity**: due when the entity state matches the configured due states; not due when it matches configured OK states.
+- **Remaining percent entity**: due when the numeric value is at or below the configured threshold, such as 10%.
+- **Next due timestamp entity**: due when the timestamp is now or in the past.
+
+Unavailable or unknown service source states default to safe not-due behavior. A task can instead be configured to mark due when the service source is unavailable.
 
 ## Baseline: when was it last done?
 
