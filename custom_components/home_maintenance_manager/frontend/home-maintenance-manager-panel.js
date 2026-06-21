@@ -26,9 +26,9 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     this.statusFilter = "All";
     this.sortMode = "urgent";
     this.viewMode = this.loadViewModePreference();
-    this.runtimeAnalysis = null;
-    this.runtimeAnalysisLoading = false;
-    this.analysisDays = 30;
+    this.runtimeAnalysis = {};
+    this.runtimeAnalysisLoading = {};
+    this.analysisDays = {};
     this._modalSnapshot = null;
     this.mobileMenuOpen = false;
     this._routeTaskId = null;
@@ -2336,6 +2336,20 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     ].map(([v, l]) => `<option value="${v}" ${selected===v?'selected':''}>${l}</option>`).join('');
   }
 
+  renderRuntimeThresholdHelper(prefix) {
+    const id = name => this.rulePrefixId(prefix, name);
+    return `
+        <div class="conditional runtime-fields threshold-helper-fields analysis-box" data-rule-prefix="${prefix}">
+          <div><b>Threshold helper</b></div>
+          <div class="help">For numeric sensors, analyze recent history to estimate OFF and RUNNING ranges and recommend a starting threshold.</div>
+          <div class="analysis-controls">
+            <div><label>${this.label('How far back to analyze','Longer periods are better for equipment that runs on schedules. Last 30 days is a good default.')}</label><select id="${id('analysis-days')}" data-analysis-days-prefix="${prefix}"><option value="1">Last 24 hours</option><option value="7">Last 7 days</option><option value="30" selected>Last 30 days</option><option value="90">Last 90 days</option><option value="365">Last year</option></select></div>
+            <div class="task-actions"><button class="btn small" type="button" data-action="analyze-runtime" data-runtime-prefix="${prefix}">Analyze source</button><button class="btn small" type="button" data-action="use-threshold" data-runtime-prefix="${prefix}">Use recommended threshold</button></div>
+          </div>
+          <div id="${id('runtime-analysis')}">${this.renderRuntimeAnalysis(prefix)}</div>
+        </div>`;
+  }
+
   renderScheduleRuleEditor(rule, prefix, ruleNumber) {
     const scheduleValue = this.ruleScheduleValue(rule);
     const timeRule = rule?.type === 'time' ? rule : { value: 90, unit: 'days' };
@@ -2365,17 +2379,6 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     const unavailableBehavior = serviceRule.unavailable_behavior || 'ignore';
     const id = name => this.rulePrefixId(prefix, name);
     const errPrefix = prefix === 'task' ? '' : 'rule2-';
-    const analysis = prefix === 'task' ? `
-        <div class="conditional runtime-fields analysis-box" data-rule-prefix="${prefix}">
-          <div><b>Threshold helper</b></div>
-          <div class="help">For numeric sensors, analyze recent history to estimate OFF and RUNNING ranges and recommend a starting threshold.</div>
-          <div class="analysis-controls">
-            <div><label>${this.label('How far back to analyze','Longer periods are better for equipment that runs on schedules. Last 30 days is a good default.')}</label><select id="analysis-days"><option value="1">Last 24 hours</option><option value="7">Last 7 days</option><option value="30" selected>Last 30 days</option><option value="90">Last 90 days</option><option value="365">Last year</option></select></div>
-            <div class="task-actions"><button class="btn small" type="button" data-action="analyze-runtime">Analyze source</button><button class="btn small" type="button" data-action="use-threshold">Use recommended threshold</button></div>
-          </div>
-          <div id="runtime-analysis">${this.renderRuntimeAnalysis()}</div>
-        </div>` : '';
-
     return `
         <div class="schedule-row" data-rule-editor="${prefix}">
           <div class="form-field"><label>${this.label('Schedule type','Choose one schedule rule type. Use Due Logic below to add a second independent rule.')}</label><select id="${id('schedule')}" data-rule-schedule="${prefix}">
@@ -2409,7 +2412,7 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
             <div><label>${this.label('Day of month','If the day does not exist in a month, the last day of that month is used.')}</label><input id="${id('calendar-day')}" type="number" min="1" max="31" value="${this.escape(calDay)}"></div>
           </div>
         </div>
-        ${analysis}
+        ${this.renderRuntimeThresholdHelper(prefix)}
         <div class="schedule-card conditional meter-fields" data-rule-prefix="${prefix}">
           <h4>Metered usage tracking</h4>
           <div class="form-grid">
@@ -2651,14 +2654,14 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
         runtimePicker.hass = this._hass;
         runtimePicker.value = rule.type === 'runtime' ? (rule.entity || '') : '';
         runtimePicker.addEventListener('value-changed', () => {
-          if (prefix === 'task') this.runtimeAnalysis = null;
+          this.setRuntimeAnalysis(prefix, null);
           this.syncConditionalFields();
-          if (prefix === 'task') this.renderRuntimeAnalysisIntoPanel();
+          this.renderRuntimeAnalysisIntoPanel(prefix);
         });
         runtimePicker.addEventListener('change', () => {
-          if (prefix === 'task') this.runtimeAnalysis = null;
+          this.setRuntimeAnalysis(prefix, null);
           this.syncConditionalFields();
-          if (prefix === 'task') this.renderRuntimeAnalysisIntoPanel();
+          this.renderRuntimeAnalysisIntoPanel(prefix);
         });
       }
       const meterPicker = this.shadowRoot.getElementById(id('meter-entity'));
@@ -2717,11 +2720,19 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     });
     if (notify) notify.onchange = () => this.syncConditionalFields();
     if (notifyBehaviorEl) notifyBehaviorEl.onchange = () => this.syncConditionalFields();
-    this.shadowRoot.querySelectorAll('[data-action="analyze-runtime"]').forEach(el=>el.onclick=()=>this.analyzeRuntimeSource());
-    this.shadowRoot.querySelectorAll('[data-action="use-threshold"]').forEach(el=>el.onclick=()=>this.useRecommendedThreshold());
-    const analysisDays = this.shadowRoot.getElementById('analysis-days');
-    if (analysisDays) { analysisDays.value = String(this.analysisDays || 30); analysisDays.onchange = () => { this.analysisDays = Number(analysisDays.value || 30); this.runtimeAnalysis = null; this.renderRuntimeAnalysisIntoPanel(); }; }
-    this.bindRuntimeAnalysisControls();
+    this.shadowRoot.querySelectorAll('[data-action="analyze-runtime"]').forEach(el=>el.onclick=()=>this.analyzeRuntimeSource(el.dataset.runtimePrefix || 'task'));
+    this.shadowRoot.querySelectorAll('[data-action="use-threshold"]').forEach(el=>el.onclick=()=>this.useRecommendedThreshold(el.dataset.runtimePrefix || 'task'));
+    this.shadowRoot.querySelectorAll('[data-analysis-days-prefix]').forEach(el => {
+      const prefix = el.dataset.analysisDaysPrefix || 'task';
+      el.value = String(this.analysisDaysFor(prefix));
+      el.onchange = () => {
+        this.setAnalysisDays(prefix, Number(el.value || 30));
+        this.setRuntimeAnalysis(prefix, null);
+        this.renderRuntimeAnalysisIntoPanel(prefix);
+      };
+    });
+    this.bindRuntimeAnalysisControls('task');
+    this.bindRuntimeAnalysisControls('task-rule2');
     if (notify) notify.onchange = () => this.syncConditionalFields();
     this.syncConditionalFields();
     this.updateMeterUnit('task');
@@ -2800,11 +2811,36 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     this.shadowRoot.appendChild(wrapper);
   }
 
-  renderRuntimeAnalysis() {
-    if (this.runtimeAnalysisLoading) return `<div class="muted">Analyzing history…</div>`;
-    const a = this.runtimeAnalysis;
+  runtimeAnalysisFor(prefix='task') {
+    return (this.runtimeAnalysis && typeof this.runtimeAnalysis === 'object') ? (this.runtimeAnalysis[prefix] || null) : null;
+  }
+
+  setRuntimeAnalysis(prefix='task', value=null) {
+    this.runtimeAnalysis = { ...(this.runtimeAnalysis || {}), [prefix]: value };
+  }
+
+  runtimeAnalysisLoadingFor(prefix='task') {
+    return !!(this.runtimeAnalysisLoading && this.runtimeAnalysisLoading[prefix]);
+  }
+
+  setRuntimeAnalysisLoading(prefix='task', value=false) {
+    this.runtimeAnalysisLoading = { ...(this.runtimeAnalysisLoading || {}), [prefix]: !!value };
+  }
+
+  analysisDaysFor(prefix='task') {
+    return Number((this.analysisDays || {})[prefix] || 30);
+  }
+
+  setAnalysisDays(prefix='task', value=30) {
+    this.analysisDays = { ...(this.analysisDays || {}), [prefix]: Number(value || 30) };
+  }
+
+  renderRuntimeAnalysis(prefix='task') {
+    if (this.runtimeAnalysisLoadingFor(prefix)) return `<div class="muted">Analyzing history…</div>`;
+    const a = this.runtimeAnalysisFor(prefix);
     if (!a) return `<div class="muted">Select a numeric runtime source, choose how far back to analyze, then click Analyze source.</div>`;
     if (a.error) return `<div class="muted">${this.escape(a.error)}</div>`;
+    const id = name => this.rulePrefixId(prefix, name);
     const unit = a.unit || 'units';
     const min = Number(a.min), max = Number(a.max);
     const threshold = this.clampThreshold(Number(a.userThreshold ?? a.recommended), min, max);
@@ -2818,14 +2854,14 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
       return `<div class="histobar" data-bin-label="${this.escape(label)}" title="${this.escape(label)}" style="height:${Math.max(4, b.height)}%"></div>`;
     }).join('');
     const historyPath = this.historyPath(a.rows || [], min, max);
-    const actualPeriod = Number(a.actualPeriodDays || a.periodDays || this.analysisDays || 30);
+    const actualPeriod = Number(a.actualPeriodDays || a.periodDays || this.analysisDaysFor(prefix));
     const availableText = a.availableStart && a.availableEnd ? ` • Available: ${this.escape(a.availableStart)} to ${this.escape(a.availableEnd)}` : '';
     const chartBody = view === 'history'
       ? `<svg class="history-svg" viewBox="0 0 100 100" preserveAspectRatio="none"><polyline points="${this.escape(historyPath)}" fill="none" stroke="currentColor" stroke-width="1.8" vector-effect="non-scaling-stroke" opacity=".8" /></svg>`
       : `<div class="histogram">${bars}</div>`;
     return `<div class="recommendation">Recommended threshold: ${this.escape(a.recommended)} ${this.escape(unit)}</div>
       <div class="muted">Source unit: ${this.escape(unit)} • Requested: last ${this.escape(a.periodDays)} day${Number(a.periodDays) === 1 ? '' : 's'} • Used: ${this.escape(actualPeriod.toFixed ? actualPeriod.toFixed(1) : actualPeriod)} day${actualPeriod === 1 ? '' : 's'} • Range: ${this.escape(a.min)} to ${this.escape(a.max)} ${this.escape(unit)}${availableText}</div>
-      <div class="view-tabs"><button class="btn small ${view==='histogram'?'active':''}" type="button" data-action="analysis-view" data-view="histogram">Histogram</button><button class="btn small ${view==='history'?'active':''}" type="button" data-action="analysis-view" data-view="history">History</button></div>
+      <div class="view-tabs"><button class="btn small ${view==='histogram'?'active':''}" type="button" data-action="analysis-view" data-runtime-prefix="${prefix}" data-view="histogram">Histogram</button><button class="btn small ${view==='history'?'active':''}" type="button" data-action="analysis-view" data-runtime-prefix="${prefix}" data-view="history">History</button></div>
       <div class="histogram-workbench">
         <div>
           <div class="value-axis"><span>${this.escape(a.max)} ${this.escape(unit)}</span><span>${this.escape(a.min)} ${this.escape(unit)}</span></div>
@@ -2833,24 +2869,24 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
             <div class="chart-area">
               <div class="threshold-marker recommended" title="Recommended threshold" style="top:${100-recPct}%"></div>
               <div class="threshold-label recommended" style="top:${100-recPct}%">Recommended ${this.escape(rec)} ${this.escape(unit)}</div>
-              <div id="user-threshold-marker" class="threshold-marker" title="Your threshold" style="top:${100-thresholdPct}%"></div>
-              <div id="user-threshold-label" class="threshold-label" style="top:${100-thresholdPct}%">Your threshold ${this.escape(threshold)} ${this.escape(unit)}</div>
+              <div id="${id('user-threshold-marker')}" class="threshold-marker" title="Your threshold" style="top:${100-thresholdPct}%"></div>
+              <div id="${id('user-threshold-label')}" class="threshold-label" style="top:${100-thresholdPct}%">Your threshold ${this.escape(threshold)} ${this.escape(unit)}</div>
               ${chartBody}
             </div>
             <div class="axis-row"><span>${view==='history'?'Older':'Low frequency'}</span><span>${view==='history'?'Newer':'High frequency'}</span></div>
           </div>
         </div>
         <div class="vertical-slider-wrap">
-          <input id="threshold-slider" class="threshold-slider vertical" type="range" min="${this.escape(a.min)}" max="${this.escape(a.max)}" step="${this.escape(a.step || 0.1)}" value="${threshold}">
+          <input id="${id('threshold-slider')}" class="threshold-slider vertical" type="range" min="${this.escape(a.min)}" max="${this.escape(a.max)}" step="${this.escape(a.step || 0.1)}" value="${threshold}">
           <div class="slider-caption">Drag threshold up/down</div>
         </div>
       </div>
       <div class="tooltip-note">Hover over bars to see value ranges, sample counts, and percentages. Drag the right-side threshold control up or down to simulate runtime.</div>
-      <div class="manual-threshold-row"><div><label>Your running threshold: <span id="threshold-display">${threshold}</span> ${this.escape(unit)}</label><div class="help">Anything above this line counts as running.</div></div><input id="threshold-manual-input" type="number" step="${this.escape(a.step || 0.1)}" value="${threshold}"></div>
+      <div class="manual-threshold-row"><div><label>Your running threshold: <span id="${id('threshold-display')}">${threshold}</span> ${this.escape(unit)}</label><div class="help">Anything above this line counts as running.</div></div><input id="${id('threshold-manual-input')}" type="number" step="${this.escape(a.step || 0.1)}" value="${threshold}"></div>
       <div class="simulation-grid">
-        <div class="sim-tile"><div class="muted">Estimated runtime</div><div id="sim-hours" class="sim-value">${this.escape(a.estimatedHours)}</div><div class="muted">hours in period</div></div>
-        <div class="sim-tile"><div class="muted">Average per day</div><div id="sim-daily" class="sim-value">${this.escape(a.avgDailyHours)}</div><div class="muted">hours/day</div></div>
-        <div class="sim-tile"><div class="muted">Maintenance interval</div><div id="sim-interval" class="sim-value">${this.escape(a.maintenanceIntervalDays || '—')}</div><div class="muted">days, based on limit</div></div>
+        <div class="sim-tile"><div class="muted">Estimated runtime</div><div id="${id('sim-hours')}" class="sim-value">${this.escape(a.estimatedHours)}</div><div class="muted">hours in period</div></div>
+        <div class="sim-tile"><div class="muted">Average per day</div><div id="${id('sim-daily')}" class="sim-value">${this.escape(a.avgDailyHours)}</div><div class="muted">hours/day</div></div>
+        <div class="sim-tile"><div class="muted">Maintenance interval</div><div id="${id('sim-interval')}" class="sim-value">${this.escape(a.maintenanceIntervalDays || '—')}</div><div class="muted">days, based on limit</div></div>
       </div>
       <div class="help">Reason: ${this.escape(a.reason)}</div>`;
   }
@@ -2882,15 +2918,16 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     }).join(' ');
   }
 
-  renderRuntimeAnalysisIntoPanel() {
-    const el = this.shadowRoot.getElementById('runtime-analysis');
-    if (el) el.innerHTML = this.renderRuntimeAnalysis();
-    this.bindRuntimeAnalysisControls();
+  renderRuntimeAnalysisIntoPanel(prefix='task') {
+    const id = name => this.rulePrefixId(prefix, name);
+    const el = this.shadowRoot.getElementById(id('runtime-analysis'));
+    if (el) el.innerHTML = this.renderRuntimeAnalysis(prefix);
+    this.bindRuntimeAnalysisControls(prefix);
   }
 
 
-  calculateRuntimeStats(threshold) {
-    const a = this.runtimeAnalysis;
+  calculateRuntimeStats(prefix, threshold) {
+    const a = this.runtimeAnalysisFor(prefix);
     const rows = a?.rows || [];
     if (!rows.length) return { hours: 0, daily: 0, intervalDays: '—' };
     let seconds = 0;
@@ -2901,56 +2938,63 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
       if (Number.isFinite(prev) && prev > threshold && Number.isFinite(ta) && Number.isFinite(tb)) seconds += Math.max(0, tb - ta) / 1000;
     }
     const hours = seconds / 3600;
-    const days = Number(a.actualPeriodDays || a.periodDays || this.analysisDays || 30);
+    const days = Number(a.actualPeriodDays || a.periodDays || this.analysisDaysFor(prefix));
     const daily = days ? hours / days : 0;
-    const limit = this.intervalToHours(Number(this.shadowRoot.getElementById('task-runtime-value')?.value || 0), this.shadowRoot.getElementById('task-runtime-interval-unit')?.value || 'hours');
+    const id = name => this.rulePrefixId(prefix, name);
+    const limit = this.intervalToHours(Number(this.shadowRoot.getElementById(id('runtime-value'))?.value || 0), this.shadowRoot.getElementById(id('runtime-interval-unit'))?.value || 'hours');
     const intervalDays = daily > 0 && limit > 0 ? (limit / daily).toFixed(1) : '—';
     return { hours: hours.toFixed(1), daily: daily.toFixed(1), intervalDays };
   }
 
-  bindRuntimeAnalysisControls() {
-    this.shadowRoot.querySelectorAll('[data-action="analysis-view"]').forEach(btn => btn.onclick = () => {
+  bindRuntimeAnalysisControls(prefix='task') {
+    const id = name => this.rulePrefixId(prefix, name);
+    const panel = this.shadowRoot.getElementById(id('runtime-analysis'));
+    if (!panel) return;
+    panel.querySelectorAll(`[data-action="analysis-view"][data-runtime-prefix="${prefix}"]`).forEach(btn => btn.onclick = () => {
       this.analysisView = btn.dataset.view || 'histogram';
-      this.renderRuntimeAnalysisIntoPanel();
+      this.renderRuntimeAnalysisIntoPanel(prefix);
     });
-    const slider = this.shadowRoot.getElementById('threshold-slider');
-    if (!slider || !this.runtimeAnalysis) return;
+    const slider = this.shadowRoot.getElementById(id('threshold-slider'));
+    const analysis = this.runtimeAnalysisFor(prefix);
+    if (!slider || !analysis) return;
     const updateFromValue = (rawValue) => {
-      const min = Number(this.runtimeAnalysis.min), max = Number(this.runtimeAnalysis.max);
+      const analysis = this.runtimeAnalysisFor(prefix);
+      const min = Number(analysis.min), max = Number(analysis.max);
       const threshold = this.clampThreshold(Number(rawValue), min, max);
-      this.runtimeAnalysis.userThreshold = threshold;
-      const unit = this.runtimeAnalysis.unit || '';
-      const input = this.shadowRoot.getElementById('task-runtime-threshold');
-      const method = this.shadowRoot.getElementById('task-runtime-method');
+      analysis.userThreshold = threshold;
+      this.setRuntimeAnalysis(prefix, analysis);
+      const unit = analysis.unit || '';
+      const input = this.shadowRoot.getElementById(id('runtime-threshold'));
+      const method = this.shadowRoot.getElementById(id('runtime-method'));
       if (input) input.value = threshold;
       if (method) method.value = 'above_threshold';
       slider.value = String(threshold);
-      const display = this.shadowRoot.getElementById('threshold-display');
+      const display = this.shadowRoot.getElementById(id('threshold-display'));
       if (display) display.textContent = String(threshold);
-      const marker = this.shadowRoot.getElementById('user-threshold-marker');
-      const markerLabel = this.shadowRoot.getElementById('user-threshold-label');
-      const manualInput = this.shadowRoot.getElementById('threshold-manual-input');
+      const marker = this.shadowRoot.getElementById(id('user-threshold-marker'));
+      const markerLabel = this.shadowRoot.getElementById(id('user-threshold-label'));
+      const manualInput = this.shadowRoot.getElementById(id('threshold-manual-input'));
       const pct = this.thresholdPct(threshold, min, max);
       if (marker) marker.style.top = `${100-pct}%`;
       if (markerLabel) { markerLabel.style.top = `${100-pct}%`; markerLabel.textContent = `Your threshold ${threshold} ${unit}`; }
       if (manualInput) manualInput.value = threshold;
-      const stats = this.calculateRuntimeStats(threshold);
-      const h = this.shadowRoot.getElementById('sim-hours');
-      const d = this.shadowRoot.getElementById('sim-daily');
-      const interval = this.shadowRoot.getElementById('sim-interval');
+      const stats = this.calculateRuntimeStats(prefix, threshold);
+      const h = this.shadowRoot.getElementById(id('sim-hours'));
+      const d = this.shadowRoot.getElementById(id('sim-daily'));
+      const interval = this.shadowRoot.getElementById(id('sim-interval'));
       if (h) h.textContent = stats.hours;
       if (d) d.textContent = stats.daily;
       if (interval) interval.textContent = stats.intervalDays;
       this.syncConditionalFields();
     };
     slider.oninput = () => updateFromValue(slider.value);
-    const manualInput = this.shadowRoot.getElementById('threshold-manual-input');
+    const manualInput = this.shadowRoot.getElementById(id('threshold-manual-input'));
     if (manualInput) manualInput.oninput = () => {
       const value = Number(manualInput.value);
       if (!Number.isFinite(value)) return;
       updateFromValue(value);
     };
-    updateFromValue(this.runtimeAnalysis.userThreshold ?? this.runtimeAnalysis.recommended);
+    updateFromValue(analysis.userThreshold ?? analysis.recommended);
   }
 
   updateRuntimeHints(prefix='task') {
@@ -3014,14 +3058,16 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     return rows;
   }
 
-  async analyzeRuntimeSource() {
-    const entityId = this.shadowRoot.getElementById('task-runtime-entity')?.value || '';
+  async analyzeRuntimeSource(prefix='task') {
+    const id = name => this.rulePrefixId(prefix, name);
+    const entityId = this.shadowRoot.getElementById(id('runtime-entity'))?.value || '';
     const unit = this.entityUnit(entityId);
-    if (!entityId) { this.runtimeAnalysis = {error:'Choose a runtime source first.'}; this.renderRuntimeAnalysisIntoPanel(); return; }
-    this.analysisDays = Number(this.shadowRoot.getElementById('analysis-days')?.value || this.analysisDays || 30);
-    this.runtimeAnalysisLoading = true; this.renderRuntimeAnalysisIntoPanel();
+    if (!entityId) { this.setRuntimeAnalysis(prefix, {error:'Choose a runtime source first.'}); this.renderRuntimeAnalysisIntoPanel(prefix); return; }
+    this.setAnalysisDays(prefix, Number(this.shadowRoot.getElementById(id('analysis-days'))?.value || this.analysisDaysFor(prefix)));
+    const analysisDays = this.analysisDaysFor(prefix);
+    this.setRuntimeAnalysisLoading(prefix, true); this.renderRuntimeAnalysisIntoPanel(prefix);
     try {
-      const rows = await this.fetchNumericHistory(entityId, this.analysisDays);
+      const rows = await this.fetchNumericHistory(entityId, analysisDays);
       rows.sort((a,b) => a.time - b.time);
       const values = rows.map(r => r.value).filter(v => Number.isFinite(v));
       if (values.length < 3) throw new Error(`Not enough numeric history was found for ${entityId}. Recorder may not have enough stored data yet, or this sensor may not be numeric.`);
@@ -3050,28 +3096,32 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
         return {count, percent: count/values.length*100, height: count/maxCount*100, label:`${low.toFixed(1)}-${high.toFixed(1)}`};
       });
       const step = span > 1000 ? 1 : span > 100 ? 0.5 : 0.1;
-      const existingThreshold = Number(this.shadowRoot.getElementById('task-runtime-threshold')?.value);
+      const existingThreshold = Number(this.shadowRoot.getElementById(id('runtime-threshold'))?.value);
       const userThreshold = Number.isFinite(existingThreshold) && existingThreshold > 0 ? existingThreshold : recommended;
-      this.runtimeAnalysis = {min:min.toFixed(1), max:max.toFixed(1), p10:p10.toFixed(1), p50:p50.toFixed(1), p90:p90.toFixed(1), recommended, userThreshold, unit, histogram, reason, rows, periodDays:this.analysisDays, actualPeriodDays, availableStart, availableEnd, step};
-      const stats = this.calculateRuntimeStats(userThreshold);
-      this.runtimeAnalysis.estimatedHours = stats.hours;
-      this.runtimeAnalysis.avgDailyHours = stats.daily;
-      this.runtimeAnalysis.maintenanceIntervalDays = stats.intervalDays;
-      const method = this.shadowRoot.getElementById('task-runtime-method');
+      const analysis = {min:min.toFixed(1), max:max.toFixed(1), p10:p10.toFixed(1), p50:p50.toFixed(1), p90:p90.toFixed(1), recommended, userThreshold, unit, histogram, reason, rows, periodDays:analysisDays, actualPeriodDays, availableStart, availableEnd, step};
+      this.setRuntimeAnalysis(prefix, analysis);
+      const stats = this.calculateRuntimeStats(prefix, userThreshold);
+      analysis.estimatedHours = stats.hours;
+      analysis.avgDailyHours = stats.daily;
+      analysis.maintenanceIntervalDays = stats.intervalDays;
+      this.setRuntimeAnalysis(prefix, analysis);
+      const method = this.shadowRoot.getElementById(id('runtime-method'));
       if (method) method.value = 'above_threshold';
       this.syncConditionalFields();
     } catch (err) {
-      this.runtimeAnalysis = {error: err?.message || String(err)};
+      this.setRuntimeAnalysis(prefix, {error: err?.message || String(err)});
     } finally {
-      this.runtimeAnalysisLoading = false; this.renderRuntimeAnalysisIntoPanel();
+      this.setRuntimeAnalysisLoading(prefix, false); this.renderRuntimeAnalysisIntoPanel(prefix);
     }
   }
 
-  useRecommendedThreshold() {
-    const threshold = this.runtimeAnalysis?.recommended;
-    const input = this.shadowRoot.getElementById('task-runtime-threshold');
-    const method = this.shadowRoot.getElementById('task-runtime-method');
-    if (threshold !== undefined && input) { input.value = threshold; if (this.runtimeAnalysis) this.runtimeAnalysis.userThreshold = Number(threshold); if (method) method.value = 'above_threshold'; this.syncConditionalFields(); this.renderRuntimeAnalysisIntoPanel(); }
+  useRecommendedThreshold(prefix='task') {
+    const analysis = this.runtimeAnalysisFor(prefix);
+    const threshold = analysis?.recommended;
+    const id = name => this.rulePrefixId(prefix, name);
+    const input = this.shadowRoot.getElementById(id('runtime-threshold'));
+    const method = this.shadowRoot.getElementById(id('runtime-method'));
+    if (threshold !== undefined && input) { input.value = threshold; if (analysis) { analysis.userThreshold = Number(threshold); this.setRuntimeAnalysis(prefix, analysis); } if (method) method.value = 'above_threshold'; this.syncConditionalFields(); this.renderRuntimeAnalysisIntoPanel(prefix); }
   }
 
   updateMeterUnit(prefix='task') {
@@ -3159,6 +3209,7 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
       this.shadowRoot.querySelectorAll(`[data-rule-prefix="${prefix}"].calendar-nth-fields`).forEach(el => el.classList.toggle('hidden', !(showCalendar && calendarKind === 'nth_weekday')));
       this.shadowRoot.querySelectorAll(`[data-rule-prefix="${prefix}"].calendar-month-day-fields`).forEach(el => el.classList.toggle('hidden', !(showCalendar && calendarKind === 'month_day')));
       this.shadowRoot.querySelectorAll(`[data-rule-prefix="${prefix}"].threshold-fields`).forEach(el => el.classList.toggle('hidden', !(showRuntime && runtimeMethod === 'above_threshold')));
+      this.shadowRoot.querySelectorAll(`[data-rule-prefix="${prefix}"].threshold-helper-fields`).forEach(el => el.classList.toggle('hidden', !(showRuntime && runtimeMethod === 'above_threshold')));
       this.shadowRoot.querySelectorAll(`[data-rule-prefix="${prefix}"].state-fields`).forEach(el => el.classList.toggle('hidden', !(showRuntime && runtimeMethod === 'specific_state')));
       this.shadowRoot.querySelectorAll(`[data-rule-prefix="${prefix}"].service-status-fields`).forEach(el => el.classList.toggle('hidden', !(showServiceDue && serviceType === 'status')));
       this.shadowRoot.querySelectorAll(`[data-rule-prefix="${prefix}"].service-percent-fields`).forEach(el => el.classList.toggle('hidden', !(showServiceDue && serviceType === 'remaining_percent')));

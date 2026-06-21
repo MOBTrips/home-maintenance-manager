@@ -34,6 +34,21 @@ class FrontendScheduleEditorTests(unittest.TestCase):
         self.assertIn("this.renderScheduleRuleEditor(rule2, 'task-rule2', 2)", self.source)
         self.assertIn("id=\"task-due-logic\"", self.source)
 
+    def test_runtime_threshold_helper_hidden_for_entity_on(self) -> None:
+        self.assertIn("threshold-helper-fields", self.source)
+        self.assertIn("runtimeMethod === 'above_threshold'", self.source)
+        self.assertIn('].threshold-helper-fields`).forEach(el => el.classList.toggle(\'hidden\', !(showRuntime && runtimeMethod === \'above_threshold\')))', self.source)
+
+    def test_runtime_threshold_helper_visible_for_numeric_threshold(self) -> None:
+        self.assertIn("Numeric value is above threshold", self.source)
+        self.assertIn("renderRuntimeThresholdHelper(prefix)", self.source)
+        self.assertIn("data-analysis-days-prefix", self.source)
+
+    def test_rule2_uses_same_runtime_threshold_helper(self) -> None:
+        self.assertIn("${this.renderRuntimeThresholdHelper(prefix)}", self.source)
+        self.assertIn("this.bindRuntimeAnalysisControls('task-rule2')", self.source)
+        self.assertIn("this.analyzeRuntimeSource(el.dataset.runtimePrefix || 'task')", self.source)
+
 
 if __name__ == "__main__":
     unittest.main()
