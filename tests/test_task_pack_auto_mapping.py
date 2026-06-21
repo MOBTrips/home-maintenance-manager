@@ -225,6 +225,97 @@ class TaskPackAutoMappingTests(unittest.TestCase):
 
         self.assertEqual(normalized["tasks"][0]["rules"][0]["entity"], "hmm://entity/sensor_private_runtime")
 
+    def test_import_preview_summary_counts_include_updates_deleted_and_settings(self) -> None:
+        coordinator = make_coordinator([])
+        coordinator.tasks = {
+            "existing_task": coordinator_module.MaintenanceTask.from_dict({"id": "existing_task", "name": "Existing task"}),
+        }
+        coordinator.deleted_task_ids = {"deleted_task"}
+        package = {
+            "format": "home_maintenance_manager_export",
+            "tasks": [
+                {"id": "new_task", "name": "New task"},
+                {"id": "existing_task", "name": "Existing task"},
+                {"id": "deleted_task", "name": "Deleted task"},
+            ],
+            "settings": {"notification_settings": {"enabled": True}},
+        }
+
+        preview = coordinator.import_preview(package)
+
+        self.assertEqual(preview["counts"]["new"], 1)
+        self.assertEqual(preview["counts"]["update"], 1)
+        self.assertEqual(preview["counts"]["deleted"], 1)
+        self.assertTrue(preview["settings_present"])
+
+    def test_restore_deleted_false_blocks_tombstoned_backup_task(self) -> None:
+        coordinator = make_coordinator([])
+        coordinator.deleted_task_ids = {"deleted_task"}
+        captured = {}
+
+        async def capture_import(package, mode):
+            captured["package"] = package
+            captured["mode"] = mode
+            return {"imported": len(package.get("tasks", []))}
+
+        coordinator.async_import_data = capture_import
+        package = {
+            "format": "home_maintenance_manager_export",
+            "tasks": [{"id": "deleted_task", "name": "Deleted task"}],
+        }
+
+        asyncio.run(coordinator.async_apply_import_preview(package, selected_ids=["deleted_task"], restore_deleted=False))
+
+        self.assertEqual(captured["package"]["tasks"], [])
+        self.assertEqual(captured["mode"], "merge")
+
+    def test_restore_deleted_true_allows_tombstoned_backup_task(self) -> None:
+        coordinator = make_coordinator([])
+        coordinator.deleted_task_ids = {"deleted_task"}
+        captured = {}
+
+        async def capture_import(package, mode):
+            captured["package"] = package
+            return {"imported": len(package.get("tasks", []))}
+
+        coordinator.async_import_data = capture_import
+        package = {
+            "format": "home_maintenance_manager_export",
+            "tasks": [{"id": "deleted_task", "name": "Deleted task"}],
+        }
+
+        asyncio.run(coordinator.async_apply_import_preview(package, selected_ids=["deleted_task"], restore_deleted=True))
+
+        self.assertEqual(captured["package"]["tasks"][0]["id"], "deleted_task")
+
+    def test_restore_deleted_false_blocks_tombstoned_task_pack_task(self) -> None:
+        coordinator = make_coordinator(["sensor.mock_device_runtime"])
+        coordinator.deleted_task_ids = {"qa_filter"}
+        captured = {}
+
+        async def capture_import(package, mode):
+            captured["package"] = package
+            return {"imported": len(package.get("tasks", []))}
+
+        coordinator.async_import_data = capture_import
+        asyncio.run(coordinator.async_apply_import_preview(qa_pack(), selected_ids=["qa_filter"], restore_deleted=False))
+
+        self.assertEqual(captured["package"]["tasks"], [])
+
+    def test_restore_deleted_true_allows_tombstoned_task_pack_task(self) -> None:
+        coordinator = make_coordinator(["sensor.mock_device_runtime"])
+        coordinator.deleted_task_ids = {"qa_filter"}
+        captured = {}
+
+        async def capture_import(package, mode):
+            captured["package"] = package
+            return {"imported": len(package.get("tasks", []))}
+
+        coordinator.async_import_data = capture_import
+        asyncio.run(coordinator.async_apply_import_preview(qa_pack(), selected_ids=["qa_filter"], restore_deleted=True))
+
+        self.assertEqual(captured["package"]["tasks"][0]["id"], "qa_filter")
+
 
 if __name__ == "__main__":
     unittest.main()

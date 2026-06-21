@@ -20,7 +20,7 @@ Task Packs are always handled as templates:
 - They never replace full HMM storage.
 - They never delete existing user tasks.
 - They never import HMM settings.
-- They never restore deleted-task tombstones.
+- They do not carry tombstone lists. Local deleted-task tombstones are respected unless the user intentionally restores a selected deleted task in the import review.
 - Runtime history, completion history, activity history, NFC tag IDs, Home Assistant device IDs, and private notification targets are stripped before saving.
 
 Required runtime, metered, or service due entity references that remain unresolved during import are imported paused so due status is not calculated from the wrong source. Metered mappings also validate unit compatibility during apply. A local entity with an incompatible unit, such as W for a gallons requirement, is rejected instead of silently importing stale task-pack meter metadata.

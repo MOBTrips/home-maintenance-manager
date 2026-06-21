@@ -80,7 +80,7 @@ class MeteredUsageTests(unittest.TestCase):
             "name": "Meter",
             "rules": [{"id": "counter_1", "type": "counter", "entity": "hmm://entity/water_meter", "unit": "gal", "amount": 500}],
         }
-        with self.assertRaisesRegex(ValueError, "not compatible"):
+        with self.assertRaisesRegex(ValueError, "Task 'Meter'.*Rule 1.*rules\\[0\\]\\.entity.*not compatible"):
             task_packs.apply_task_pack_entity_mapping(
                 task,
                 {"hmm://entity/water_meter": "sensor.office_ups_power"},
@@ -88,6 +88,35 @@ class MeteredUsageTests(unittest.TestCase):
                 {"sensor.office_ups_power": {"unit_of_measurement": "W"}},
                 strict=True,
             )
+
+    def test_rate_meter_error_explains_watts_totalization_without_contradiction(self) -> None:
+        task = {
+            "id": "meter",
+            "name": "Power meter",
+            "rules": [{
+                "id": "counter_1",
+                "type": "counter",
+                "entity": "hmm://entity/power_meter",
+                "unit": "W",
+                "source_mode": "rate",
+                "amount": 500,
+            }],
+        }
+        with self.assertRaises(ValueError) as raised:
+            task_packs.apply_task_pack_entity_mapping(
+                task,
+                {"hmm://entity/power_meter": "sensor.mock_runtime_device_power_w"},
+                [{"id": "power_meter", "unit_of_measurement": "W", "required": True}],
+                {"sensor.mock_runtime_device_power_w": {"domain": "sensor", "unit_of_measurement": "W"}},
+                strict=True,
+            )
+
+        message = str(raised.exception)
+        self.assertIn("Task 'Power meter'", message)
+        self.assertIn("Rule 1", message)
+        self.assertIn("field rules[0].entity", message)
+        self.assertIn("totalizes to kWh", message)
+        self.assertNotIn("uses W, which is not compatible with expected W", message)
 
     def test_compatible_meter_mapping_replaces_stale_unit_metadata(self) -> None:
         mapped = task_packs.apply_task_pack_entity_mapping(

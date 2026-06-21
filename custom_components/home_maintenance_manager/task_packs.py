@@ -10,16 +10,28 @@ import re
 from typing import Any
 
 try:
-    from .units import meter_units_compatible, normalize_counter_rule_units, normalize_meter_source_mode
+    from .units import (
+        METER_SOURCE_RATE,
+        canonical_unit,
+        meter_units_compatible,
+        normalize_counter_rule_units,
+        normalize_meter_source_mode,
+        rate_target_unit,
+        unit_family,
+    )
 except ImportError:  # pragma: no cover - allows direct import in lightweight tests
     _UNITS_SPEC = importlib.util.spec_from_file_location("hmm_units", Path(__file__).with_name("units.py"))
     if _UNITS_SPEC is None or _UNITS_SPEC.loader is None:
         raise
     _units = importlib.util.module_from_spec(_UNITS_SPEC)
     _UNITS_SPEC.loader.exec_module(_units)
+    METER_SOURCE_RATE = _units.METER_SOURCE_RATE
+    canonical_unit = _units.canonical_unit
     meter_units_compatible = _units.meter_units_compatible
     normalize_counter_rule_units = _units.normalize_counter_rule_units
     normalize_meter_source_mode = _units.normalize_meter_source_mode
+    rate_target_unit = _units.rate_target_unit
+    unit_family = _units.unit_family
 
 TASK_PACK_FORMAT = "home_maintenance_manager_task_pack"
 TASK_PACK_TYPE = "task_pack"
@@ -329,6 +341,79 @@ def _mark_unresolved_entity_pause(task_data: dict[str, Any]) -> None:
     task_data["provenance"] = provenance
 
 
+def _counter_mapping_issue(
+    task_data: dict[str, Any],
+    rule: dict[str, Any],
+    rule_index: int,
+    field: str,
+    mapped_entity: str,
+    requirement: dict[str, Any] | None,
+    entity_meta: dict[str, Any],
+) -> dict[str, Any] | None:
+    if field != "entity" or rule.get("type") != "counter" or not entity_meta:
+        return None
+    actual_unit = entity_meta.get("unit_of_measurement") or entity_meta.get("unit")
+    expected_unit = (
+        requirement.get("unit_of_measurement")
+        if requirement
+        else None
+    ) or rule.get("target_unit") or rule.get("unit") or rule.get("source_unit")
+    source_mode = normalize_meter_source_mode(rule.get("source_mode"))
+    if meter_units_compatible(expected_unit, actual_unit, source_mode):
+        return None
+    expected_canonical = canonical_unit(expected_unit) or str(expected_unit or "").strip()
+    actual_canonical = canonical_unit(actual_unit) or str(actual_unit or "").strip()
+    actual_total_unit = rate_target_unit(actual_canonical) if source_mode == METER_SOURCE_RATE else actual_canonical
+    expected_family = unit_family(expected_canonical)
+    actual_family = unit_family(actual_total_unit)
+    if source_mode == METER_SOURCE_RATE:
+        reason = (
+            f"selected entity reports {actual_canonical or 'no unit'} as a rate, "
+            f"which totalizes to {actual_total_unit or 'units'} ({actual_family or 'unknown family'}); "
+            f"expected {expected_canonical or 'a unit'} ({expected_family or 'unknown family'})"
+        )
+    else:
+        reason = (
+            f"selected entity reports {actual_canonical or 'no unit'} ({actual_family or 'unknown family'}); "
+            f"expected {expected_canonical or 'a unit'} ({expected_family or 'unknown family'})"
+        )
+    return {
+        "task_name": task_data.get("name") or "Unnamed task",
+        "rule_number": rule_index + 1,
+        "field": f"rules[{rule_index}].{field}",
+        "selected_entity": mapped_entity,
+        "expected_domain": (requirement or {}).get("domain") or "",
+        "expected_device_class": (requirement or {}).get("device_class") or (requirement or {}).get("suggested_device_class") or "",
+        "expected_state_class": (requirement or {}).get("state_class") or "",
+        "expected_unit": expected_canonical,
+        "actual_domain": entity_meta.get("domain") or (mapped_entity.split(".", 1)[0] if "." in mapped_entity else ""),
+        "actual_device_class": entity_meta.get("device_class") or "",
+        "actual_state_class": entity_meta.get("state_class") or "",
+        "actual_unit": actual_canonical,
+        "reason": reason,
+    }
+
+
+def format_mapping_issue(issue: dict[str, Any]) -> str:
+    """Return a user-facing mapping error with task and field context."""
+    expected_bits = []
+    actual_bits = []
+    for label, key in (("domain", "expected_domain"), ("device class", "expected_device_class"), ("state class", "expected_state_class"), ("unit", "expected_unit")):
+        if issue.get(key):
+            expected_bits.append(f"{label} {issue[key]}")
+    for label, key in (("domain", "actual_domain"), ("device class", "actual_device_class"), ("state class", "actual_state_class"), ("unit", "actual_unit")):
+        if issue.get(key):
+            actual_bits.append(f"{label} {issue[key]}")
+    return (
+        f"Task '{issue.get('task_name') or 'Unnamed task'}', Rule {issue.get('rule_number')}, "
+        f"field {issue.get('field')}, selected {issue.get('selected_entity')} is not compatible. "
+        f"Expected {', '.join(expected_bits) or 'no specific metadata'}; "
+        f"actual {', '.join(actual_bits) or 'no metadata'}. "
+        f"Reason: {issue.get('reason') or 'mapping metadata is incompatible'}. "
+        "Choose a compatible entity or clear/remap this task before importing."
+    )
+
+
 def apply_task_pack_entity_mapping(
     task_data: dict[str, Any],
     entity_mapping: dict[str, Any] | None = None,
@@ -353,7 +438,7 @@ def apply_task_pack_entity_mapping(
     data["linked_entities"] = linked
 
     rules = []
-    for rule in data.get("rules") or []:
+    for rule_index, rule in enumerate(data.get("rules") or []):
         if not isinstance(rule, dict):
             continue
         new_rule = dict(rule)
@@ -376,26 +461,25 @@ def apply_task_pack_entity_mapping(
                 new_rule[field] = mapped_entity
                 requirement = _requirement_for_ref(original, requirements or [])
                 entity_meta = metadata.get(mapped_entity, {})
-                if field == "entity" and new_rule.get("type") == "counter" and entity_meta:
+                issue = _counter_mapping_issue(data, new_rule, rule_index, field, mapped_entity, requirement, entity_meta)
+                if issue:
+                    message = format_mapping_issue(issue)
+                    if strict:
+                        raise ValueError(message)
+                    _mark_unresolved_entity_pause(data)
+                    provenance = dict(data.get("provenance") or {})
+                    warnings = list(provenance.get("mapping_warnings") or [])
+                    warnings.append(message)
+                    provenance["mapping_warnings"] = warnings
+                    data["provenance"] = provenance
+                elif field == "entity" and new_rule.get("type") == "counter" and entity_meta:
                     actual_unit = entity_meta.get("unit_of_measurement") or entity_meta.get("unit")
                     expected_unit = (
                         requirement.get("unit_of_measurement")
                         if requirement
                         else None
                     ) or new_rule.get("target_unit") or new_rule.get("unit") or new_rule.get("source_unit")
-                    source_mode = normalize_meter_source_mode(new_rule.get("source_mode"))
-                    if not meter_units_compatible(expected_unit, actual_unit, source_mode):
-                        message = f"{mapped_entity} uses {actual_unit or 'no unit'}, which is not compatible with expected {expected_unit or 'unit'}"
-                        if strict:
-                            raise ValueError(message)
-                        _mark_unresolved_entity_pause(data)
-                        provenance = dict(data.get("provenance") or {})
-                        warnings = list(provenance.get("mapping_warnings") or [])
-                        warnings.append(message)
-                        provenance["mapping_warnings"] = warnings
-                        data["provenance"] = provenance
-                    else:
-                        new_rule = normalize_counter_rule_units(new_rule, actual_unit, expected_unit)
+                    new_rule = normalize_counter_rule_units(new_rule, actual_unit, expected_unit)
         rules.append(new_rule)
     data["rules"] = rules
     return data

@@ -861,7 +861,7 @@ class MaintenanceCoordinator:
             "entity_counts": entity_counts,
             "tasks": preview_tasks,
             "settings_present": isinstance(parsed.get("settings"), dict) and package_type != TASK_PACK_TYPE,
-            "warnings": (["Task Packs are templates and always merge. Settings, history, NFC tags, device IDs, tombstones, and private notification targets are ignored."] if package_type == TASK_PACK_TYPE else []) + (["Required missing entities will pause affected runtime/counter tasks unless remapped."] if entity_counts["required_missing"] else []),
+            "warnings": (["Task Packs are templates and always merge. Settings, history, NFC tags, device IDs, tombstone lists, and private notification targets are ignored. Local deleted-task tombstones are still respected unless you intentionally restore a selected deleted task."] if package_type == TASK_PACK_TYPE else []) + (["Required missing entities will pause affected runtime/counter tasks unless remapped."] if entity_counts["required_missing"] else []),
         }
 
     async def async_apply_import_preview(self, package: dict[str, Any], selected_ids: list[str] | None = None, mode: str = "merge", entity_mapping: dict[str, Any] | None = None, import_settings: bool = True, restore_deleted: bool = False, task_entity_mapping: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -870,7 +870,6 @@ class MaintenanceCoordinator:
         if package_type == TASK_PACK_TYPE:
             mode = enforce_task_pack_merge_mode(mode)
             import_settings = False
-            restore_deleted = False
         selected = {str(x) for x in (selected_ids or [])}
         if selected_ids is None:
             preview = self.import_preview(package, mode)
@@ -891,7 +890,7 @@ class MaintenanceCoordinator:
                     entity_metadata,
                     strict=True,
                 ) if package_type == TASK_PACK_TYPE else self._apply_entity_mapping_to_task_data(dict(item), task_mapping)
-                if str(data.get("id")) in self.deleted_task_ids and not restore_deleted and package_type != "backup":
+                if str(data.get("id")) in self.deleted_task_ids and not restore_deleted:
                     continue
                 tasks.append(data)
         filtered_package["tasks"] = tasks
