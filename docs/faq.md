@@ -28,6 +28,10 @@ Runtime and metered tasks depend on source sensor quality. Check that the sensor
 
 HMM attempts to remove task data and clean up stale task-related entities/devices. If Home Assistant still shows unavailable entries, reload the integration or restart Home Assistant.
 
+## Can I delete several tasks at once?
+
+Yes. On the Tasks screen, choose **Select tasks**, check the tasks you want to remove, then choose **Delete selected**. HMM asks for confirmation before deleting anything. Bulk delete is useful for cleaning up QA tasks or imported task packs you no longer want.
+
 ## Can I automate task completion?
 
 Yes. HMM is designed to work with Home Assistant automations and services, though exact service names may vary by release.

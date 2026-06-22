@@ -77,6 +77,14 @@ def _coordinator_for_entry(hass: HomeAssistant, entry_id: str | None = None) -> 
     return None
 
 
+def _entry_for_coordinator(hass: HomeAssistant, coordinator: MaintenanceCoordinator) -> ConfigEntry | None:
+    """Return the config entry that owns a coordinator instance."""
+    for entry in hass.config_entries.async_entries(DOMAIN):
+        if hass.data.get(DOMAIN, {}).get(entry.entry_id) is coordinator:
+            return entry
+    return None
+
+
 def _serialize_tasks(coordinator: MaintenanceCoordinator | None) -> list[dict[str, Any]]:
     if coordinator is None:
         return []
@@ -118,6 +126,57 @@ async def websocket_get_tasks(hass: HomeAssistant, connection, msg) -> None:
     """Return task data for the custom frontend panel."""
     coordinator = _coordinator_for_entry(hass)
     connection.send_result(msg["id"], {"tasks": _serialize_tasks(coordinator)})
+
+
+@websocket_api.websocket_command({
+    vol.Required("type"): f"{DOMAIN}/bulk_delete_tasks",
+    vol.Required("task_ids"): [cv.string],
+})
+@websocket_api.async_response
+async def websocket_bulk_delete_tasks(hass: HomeAssistant, connection, msg) -> None:
+    """Delete multiple tasks through the same storage and cleanup path as single delete."""
+    coordinator = _coordinator_for_entry(hass)
+    if coordinator is None:
+        connection.send_error(msg["id"], "not_found", "Home Maintenance Manager coordinator was not found")
+        return
+
+    task_ids: list[str] = []
+    seen: set[str] = set()
+    for raw_task_id in msg.get("task_ids") or []:
+        task_id = str(raw_task_id)
+        if task_id and task_id not in seen:
+            task_ids.append(task_id)
+            seen.add(task_id)
+
+    deleted: list[dict[str, str]] = []
+    failed: list[dict[str, str]] = []
+    cleanup_tasks: list[tuple[str, str | None]] = []
+    for task_id in task_ids:
+        task = coordinator.tasks.get(task_id)
+        if task is None:
+            failed.append({"id": task_id, "name": task_id, "error": "Task was not found"})
+            continue
+        task_name = task.name
+        try:
+            await coordinator.async_delete_task(task_id)
+        except Exception as err:  # pragma: no cover - defensive per-task reporting
+            _LOGGER.exception("Home Maintenance Manager bulk delete failed for task %s", task_id)
+            failed.append({"id": task_id, "name": task_name, "error": str(err)})
+            continue
+        deleted.append({"id": task_id, "name": task_name})
+        cleanup_tasks.append((task_id, task_name))
+
+    if cleanup_tasks:
+        entry = _entry_for_coordinator(hass, coordinator)
+        if entry is not None:
+            await _async_reload_entry_after_task_deletes(hass, entry, cleanup_tasks)
+        else:  # pragma: no cover - configured entries should be present during panel use
+            _LOGGER.warning(
+                "Could not find Home Maintenance Manager config entry while cleaning up %s bulk-deleted task(s)",
+                len(cleanup_tasks),
+            )
+
+    connection.send_result(msg["id"], {"deleted": deleted, "failed": failed})
 
 
 @websocket_api.websocket_command({vol.Required("type"): f"{DOMAIN}/get_metadata"})
@@ -439,6 +498,7 @@ async def _async_register_panel(hass: HomeAssistant) -> None:
 async def async_setup(hass: HomeAssistant, config: dict[str, Any]) -> bool:
     hass.data.setdefault(DOMAIN, {})
     websocket_api.async_register_command(hass, websocket_get_tasks)
+    websocket_api.async_register_command(hass, websocket_bulk_delete_tasks)
     websocket_api.async_register_command(hass, websocket_get_metadata)
     websocket_api.async_register_command(hass, websocket_get_backup_status)
     websocket_api.async_register_command(hass, websocket_export_data)
@@ -520,6 +580,33 @@ async def _async_cleanup_task_registry_entries(
                 exc_info=True,
             )
 
+
+async def _async_reload_entry_after_task_deletes(
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+    cleanup_tasks: list[tuple[str, str | None]],
+) -> None:
+    """Reload the config entry and clean registry entries for deleted tasks."""
+    if not cleanup_tasks:
+        await hass.config_entries.async_reload(entry.entry_id)
+        return
+
+    unload_ok = await hass.config_entries.async_unload(entry.entry_id)
+    if unload_ok:
+        for task_id, task_name in cleanup_tasks:
+            await _async_cleanup_task_registry_entries(hass, entry, task_id, task_name)
+        await hass.config_entries.async_setup(entry.entry_id)
+        return
+
+    _LOGGER.warning(
+        "Could not unload Home Maintenance Manager before deleting %s task(s); falling back to reload",
+        len(cleanup_tasks),
+    )
+    for task_id, task_name in cleanup_tasks:
+        await _async_cleanup_task_registry_entries(hass, entry, task_id, task_name)
+    await hass.config_entries.async_reload(entry.entry_id)
+
+
 async def _async_cleanup_config_entry_registry_entries(
     hass: HomeAssistant,
     entry: ConfigEntry,
@@ -593,21 +680,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         unavailable orphan devices from remaining under the integration.
         """
         if cleanup_task_id:
-            unload_ok = await hass.config_entries.async_unload(entry.entry_id)
-            if unload_ok:
-                await _async_cleanup_task_registry_entries(
-                    hass, entry, cleanup_task_id, cleanup_task_name
-                )
-                await hass.config_entries.async_setup(entry.entry_id)
-            else:
-                _LOGGER.warning(
-                    "Could not unload Home Maintenance Manager before deleting task %s; falling back to reload",
-                    cleanup_task_id,
-                )
-                await _async_cleanup_task_registry_entries(
-                    hass, entry, cleanup_task_id, cleanup_task_name
-                )
-                await hass.config_entries.async_reload(entry.entry_id)
+            await _async_reload_entry_after_task_deletes(
+                hass, entry, [(cleanup_task_id, cleanup_task_name)]
+            )
             return
 
         await hass.config_entries.async_reload(entry.entry_id)

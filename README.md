@@ -142,6 +142,10 @@ See [CHANGELOG.md](CHANGELOG.md).
 
 HMM includes a dedicated JSON import review wizard. Upload a HMM export or task-pack-style JSON file, review new/update/duplicate/deleted/invalid tasks, check missing entity warnings, select only the tasks you want, then confirm the import.
 
+### Bulk Task Cleanup
+
+The Tasks screen includes **Select tasks** for bulk deletion. Select one or more task cards or rows, choose **Delete selected**, and confirm the destructive prompt before HMM removes them. This is intended for fast cleanup after QA runs, test imports, or imported task packs you no longer need.
+
 ### Entity Mapping During Import
 
 The import wizard includes a queue-based mapping step for missing Home Assistant entities. You can review each requirement, filter by required or optional entities, choose a ranked suggestion, open the full Home Assistant entity picker, clear optional references, or keep placeholders unresolved for later setup. Required runtime and meter entities that remain unresolved are imported paused so due dates are not calculated from the wrong source. Metered mappings validate unit compatibility so an incompatible sensor, such as watts for a gallons task, is rejected instead of imported with stale units.

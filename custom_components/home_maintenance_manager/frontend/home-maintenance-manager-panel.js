@@ -27,6 +27,10 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     this.statusFilter = "All";
     this.sortMode = "urgent";
     this.viewMode = this.loadViewModePreference();
+    this.bulkSelectMode = false;
+    this.selectedTaskIds = new Set();
+    this.bulkDeleteFeedback = null;
+    this.bulkDeleteBusy = false;
     this.runtimeAnalysis = {};
     this.runtimeAnalysisLoading = {};
     this.analysisDays = {};
@@ -66,6 +70,8 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
         this._hass.callWS({ type: "home_maintenance_manager/get_backup_status" })
       ]);
       this.tasks = taskData.tasks || [];
+      const existingIds = new Set(this.tasks.map(task => String(task.id)));
+      this.selectedTaskIds = new Set([...this.selectedTaskIds].filter(taskId => existingIds.has(taskId)));
       this.metadata = meta || this.metadata;
       this.backupStatus = backupStatus || null;
       this.restorePanelContext();
@@ -132,6 +138,7 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
       .tab, .btn { border:0; border-radius:999px; padding:10px 16px; cursor:pointer; background: var(--secondary-background-color); color: var(--primary-text-color); }
       .tab.active, .btn.primary { background: var(--primary-color); color: var(--text-primary-color); }
       .btn.danger { background:#b00020; color:white; }
+      .btn[disabled] { opacity:.48; cursor:not-allowed; }
       .btn.small { padding:7px 11px; font-size:13px; }
       .grid { display:grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap:16px; }
       .card { min-width:0; background: var(--card-background-color); border-radius:18px; padding:18px; box-shadow: var(--ha-card-box-shadow, 0 2px 8px rgba(0,0,0,.12)); border: 1px solid var(--divider-color); }
@@ -224,6 +231,14 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
       .task-progress-row .progress { margin:0; }
       .task-date-grid { display:grid; grid-template-columns:1fr 1fr; gap:8px; color:var(--secondary-text-color); font-size:13px; }
       .task-toolbar-footer { display:flex; justify-content:space-between; align-items:center; gap:12px; margin-top:12px; flex-wrap:wrap; }
+      .bulk-select-bar { display:flex; justify-content:space-between; gap:12px; align-items:center; flex-wrap:wrap; margin-top:14px; padding-top:14px; border-top:1px solid var(--divider-color); }
+      .bulk-select-actions { display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-end; }
+      .bulk-select-count { font-weight:700; }
+      .bulk-feedback { margin-top:12px; border-left:4px solid var(--primary-color); background:var(--card-background-color); padding:10px 12px; border-radius:10px; }
+      .bulk-feedback.error { border-left-color:#b00020; color:#b00020; }
+      .task-select-check { display:flex; align-items:center; justify-content:center; margin:0; min-width:28px; }
+      .task-select-check input { width:20px; height:20px; cursor:pointer; }
+      .task-card.bulk-selecting { box-shadow:0 0 0 1px color-mix(in srgb, var(--primary-color) 30%, var(--divider-color)); }
       .view-mode-toggle { display:inline-flex; gap:4px; padding:4px; border:1px solid var(--divider-color); border-radius:999px; background:var(--card-background-color); }
       .view-mode-toggle button { border:0; border-radius:999px; padding:8px 12px; cursor:pointer; background:transparent; color:var(--primary-text-color); white-space:nowrap; }
       .view-mode-toggle button.active { background:var(--primary-color); color:var(--text-primary-color); }
@@ -570,11 +585,13 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     const status = this.taskStatus(t);
     const category = this.category(t);
     const taskId = this.escape(t.id || '');
+    const checked = this.selectedTaskIds.has(String(t.id)) ? 'checked' : '';
+    const bulkCheck = this.bulkSelectMode ? `<label class="task-select-check" title="Select ${this.escape(t.name || t.id)}"><input class="bulk-task-select" type="checkbox" data-task-select="${taskId}" aria-label="Select ${this.escape(t.name || t.id)}" ${checked}></label>` : '';
     const rules = Array.isArray(t.summary?.rule_progress) && t.summary.rule_progress.length
       ? t.summary.rule_progress.map(r => ({ ...r, percent: Math.round((r.percent_used || 0) * 100) }))
       : [{ type: 'time', percent: this.percent(t), title: 'Overall progress' }];
-    return `<div class="compact-task-row" data-task-id="${taskId}">
-      <div class="compact-task-main">${this.renderCategoryIcon(category)}<span class="compact-task-title">${this.escape(t.name || t.id)}</span></div>
+    return `<div class="compact-task-row ${this.bulkSelectMode ? 'bulk-selecting' : ''}" data-task-id="${taskId}">
+      <div class="compact-task-main">${bulkCheck}${this.renderCategoryIcon(category)}<span class="compact-task-title">${this.escape(t.name || t.id)}</span></div>
       <div>${this.renderTaskStatusChip(status, { compact: true })}</div>
       <div class="compact-rule-stack">${rules.slice(0, 2).map(r => this.renderCompactRuleProgress(r)).join('')}</div>
       <div class="compact-task-actions">
@@ -1059,7 +1076,33 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     </div>`;
   }
 
-  renderFilters() {
+  selectedTaskCount() {
+    return this.selectedTaskIds?.size || 0;
+  }
+
+  renderBulkTaskControls(visibleTasks = []) {
+    const selectedCount = this.selectedTaskCount();
+    const feedback = this.bulkDeleteFeedback
+      ? `<div class="bulk-feedback ${this.bulkDeleteFeedback.type === 'error' ? 'error' : ''}">${this.escape(this.bulkDeleteFeedback.text)}</div>`
+      : '';
+    const controls = this.bulkSelectMode
+      ? `<div class="bulk-select-bar" data-bulk-select-mode>
+          <div class="bulk-select-count">${selectedCount} selected</div>
+          <div class="bulk-select-actions">
+            <button class="btn small" data-action="select-all-visible-tasks" type="button" ${visibleTasks.length ? '' : 'disabled'}>Select all</button>
+            <button class="btn small" data-action="clear-task-selection" type="button" ${selectedCount ? '' : 'disabled'}>Clear selection</button>
+            <button class="btn small danger" data-action="bulk-delete-selected" type="button" ${selectedCount && !this.bulkDeleteBusy ? '' : 'disabled'}>Delete selected</button>
+            <button class="btn small" data-action="cancel-bulk-select" type="button">Cancel</button>
+          </div>
+        </div>`
+      : `<div class="bulk-select-bar">
+          <div class="help">Use bulk selection to clean up QA tasks or imported task packs quickly.</div>
+          <div class="bulk-select-actions"><button class="btn small" data-action="enter-bulk-select" type="button">Select tasks</button></div>
+        </div>`;
+    return `${controls}${feedback}`;
+  }
+
+  renderFilters(visibleTasks = []) {
     const catOptions = ["All", ...this.categories()].map(c => `<option value="${this.escape(c)}" ${this.categoryFilter===c?'selected':''}>${this.escape(c)}</option>`).join("");
     const statusOptions = [["All","All statuses"],["needs_attention","Needs attention"],["upcoming","Upcoming"],["ok","OK"],["snoozed","Snoozed"],["paused","Paused"],["season_paused","Season paused"]].map(([v,l]) => `<option value="${v}" ${this.statusFilter===v?'selected':''}>${l}</option>`).join("");
     return `<div class="card toolbar-card">
@@ -1075,6 +1118,7 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
           <button class="${this.viewMode === 'compact' ? 'active' : ''}" data-view-mode="compact" type="button">Compact</button>
         </div>
       </div>
+      ${this.renderBulkTaskControls(visibleTasks)}
     </div>`;
   }
 
@@ -1088,9 +1132,9 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
         if (!groups.has(c)) groups.set(c, []);
         groups.get(c).push(task);
       }
-      return `${this.renderFilters()}${Array.from(groups.entries()).map(([category, group]) => `<div class="category-header"><h2>${this.escape(category)}</h2><span class="muted">${group.length} task${group.length === 1 ? "" : "s"}</span></div>${this.renderTaskList(group)}`).join("") || `<div class="card empty">No tasks match the current filters.</div>`}`;
+      return `${this.renderFilters(tasks)}${Array.from(groups.entries()).map(([category, group]) => `<div class="category-header"><h2>${this.escape(category)}</h2><span class="muted">${group.length} task${group.length === 1 ? "" : "s"}</span></div>${this.renderTaskList(group)}`).join("") || `<div class="card empty">No tasks match the current filters.</div>`}`;
     }
-    return `${this.renderFilters()}${tasks.length ? this.renderTaskList(tasks) : `<div class="card empty">No tasks match the current filters.</div>`}`;
+    return `${this.renderFilters(tasks)}${tasks.length ? this.renderTaskList(tasks) : `<div class="card empty">No tasks match the current filters.</div>`}`;
   }
 
   renderTaskList(tasks) {
@@ -1105,9 +1149,11 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     const category = this.category(t);
     const taskId = this.escape(t.id || '');
     const percent = this.percent(t);
-    return `<div class="card task-card">
+    const checked = this.selectedTaskIds.has(String(t.id)) ? 'checked' : '';
+    const bulkCheck = this.bulkSelectMode ? `<label class="task-select-check" title="Select ${this.escape(t.name || t.id)}"><input class="bulk-task-select" type="checkbox" data-task-select="${taskId}" aria-label="Select ${this.escape(t.name || t.id)}" ${checked}></label>` : '';
+    return `<div class="card task-card ${this.bulkSelectMode ? 'bulk-selecting' : ''}">
       <div class="task-card-head">
-        <div class="task-card-title-row">${this.renderCategoryIcon(category)}<div class="task-title">${this.escape(t.name || t.id)}</div></div>
+        <div class="task-card-title-row">${bulkCheck}${this.renderCategoryIcon(category)}<div class="task-title">${this.escape(t.name || t.id)}</div></div>
         ${this.renderTaskStatusChip(status)}
       </div>
       <div class="task-card-meta"><span class="category-pill">${this.escape(category)}</span>${t.nfc_tags?.length ? `<span class="category-pill">${this.escape(t.nfc_tags.length)} NFC</span>` : ''}</div>
@@ -2170,6 +2216,84 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
 
   importJson() { return this.previewImportJson(); }
 
+  enterBulkSelectMode() {
+    this.bulkSelectMode = true;
+    this.bulkDeleteFeedback = null;
+    this.selectedTaskIds = new Set();
+    this.render();
+  }
+
+  cancelBulkSelectMode() {
+    this.bulkSelectMode = false;
+    this.selectedTaskIds = new Set();
+    this.bulkDeleteBusy = false;
+    this.render();
+  }
+
+  selectAllVisibleTasks() {
+    const ids = this.filteredTasks().map(task => String(task.id)).filter(Boolean);
+    this.selectedTaskIds = new Set(ids);
+    this.bulkDeleteFeedback = null;
+    this.render();
+  }
+
+  clearTaskSelection() {
+    this.selectedTaskIds = new Set();
+    this.bulkDeleteFeedback = null;
+    this.render();
+  }
+
+  toggleTaskSelection(taskId, selected) {
+    const next = new Set(this.selectedTaskIds);
+    if (selected) next.add(String(taskId));
+    else next.delete(String(taskId));
+    this.selectedTaskIds = next;
+    this.bulkDeleteFeedback = null;
+    this.render();
+  }
+
+  failedTaskSummary(failed) {
+    return failed.map(item => {
+      const name = item.name && item.name !== item.id ? `${item.name} (${item.id})` : item.id;
+      return `${name}: ${item.error || 'Delete failed'}`;
+    }).join('; ');
+  }
+
+  async bulkDeleteSelectedTasks() {
+    const taskIds = [...this.selectedTaskIds];
+    const count = taskIds.length;
+    if (!count || this.bulkDeleteBusy) return;
+    if (!confirm(`Delete ${count} selected tasks? This cannot be undone.`)) return;
+    this.bulkDeleteBusy = true;
+    this.bulkDeleteFeedback = null;
+    this.render();
+    try {
+      const result = await this._hass.callWS({ type: 'home_maintenance_manager/bulk_delete_tasks', task_ids: taskIds });
+      const deleted = Array.isArray(result?.deleted) ? result.deleted : [];
+      const failed = Array.isArray(result?.failed) ? result.failed : [];
+      const deletedIds = new Set(deleted.map(item => String(item.id)));
+      if (deletedIds.size) {
+        this.tasks = this.tasks.filter(t => !deletedIds.has(String(t.id)));
+      }
+      if (failed.length) {
+        this.bulkSelectMode = true;
+        this.selectedTaskIds = new Set(failed.map(item => String(item.id)));
+        this.bulkDeleteFeedback = { type: 'error', text: `Could not delete ${failed.length} task${failed.length === 1 ? '' : 's'}: ${this.failedTaskSummary(failed)}` };
+      } else {
+        this.bulkSelectMode = false;
+        this.selectedTaskIds = new Set();
+        this.bulkDeleteFeedback = { type: 'success', text: `Deleted ${deleted.length} task${deleted.length === 1 ? '' : 's'}.` };
+      }
+      this.bulkDeleteBusy = false;
+      this.render();
+      setTimeout(() => this.loadData(), 700);
+    } catch (err) {
+      this.bulkDeleteBusy = false;
+      this.bulkDeleteFeedback = { type: 'error', text: `Bulk delete failed: ${err?.message || err}` };
+      this.render();
+    }
+  }
+
   previewNotificationTitle() {
     const template = this.shadowRoot?.getElementById('notify-title-template')?.value || this.notificationSettings?.title_template || '[{category}] {task_name}';
     return template.replaceAll('{category}', 'Water Filtration').replaceAll('{task_name}', 'RO Filter Replacement').replaceAll('{status}', 'Due').replaceAll('{days_remaining}', '0');
@@ -2760,6 +2884,12 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     this.shadowRoot.querySelectorAll('[data-action="select-none-import"]').forEach(el=>el.onclick=()=>{this.shadowRoot.querySelectorAll('.import-task-select').forEach(cb=>cb.checked=false); this.captureImportSelections(); this.render();});
     this.shadowRoot.querySelectorAll('.import-task-select').forEach(el=>el.onchange=()=>this.captureImportSelections());
     this.shadowRoot.querySelectorAll('[data-preview-title],[data-preview-body]').forEach(el=>el.oninput=()=>this.updateNotificationPreview());
+    this.shadowRoot.querySelectorAll('[data-action="enter-bulk-select"]').forEach(el=>el.onclick=()=>this.enterBulkSelectMode());
+    this.shadowRoot.querySelectorAll('[data-action="select-all-visible-tasks"]').forEach(el=>el.onclick=()=>this.selectAllVisibleTasks());
+    this.shadowRoot.querySelectorAll('[data-action="clear-task-selection"]').forEach(el=>el.onclick=()=>this.clearTaskSelection());
+    this.shadowRoot.querySelectorAll('[data-action="cancel-bulk-select"]').forEach(el=>el.onclick=()=>this.cancelBulkSelectMode());
+    this.shadowRoot.querySelectorAll('[data-action="bulk-delete-selected"]').forEach(el=>el.onclick=()=>this.bulkDeleteSelectedTasks());
+    this.shadowRoot.querySelectorAll('.bulk-task-select').forEach(el=>el.onchange=()=>this.toggleTaskSelection(el.dataset.taskSelect, el.checked));
     this.shadowRoot.querySelectorAll('[data-action="new-task"]').forEach(el=>el.onclick=()=>{ this._modalSnapshot=null; this.modal={task:{}}; this.render(); });
     this.shadowRoot.querySelectorAll('[data-action="close-modal"]').forEach(el=>el.onclick=()=>this.requestCloseModal());
     this.shadowRoot.querySelectorAll('[data-action="modal-scrim"]').forEach(el=>el.onclick=(ev)=>{ if (ev.target === el) this.requestCloseModal(); });

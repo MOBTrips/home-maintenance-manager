@@ -48,9 +48,24 @@ class FakeStore:
 class FakeConfigEntries:
     def __init__(self, unload_ok: bool = True) -> None:
         self.unload_ok = unload_ok
+        self.entries = [FakeEntry()]
+        self.calls: list[tuple[str, str | None]] = []
 
     async def async_unload_platforms(self, entry, platforms) -> bool:
         return self.unload_ok
+
+    def async_entries(self, domain: str):
+        return self.entries
+
+    async def async_unload(self, entry_id: str) -> bool:
+        self.calls.append(("unload", entry_id))
+        return self.unload_ok
+
+    async def async_setup(self, entry_id: str) -> None:
+        self.calls.append(("setup", entry_id))
+
+    async def async_reload(self, entry_id: str) -> None:
+        self.calls.append(("reload", entry_id))
 
 
 class FakeEntry:
@@ -59,9 +74,17 @@ class FakeEntry:
 
 
 class FakeEntityEntry:
-    def __init__(self, entity_id: str, config_entry_id: str) -> None:
+    def __init__(
+        self,
+        entity_id: str,
+        config_entry_id: str,
+        unique_id: str = "",
+        device_id: str | None = None,
+    ) -> None:
         self.entity_id = entity_id
         self.config_entry_id = config_entry_id
+        self.unique_id = unique_id
+        self.device_id = device_id
 
 
 class FakeEntityRegistry:
@@ -96,6 +119,15 @@ class FakeDeviceRegistry:
         self.removed.append(device_id)
         self.devices.pop(device_id, None)
 
+    def async_get_device(self, identifiers: set[tuple[str, str]]):
+        for device in self.devices.values():
+            if identifiers.intersection(device.identifiers):
+                return device
+        return None
+
+    def async_get(self, device_id: str):
+        return self.devices.get(device_id)
+
 
 class FakeHass:
     def __init__(self) -> None:
@@ -103,6 +135,37 @@ class FakeHass:
         self.config_entries = FakeConfigEntries()
         self.entity_registry = FakeEntityRegistry()
         self.device_registry = FakeDeviceRegistry()
+
+
+class FakeConnection:
+    def __init__(self) -> None:
+        self.result = None
+        self.error = None
+
+    def send_result(self, msg_id: int, result) -> None:
+        self.result = result
+
+    def send_error(self, msg_id: int, code: str, message: str) -> None:
+        self.error = (code, message)
+
+
+class FakeTask:
+    def __init__(self, task_id: str, name: str) -> None:
+        self.id = task_id
+        self.name = name
+
+
+class FakeCoordinator:
+    def __init__(self) -> None:
+        self.tasks = {
+            "task-1": FakeTask("task-1", "Filter"),
+            "task-2": FakeTask("task-2", "Pump"),
+        }
+        self.deleted: list[str] = []
+
+    async def async_delete_task(self, task_id: str) -> None:
+        self.deleted.append(task_id)
+        del self.tasks[task_id]
 
 
 def install_homeassistant_stubs() -> None:
@@ -251,6 +314,69 @@ def restore_modules(original_modules: dict[str, object]) -> None:
 
 
 class UninstallCleanupTests(unittest.TestCase):
+    def test_bulk_delete_websocket_deletes_existing_tasks_and_cleans_registry(self) -> None:
+        module, original_modules = load_hmm_module()
+        try:
+            coordinator = FakeCoordinator()
+            hass = FakeHass()
+            hass.data = {"home_maintenance_manager": {"entry-1": coordinator}}
+            hass.entity_registry.entries = [
+                FakeEntityEntry("sensor.filter_status", "entry-1", "task-1_status", "task-device-1"),
+                FakeEntityEntry("button.pump_complete", "entry-1", "task-2_complete", "task-device-2"),
+            ]
+            hass.device_registry.devices = {
+                "task-device-1": FakeDevice("task-device-1", {("home_maintenance_manager", "task-1")}),
+                "task-device-2": FakeDevice("task-device-2", {("home_maintenance_manager", "task-2")}),
+            }
+            connection = FakeConnection()
+
+            asyncio.run(
+                module.websocket_bulk_delete_tasks(
+                    hass,
+                    connection,
+                    {"id": 1, "type": "home_maintenance_manager/bulk_delete_tasks", "task_ids": ["task-1", "task-2"]},
+                )
+            )
+
+            self.assertIsNone(connection.error)
+            self.assertEqual(
+                connection.result,
+                {
+                    "deleted": [{"id": "task-1", "name": "Filter"}, {"id": "task-2", "name": "Pump"}],
+                    "failed": [],
+                },
+            )
+            self.assertEqual(coordinator.deleted, ["task-1", "task-2"])
+            self.assertEqual(hass.entity_registry.removed, ["sensor.filter_status", "button.pump_complete"])
+            self.assertEqual(sorted(hass.device_registry.removed), ["task-device-1", "task-device-2"])
+            self.assertEqual(hass.config_entries.calls, [("unload", "entry-1"), ("setup", "entry-1")])
+        finally:
+            restore_modules(original_modules)
+
+    def test_bulk_delete_websocket_reports_missing_tasks_without_deleting_tombstones(self) -> None:
+        module, original_modules = load_hmm_module()
+        try:
+            coordinator = FakeCoordinator()
+            hass = FakeHass()
+            hass.data = {"home_maintenance_manager": {"entry-1": coordinator}}
+            connection = FakeConnection()
+
+            asyncio.run(
+                module.websocket_bulk_delete_tasks(
+                    hass,
+                    connection,
+                    {"id": 1, "type": "home_maintenance_manager/bulk_delete_tasks", "task_ids": ["task-1", "missing"]},
+                )
+            )
+
+            self.assertIsNone(connection.error)
+            self.assertEqual(connection.result["deleted"], [{"id": "task-1", "name": "Filter"}])
+            self.assertEqual(connection.result["failed"], [{"id": "missing", "name": "missing", "error": "Task was not found"}])
+            self.assertEqual(coordinator.deleted, ["task-1"])
+            self.assertIn("task-2", coordinator.tasks)
+        finally:
+            restore_modules(original_modules)
+
     def test_unload_entry_preserves_storage(self) -> None:
         module, original_modules = load_hmm_module()
         try:

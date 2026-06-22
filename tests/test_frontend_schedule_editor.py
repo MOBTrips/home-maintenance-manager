@@ -72,6 +72,29 @@ class FrontendScheduleEditorTests(unittest.TestCase):
         self.assertIn("hasDeleted ? `<label class=\"check-row\"><input type=\"checkbox\" id=\"restore-deleted\"", self.source)
         self.assertIn("Restore tasks that were previously deleted on this HMM instance", self.source)
 
+    def test_bulk_delete_select_mode_controls_are_present(self) -> None:
+        self.assertIn("this.bulkSelectMode = false", self.source)
+        self.assertIn("Select tasks", self.source)
+        self.assertIn("data-bulk-select-mode", self.source)
+        self.assertIn("class=\"bulk-task-select\"", self.source)
+
+    def test_bulk_delete_selection_count_and_disabled_state_are_rendered(self) -> None:
+        self.assertIn("selectedTaskCount()", self.source)
+        self.assertIn("${selectedCount} selected", self.source)
+        self.assertIn("data-action=\"bulk-delete-selected\"", self.source)
+        self.assertIn("${selectedCount && !this.bulkDeleteBusy ? '' : 'disabled'}", self.source)
+
+    def test_bulk_delete_confirms_and_calls_backend_endpoint(self) -> None:
+        self.assertIn("Delete ${count} selected tasks? This cannot be undone.", self.source)
+        self.assertIn("type: 'home_maintenance_manager/bulk_delete_tasks'", self.source)
+        self.assertIn("task_ids: taskIds", self.source)
+
+    def test_bulk_delete_success_removes_tasks_and_reports_partial_failure(self) -> None:
+        self.assertIn("this.tasks = this.tasks.filter(t => !deletedIds.has(String(t.id)))", self.source)
+        self.assertIn("Deleted ${deleted.length} task", self.source)
+        self.assertIn("Could not delete ${failed.length} task", self.source)
+        self.assertIn("this.failedTaskSummary(failed)", self.source)
+
 
 if __name__ == "__main__":
     unittest.main()
