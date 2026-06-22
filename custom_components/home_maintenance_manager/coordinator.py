@@ -118,7 +118,9 @@ class MaintenanceCoordinator:
 
         for item in data.get("tasks", []) or []:
             if isinstance(item, dict) and item.get("id"):
-                tasks_by_id[str(item["id"])] = dict(item)
+                task_id = str(item["id"])
+                if task_id not in self.deleted_task_ids:
+                    tasks_by_id[task_id] = dict(item)
 
         legacy_tasks = legacy_data.get("tasks", []) if isinstance(legacy_data, dict) else []
         if legacy_tasks and LEGACY_STORAGE_KEY not in completed_sources:
@@ -168,6 +170,7 @@ class MaintenanceCoordinator:
                         tasks_by_id.setdefault(task_id, dict(item))
 
         self.storage_settings = dict(data.get("settings", {}) or {})
+        self._prune_deleted_task_ids_from_installed_packs()
         option_notification_settings = config_entry_options.get("notification_settings")
         if option_notification_settings and "notification_settings" not in self.storage_settings:
             self.storage_settings["notification_settings"] = dict(option_notification_settings)
@@ -181,6 +184,13 @@ class MaintenanceCoordinator:
             })
 
         self.tasks = {task_id: MaintenanceTask.from_dict(item) for task_id, item in tasks_by_id.items()}
+        installed_packs = self.storage_settings.get("installed_task_packs") or {}
+        _LOGGER.warning(
+            "HMM startup: %s active tasks, %s deleted task IDs, %s installed packs",
+            len(self.tasks),
+            len(self.deleted_task_ids),
+            len(installed_packs) if isinstance(installed_packs, dict) else 0,
+        )
         await self.async_save()
         self._setup_tracking()
 
@@ -276,6 +286,22 @@ class MaintenanceCoordinator:
             data["provenance"] = {"origin": origin, "kind": kind or origin}
         return data
 
+    def _prune_deleted_task_ids_from_installed_packs(self) -> bool:
+        """Remove deleted task IDs from installed Task Pack metadata."""
+        installed = self.storage_settings.get("installed_task_packs")
+        if not isinstance(installed, dict) or not self.deleted_task_ids:
+            return False
+        changed = False
+        for record in installed.values():
+            if not isinstance(record, dict):
+                continue
+            imported_ids = [str(task_id) for task_id in (record.get("imported_task_ids") or [])]
+            filtered_ids = sorted(task_id for task_id in set(imported_ids) if task_id not in self.deleted_task_ids)
+            if filtered_ids != sorted(set(imported_ids)):
+                record["imported_task_ids"] = filtered_ids
+                changed = True
+        return changed
+
     async def _cleanup_nfc_notifications(self, task_ids: list[str]) -> None:
         """Dismiss stale NFC persistent/mobile notifications for changed assignments."""
         settings = self._notification_settings()
@@ -308,7 +334,10 @@ class MaintenanceCoordinator:
         configured_tasks = [self._normalize_nfc_config(task) for task in configured_tasks]
         changed_nfc_task_ids: list[str] = []
         for task_data in configured_tasks:
-            task_id = task_data["id"]
+            task_id = str(task_data["id"])
+            task_data["id"] = task_id
+            if task_id in self.deleted_task_ids:
+                continue
             old_tags = list(self.tasks.get(task_id).nfc_tags or []) if task_id in self.tasks else []
             old_action = self.tasks.get(task_id).nfc_action if task_id in self.tasks else None
             if task_id in self.tasks:
@@ -362,6 +391,7 @@ class MaintenanceCoordinator:
         self.deleted_task_ids.add(task_id)
         if task_id in self.tasks:
             del self.tasks[task_id]
+        self._prune_deleted_task_ids_from_installed_packs()
         await self.async_save()
         await self._cleanup_nfc_notifications([task_id])
         self._setup_tracking()

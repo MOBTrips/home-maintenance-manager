@@ -16,6 +16,7 @@ def install_homeassistant_stubs() -> None:
     ha = types.ModuleType("homeassistant")
     core = types.ModuleType("homeassistant.core")
     helpers = types.ModuleType("homeassistant.helpers")
+    entity_registry = types.ModuleType("homeassistant.helpers.entity_registry")
     event = types.ModuleType("homeassistant.helpers.event")
     storage = types.ModuleType("homeassistant.helpers.storage")
     util = types.ModuleType("homeassistant.util")
@@ -37,6 +38,7 @@ def install_homeassistant_stubs() -> None:
     core.Event = object
     core.HomeAssistant = HomeAssistant
     core.callback = lambda func: func
+    entity_registry.async_get = lambda hass: None
     event.async_track_state_change_event = lambda *args, **kwargs: (lambda: None)
     event.async_track_time_interval = lambda *args, **kwargs: (lambda: None)
     storage.Store = Store
@@ -47,6 +49,7 @@ def install_homeassistant_stubs() -> None:
     sys.modules["homeassistant"] = ha
     sys.modules["homeassistant.core"] = core
     sys.modules["homeassistant.helpers"] = helpers
+    sys.modules["homeassistant.helpers.entity_registry"] = entity_registry
     sys.modules["homeassistant.helpers.event"] = event
     sys.modules["homeassistant.helpers.storage"] = storage
     sys.modules["homeassistant.util"] = util
@@ -82,9 +85,40 @@ class FakeStates:
         return self._states.get(entity_id)
 
 
+class FakeBus:
+    def async_listen(self, *args, **kwargs):
+        return lambda: None
+
+
+class FakeServices:
+    def has_service(self, *args, **kwargs) -> bool:
+        return False
+
+    async def async_call(self, *args, **kwargs) -> None:
+        return None
+
+
 class FakeHass:
     def __init__(self, states: dict[str, FakeState]) -> None:
         self.states = FakeStates(states)
+        self.bus = FakeBus()
+        self.services = FakeServices()
+
+    def async_create_task(self, coro):
+        return coro
+
+
+class MemoryStore:
+    def __init__(self, data: dict | None = None) -> None:
+        self.data = data or {}
+        self.saved: list[dict] = []
+
+    async def async_load(self):
+        return self.data
+
+    async def async_save(self, data):
+        self.data = data
+        self.saved.append(data)
 
 
 def qa_pack(requirement_overrides: dict | None = None) -> dict:
@@ -135,6 +169,14 @@ def make_coordinator(entity_ids: list[str]) -> coordinator_module.MaintenanceCoo
     coordinator.deleted_task_ids = set()
     coordinator.storage_settings = {}
     return coordinator
+
+
+def make_stored_coordinator(entity_ids: list[str], store_data: dict | None = None) -> tuple[coordinator_module.MaintenanceCoordinator, MemoryStore]:
+    coordinator = make_coordinator(entity_ids)
+    store = MemoryStore(store_data or {})
+    coordinator.store = store
+    coordinator.legacy_store = MemoryStore({})
+    return coordinator, store
 
 
 class TaskPackAutoMappingTests(unittest.TestCase):
@@ -315,6 +357,35 @@ class TaskPackAutoMappingTests(unittest.TestCase):
         asyncio.run(coordinator.async_apply_import_preview(qa_pack(), selected_ids=["qa_filter"], restore_deleted=True))
 
         self.assertEqual(captured["package"]["tasks"][0]["id"], "qa_filter")
+
+    def test_deleted_task_pack_tasks_are_not_recreated_on_restart(self) -> None:
+        coordinator, store = make_stored_coordinator(["sensor.mock_device_runtime"])
+
+        asyncio.run(coordinator.async_apply_import_preview(qa_pack(), selected_ids=["qa_filter"]))
+        self.assertIn("qa_filter", coordinator.tasks)
+        self.assertIn("hmm.qa", coordinator.storage_settings.get("installed_task_packs", {}))
+
+        asyncio.run(coordinator.async_delete_task("qa_filter"))
+        self.assertEqual(coordinator.tasks, {})
+        self.assertEqual(store.data["tasks"], [])
+        self.assertIn("qa_filter", store.data["deleted_task_ids"])
+        installed = store.data["settings"]["installed_task_packs"]["hmm.qa"]
+        self.assertEqual(installed["imported_task_ids"], [])
+
+        restarted, restart_store = make_stored_coordinator(["sensor.mock_device_runtime"], store.data)
+        asyncio.run(restarted.async_load({}, []))
+
+        self.assertEqual(restarted.tasks, {})
+        self.assertIn("qa_filter", restarted.deleted_task_ids)
+        self.assertEqual(restart_store.data["tasks"], [])
+
+        preview = restarted.import_preview(qa_pack())
+        self.assertEqual(preview["tasks"][0]["status"], "deleted")
+        self.assertFalse(preview["tasks"][0]["selected"])
+
+        asyncio.run(restarted.async_apply_import_preview(qa_pack(), selected_ids=["qa_filter"], restore_deleted=True))
+        self.assertIn("qa_filter", restarted.tasks)
+        self.assertNotIn("qa_filter", restarted.deleted_task_ids)
 
 
 if __name__ == "__main__":
