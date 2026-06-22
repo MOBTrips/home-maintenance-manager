@@ -442,6 +442,20 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
   slug(value) { return (value || "maintenance_task").toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "") || "maintenance_task"; }
   escape(value) { return String(value ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c])); }
   label(text, tip) { return `<span class="field-label"><span>${text}</span><span class="tip" title="${this.escape(tip)}">?</span></span>`; }
+  _formatErrorMessage(err, fallback = "Unknown error") {
+    if (!err) return fallback;
+    if (typeof err === "string") return err;
+    for (const key of ["message", "error", "reason", "detail"]) {
+      if (err[key]) return String(err[key]);
+    }
+    if (err.response?.message) return String(err.response.message);
+    try {
+      return JSON.stringify(err);
+    } catch {
+      return fallback;
+    }
+  }
+
   loadViewModePreference() {
     try {
       const value = window.localStorage?.getItem('hmm-task-view-mode');
@@ -2254,8 +2268,9 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
 
   failedTaskSummary(failed) {
     return failed.map(item => {
-      const name = item.name && item.name !== item.id ? `${item.name} (${item.id})` : item.id;
-      return `${name}: ${item.error || 'Delete failed'}`;
+      const taskId = item.task_id || item.id || 'unknown';
+      const name = item.name && item.name !== taskId ? `${item.name} (${taskId})` : taskId;
+      return `${name}: ${this._formatErrorMessage(item.error || item.reason || item.detail, 'Delete failed')}`;
     }).join('; ');
   }
 
@@ -2271,13 +2286,13 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
       const result = await this._hass.callWS({ type: 'home_maintenance_manager/bulk_delete_tasks', task_ids: taskIds });
       const deleted = Array.isArray(result?.deleted) ? result.deleted : [];
       const failed = Array.isArray(result?.failed) ? result.failed : [];
-      const deletedIds = new Set(deleted.map(item => String(item.id)));
+      const deletedIds = new Set(deleted.map(item => String(item.task_id || item.id)));
       if (deletedIds.size) {
         this.tasks = this.tasks.filter(t => !deletedIds.has(String(t.id)));
       }
       if (failed.length) {
         this.bulkSelectMode = true;
-        this.selectedTaskIds = new Set(failed.map(item => String(item.id)));
+        this.selectedTaskIds = new Set(failed.map(item => String(item.task_id || item.id)).filter(Boolean));
         this.bulkDeleteFeedback = { type: 'error', text: `Could not delete ${failed.length} task${failed.length === 1 ? '' : 's'}: ${this.failedTaskSummary(failed)}` };
       } else {
         this.bulkSelectMode = false;
@@ -2289,7 +2304,7 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
       setTimeout(() => this.loadData(), 700);
     } catch (err) {
       this.bulkDeleteBusy = false;
-      this.bulkDeleteFeedback = { type: 'error', text: `Bulk delete failed: ${err?.message || err}` };
+      this.bulkDeleteFeedback = { type: 'error', text: `Bulk delete failed: ${this._formatErrorMessage(err)}` };
       this.render();
     }
   }
@@ -2901,7 +2916,7 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     this.shadowRoot.querySelectorAll('[data-open-task-device]').forEach(el=>el.onclick=()=>this.openTaskDevice(el.dataset.openTaskDevice));
     this.shadowRoot.querySelectorAll('[data-view-task]').forEach(el=>el.onclick=()=>this.openTaskDetail(el.dataset.viewTask));
     this.shadowRoot.querySelectorAll('[data-edit]').forEach(el=>el.onclick=()=>{ const task=this.tasks.find(t=>t.id===el.dataset.edit); this._modalSnapshot=null; this.modal={task:JSON.parse(JSON.stringify(task||{}))}; this.render(); });
-    this.shadowRoot.querySelectorAll('[data-delete]').forEach(el=>el.onclick=()=>{ if(confirm('Delete this maintenance task?')) this.callService('delete_task',{task_id:el.dataset.delete}); });
+    this.shadowRoot.querySelectorAll('[data-delete]').forEach(el=>el.onclick=()=>{ if(confirm('Delete this maintenance task?')) this.deleteTask(el.dataset.delete); });
     this.shadowRoot.querySelectorAll('[data-category-filter]').forEach(el=>el.onclick=()=>{ this.categoryFilter=el.dataset.categoryFilter; this.tab='tasks'; this.render(); });
     const save = this.shadowRoot.querySelector('[data-action="save-task"]');
     if (save) save.onclick=()=>this.saveTask(save.dataset.taskId);
@@ -3502,6 +3517,14 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     this.mobileMenuOpen = false;
     this.modal = null;
     setTimeout(()=>this.loadData(), 700);
+  }
+
+  async deleteTask(taskId) {
+    try {
+      await this.callService('delete_task', { task_id: taskId });
+    } catch (err) {
+      alert(`Delete failed: ${this._formatErrorMessage(err)}`);
+    }
   }
 
   setError(id, active) {

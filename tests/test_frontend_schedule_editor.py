@@ -90,10 +90,21 @@ class FrontendScheduleEditorTests(unittest.TestCase):
         self.assertIn("task_ids: taskIds", self.source)
 
     def test_bulk_delete_success_removes_tasks_and_reports_partial_failure(self) -> None:
+        self.assertIn("item.task_id || item.id", self.source)
         self.assertIn("this.tasks = this.tasks.filter(t => !deletedIds.has(String(t.id)))", self.source)
         self.assertIn("Deleted ${deleted.length} task", self.source)
         self.assertIn("Could not delete ${failed.length} task", self.source)
         self.assertIn("this.failedTaskSummary(failed)", self.source)
+
+    def test_error_formatter_handles_object_errors_without_object_object(self) -> None:
+        self.assertIn('_formatErrorMessage(err, fallback = "Unknown error")', self.source)
+        for key in ('"message"', '"error"', '"reason"', '"detail"'):
+            self.assertIn(key, self.source)
+        self.assertIn("err.response?.message", self.source)
+        self.assertIn("JSON.stringify(err)", self.source)
+        self.assertIn("Bulk delete failed: ${this._formatErrorMessage(err)}", self.source)
+        self.assertIn("Delete failed: ${this._formatErrorMessage(err)}", self.source)
+        self.assertNotIn("Bulk delete failed: ${err", self.source)
 
 
 if __name__ == "__main__":

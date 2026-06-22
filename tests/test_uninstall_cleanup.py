@@ -342,7 +342,7 @@ class UninstallCleanupTests(unittest.TestCase):
             self.assertEqual(
                 connection.result,
                 {
-                    "deleted": [{"id": "task-1", "name": "Filter"}, {"id": "task-2", "name": "Pump"}],
+                    "deleted": [{"task_id": "task-1", "name": "Filter"}, {"task_id": "task-2", "name": "Pump"}],
                     "failed": [],
                 },
             )
@@ -370,8 +370,8 @@ class UninstallCleanupTests(unittest.TestCase):
             )
 
             self.assertIsNone(connection.error)
-            self.assertEqual(connection.result["deleted"], [{"id": "task-1", "name": "Filter"}])
-            self.assertEqual(connection.result["failed"], [{"id": "missing", "name": "missing", "error": "Task was not found"}])
+            self.assertEqual(connection.result["deleted"], [{"task_id": "task-1", "name": "Filter"}])
+            self.assertEqual(connection.result["failed"], [{"task_id": "missing", "name": "missing", "error": "Task was not found"}])
             self.assertEqual(coordinator.deleted, ["task-1"])
             self.assertIn("task-2", coordinator.tasks)
         finally:

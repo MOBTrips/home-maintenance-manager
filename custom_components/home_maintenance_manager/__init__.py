@@ -154,16 +154,16 @@ async def websocket_bulk_delete_tasks(hass: HomeAssistant, connection, msg) -> N
     for task_id in task_ids:
         task = coordinator.tasks.get(task_id)
         if task is None:
-            failed.append({"id": task_id, "name": task_id, "error": "Task was not found"})
+            failed.append({"task_id": task_id, "name": task_id, "error": "Task was not found"})
             continue
         task_name = task.name
         try:
             await coordinator.async_delete_task(task_id)
         except Exception as err:  # pragma: no cover - defensive per-task reporting
             _LOGGER.exception("Home Maintenance Manager bulk delete failed for task %s", task_id)
-            failed.append({"id": task_id, "name": task_name, "error": str(err)})
+            failed.append({"task_id": task_id, "name": task_name, "error": str(err)})
             continue
-        deleted.append({"id": task_id, "name": task_name})
+        deleted.append({"task_id": task_id, "name": task_name})
         cleanup_tasks.append((task_id, task_name))
 
     if cleanup_tasks:
