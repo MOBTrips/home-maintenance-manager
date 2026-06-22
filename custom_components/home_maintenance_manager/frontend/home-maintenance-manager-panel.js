@@ -25,12 +25,16 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     this.error = null;
     this.categoryFilter = "All";
     this.statusFilter = "All";
+    this.taskPackFilter = "All";
     this.sortMode = "urgent";
     this.viewMode = this.loadViewModePreference();
     this.bulkSelectMode = false;
     this.selectedTaskIds = new Set();
     this.bulkDeleteFeedback = null;
     this.bulkDeleteBusy = false;
+    this.factoryResetConfirmation = "";
+    this.factoryResetBusy = false;
+    this.factoryResetFeedback = null;
     this.runtimeAnalysis = {};
     this.runtimeAnalysisLoading = {};
     this.analysisDays = {};
@@ -438,6 +442,22 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
   taskStatus(t) { return (t.status || t.summary?.status || "unknown").toLowerCase(); }
   percent(t) { return Math.max(0, Math.min(100, Math.round(t.summary?.percent_used ?? 0))); }
   category(t) { return t.category || "General"; }
+  taskSource(t) { return t?.source && typeof t.source === 'object' ? t.source : {}; }
+  taskPackId(t) { return this.taskSource(t).type === 'task_pack' ? (this.taskSource(t).pack_id || '') : ''; }
+  taskPackName(t) { return this.taskSource(t).type === 'task_pack' ? (this.taskSource(t).pack_name || this.taskSource(t).pack_id || 'Task Pack') : ''; }
+  taskOriginLabel(t) {
+    const source = this.taskSource(t);
+    if (source.type === 'task_pack') return source.pack_name || source.pack_id || 'Task Pack';
+    return 'Manual';
+  }
+  taskPackOptions() {
+    const packs = new Map();
+    this.tasks.forEach(task => {
+      const packId = this.taskPackId(task);
+      if (packId) packs.set(packId, this.taskPackName(task));
+    });
+    return Array.from(packs.entries()).sort((a, b) => String(a[1]).localeCompare(String(b[1])));
+  }
   dateShort(iso) { if (!iso) return "Not recorded"; try { return new Date(iso).toLocaleDateString(); } catch { return iso; } }
   slug(value) { return (value || "maintenance_task").toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "") || "maintenance_task"; }
   escape(value) { return String(value ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c])); }
@@ -481,6 +501,7 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
         tab: this.tab,
         categoryFilter: this.categoryFilter,
         statusFilter: this.statusFilter,
+        taskPackFilter: this.taskPackFilter,
         sortMode: this.sortMode,
         viewMode: this.viewMode,
         taskId,
@@ -505,7 +526,8 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     if (['dashboard', 'tasks', 'history', 'settings'].includes(context.tab)) this.tab = context.tab;
     if (typeof context.categoryFilter === 'string') this.categoryFilter = context.categoryFilter;
     if (typeof context.statusFilter === 'string') this.statusFilter = context.statusFilter;
-    if (['urgent', 'category', 'name'].includes(context.sortMode)) this.sortMode = context.sortMode;
+    if (typeof context.taskPackFilter === 'string') this.taskPackFilter = context.taskPackFilter;
+    if (['urgent', 'category', 'name', 'task_pack'].includes(context.sortMode)) this.sortMode = context.sortMode;
     if (['comfortable', 'compact'].includes(context.viewMode)) this.viewMode = context.viewMode;
     if (context.modalMode === 'detail' && context.taskId) {
       const task = this.tasks.find(t => t.id === context.taskId);
@@ -598,6 +620,7 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
   renderCompactTaskRow(t) {
     const status = this.taskStatus(t);
     const category = this.category(t);
+    const origin = this.taskOriginLabel(t);
     const taskId = this.escape(t.id || '');
     const checked = this.selectedTaskIds.has(String(t.id)) ? 'checked' : '';
     const bulkCheck = this.bulkSelectMode ? `<label class="task-select-check" title="Select ${this.escape(t.name || t.id)}"><input class="bulk-task-select" type="checkbox" data-task-select="${taskId}" aria-label="Select ${this.escape(t.name || t.id)}" ${checked}></label>` : '';
@@ -605,7 +628,7 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
       ? t.summary.rule_progress.map(r => ({ ...r, percent: Math.round((r.percent_used || 0) * 100) }))
       : [{ type: 'time', percent: this.percent(t), title: 'Overall progress' }];
     return `<div class="compact-task-row ${this.bulkSelectMode ? 'bulk-selecting' : ''}" data-task-id="${taskId}">
-      <div class="compact-task-main">${bulkCheck}${this.renderCategoryIcon(category)}<span class="compact-task-title">${this.escape(t.name || t.id)}</span></div>
+      <div class="compact-task-main">${bulkCheck}${this.renderCategoryIcon(category)}<span class="compact-task-title">${this.escape(t.name || t.id)}</span><span class="category-pill">${this.escape(origin)}</span></div>
       <div>${this.renderTaskStatusChip(status, { compact: true })}</div>
       <div class="compact-rule-stack">${rules.slice(0, 2).map(r => this.renderCompactRuleProgress(r)).join('')}</div>
       <div class="compact-task-actions">
@@ -990,6 +1013,10 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
   filteredTasks() {
     let tasks = [...this.tasks];
     if (this.categoryFilter !== "All") tasks = tasks.filter(t => this.category(t) === this.categoryFilter);
+    if (this.taskPackFilter !== "All") {
+      if (this.taskPackFilter === "__manual__") tasks = tasks.filter(t => !this.taskPackId(t));
+      else tasks = tasks.filter(t => this.taskPackId(t) === this.taskPackFilter);
+    }
     tasks = tasks.filter(t => this.statusFilter === "season_paused" || t.summary?.season_active !== false || t.seasonal?.show_when_inactive !== false);
     if (this.statusFilter !== "All") {
       if (this.statusFilter === "needs_attention") tasks = tasks.filter(t => ["due","overdue"].includes(this.taskStatus(t)));
@@ -997,6 +1024,7 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     }
     if (this.sortMode === "urgent") tasks.sort((a,b) => this.urgentStatusPriority(a) - this.urgentStatusPriority(b) || this.taskDueTime(a) - this.taskDueTime(b) || this.percent(b) - this.percent(a));
     if (this.sortMode === "category") tasks.sort((a,b) => this.category(a).localeCompare(this.category(b)) || (a.name||"").localeCompare(b.name||""));
+    if (this.sortMode === "task_pack") tasks.sort((a,b) => this.taskOriginLabel(a).localeCompare(this.taskOriginLabel(b)) || (a.name||"").localeCompare(b.name||""));
     if (this.sortMode === "name") tasks.sort((a,b) => (a.name||"").localeCompare(b.name||""));
     return tasks;
   }
@@ -1119,11 +1147,17 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
   renderFilters(visibleTasks = []) {
     const catOptions = ["All", ...this.categories()].map(c => `<option value="${this.escape(c)}" ${this.categoryFilter===c?'selected':''}>${this.escape(c)}</option>`).join("");
     const statusOptions = [["All","All statuses"],["needs_attention","Needs attention"],["upcoming","Upcoming"],["ok","OK"],["snoozed","Snoozed"],["paused","Paused"],["season_paused","Season paused"]].map(([v,l]) => `<option value="${v}" ${this.statusFilter===v?'selected':''}>${l}</option>`).join("");
+    const packOptions = [
+      `<option value="All" ${this.taskPackFilter==='All'?'selected':''}>All origins</option>`,
+      `<option value="__manual__" ${this.taskPackFilter==='__manual__'?'selected':''}>Manual / not from pack</option>`,
+      ...this.taskPackOptions().map(([id, name]) => `<option value="${this.escape(id)}" ${this.taskPackFilter===id?'selected':''}>${this.escape(name)}</option>`),
+    ].join("");
     return `<div class="card toolbar-card">
-      <div class="three">
+      <div class="form-grid">
         <div><label>Filter by category</label><select id="category-filter">${catOptions}</select></div>
         <div><label>Filter by status</label><select id="status-filter">${statusOptions}</select></div>
-        <div><label>Sort tasks</label><select id="sort-mode"><option value="urgent" ${this.sortMode==='urgent'?'selected':''}>Most urgent first</option><option value="category" ${this.sortMode==='category'?'selected':''}>Category</option><option value="name" ${this.sortMode==='name'?'selected':''}>Name</option></select></div>
+        <div><label>Filter by Task Pack</label><select id="task-pack-filter">${packOptions}</select></div>
+        <div><label>Sort tasks</label><select id="sort-mode"><option value="urgent" ${this.sortMode==='urgent'?'selected':''}>Most urgent first</option><option value="category" ${this.sortMode==='category'?'selected':''}>Category</option><option value="task_pack" ${this.sortMode==='task_pack'?'selected':''}>Task Pack</option><option value="name" ${this.sortMode==='name'?'selected':''}>Name</option></select></div>
       </div>
       <div class="task-toolbar-footer">
         <div class="help">Categories organize the dashboard, task list, health score, and notification context.</div>
@@ -1161,6 +1195,7 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
   renderTaskCard(t) {
     const status = this.taskStatus(t);
     const category = this.category(t);
+    const origin = this.taskOriginLabel(t);
     const taskId = this.escape(t.id || '');
     const percent = this.percent(t);
     const checked = this.selectedTaskIds.has(String(t.id)) ? 'checked' : '';
@@ -1170,7 +1205,7 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
         <div class="task-card-title-row">${bulkCheck}${this.renderCategoryIcon(category)}<div class="task-title">${this.escape(t.name || t.id)}</div></div>
         ${this.renderTaskStatusChip(status)}
       </div>
-      <div class="task-card-meta"><span class="category-pill">${this.escape(category)}</span>${t.nfc_tags?.length ? `<span class="category-pill">${this.escape(t.nfc_tags.length)} NFC</span>` : ''}</div>
+      <div class="task-card-meta"><span class="category-pill">${this.escape(category)}</span><span class="category-pill">${this.escape(origin)}</span>${t.nfc_tags?.length ? `<span class="category-pill">${this.escape(t.nfc_tags.length)} NFC</span>` : ''}</div>
       ${t.equipment_name ? `<div class="muted">Equipment: ${this.escape(t.equipment_name)}</div>` : ""}
       <div class="task-progress-row"><div class="progress"><div class="bar" style="width:${percent}%"></div></div><b>${percent}% used</b></div>
       <div class="task-date-grid">
@@ -1377,6 +1412,10 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     const installedPacks = Array.isArray(b.installed_task_packs) ? b.installed_task_packs : [];
     const migratedFrom = (b.migration?.migrated_from || []).join(', ') || 'No legacy migration needed';
     const migratedAt = b.migration?.migrated_at ? new Date(b.migration.migrated_at).toLocaleString() : 'Not recorded';
+    const resetReady = this.factoryResetConfirmation === 'RESET HMM';
+    const resetFeedback = this.factoryResetFeedback
+      ? `<div class="bulk-feedback ${this.factoryResetFeedback.type === 'error' ? 'error' : ''}">${this.escape(this.factoryResetFeedback.text)}</div>`
+      : '';
     return `<div class="grid">
       <div class="card"><h2>Settings</h2><p class="muted">General Home Maintenance Manager information and lookups.</p><p>Notification settings have moved to the <b>Notifications</b> tab.</p></div>
       <div class="card"><h2>Backup & Restore</h2>
@@ -1403,21 +1442,29 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
       </div>
       <div class="card"><h2>Installed Task Packs</h2>
         ${installedPacks.length ? `<div class="summary-list">${installedPacks.map(pack => {
-          const importedCount = Array.isArray(pack.imported_task_ids) ? pack.imported_task_ids.length : 0;
+          const importedCount = Number(pack.task_count || 0);
           const installedAt = pack.installed_at ? new Date(pack.installed_at).toLocaleString() : 'Not recorded';
-          return `<div class="summary-line"><span><b>${this.escape(pack.name || pack.id || 'Task Pack')}</b><br><span class="muted">${this.escape(pack.id || '')}</span></span><span><b>${this.escape(pack.version || 'Unknown')}</b><br><span class="muted">${this.escape(installedAt)} • ${importedCount} task${importedCount === 1 ? '' : 's'}</span></span></div>`;
+          const lastImported = pack.last_imported_at ? new Date(pack.last_imported_at).toLocaleString() : installedAt;
+          return `<div class="summary-line"><span><b>${this.escape(pack.pack_name || pack.name || pack.pack_id || pack.id || 'Task Pack')}</b><br><span class="muted">${this.escape(pack.pack_id || pack.id || '')}</span></span><span><b>${this.escape(pack.version || 'Unknown')}</b><br><span class="muted">${this.escape(lastImported)} • ${importedCount} task${importedCount === 1 ? '' : 's'}</span></span></div>`;
         }).join('')}</div>` : `<p class="muted">No Task Packs have been imported yet.</p>`}
       </div>
       <div class="card"><h2>Browse built-in packs</h2>
         <p class="muted">Local sample packs bundled with HMM. Installing opens the import review wizard first; nothing is saved until you confirm the wizard.</p>
         ${this.renderBuiltInTaskPackLibrary(installedPacks)}
       </div>
+      <div class="card"><h2>Advanced / Danger Zone</h2>
+        <p class="muted">This permanently removes all HMM tasks, history, imports, runtime data, and Task Pack metadata.</p>
+        <label>Type RESET HMM to confirm</label>
+        <input id="factory-reset-confirmation" value="${this.escape(this.factoryResetConfirmation)}" autocomplete="off">
+        <div class="task-actions" style="margin-top:12px;"><button class="btn danger" data-action="factory-reset" ${resetReady && !this.factoryResetBusy ? '' : 'disabled'}>Factory Reset HMM Data</button></div>
+        ${resetFeedback}
+      </div>
       <div class="card"><h2>Lookups</h2><p>Areas: ${this.metadata.areas.length}</p><p>Devices: ${this.metadata.devices.length}</p><p>Entities: ${this.metadata.entities.length}</p><p>Notify services: ${this.metadata.notify_services.length}</p><p>NFC tags: ${this.tags.length}</p><p>Categories: ${this.categories().length}</p></div>
     </div>`;
   }
 
   renderBuiltInTaskPackLibrary(installedPacks) {
-    const installedIds = new Set((installedPacks || []).map(pack => pack.id).filter(Boolean));
+    const installedIds = new Set((installedPacks || []).map(pack => pack.pack_id || pack.id).filter(Boolean));
     const packs = this.builtInTaskPacks || [];
     if (!packs.length) return `<p class="muted">No built-in Task Packs were found in this installation.</p>`;
     return `<div class="summary-list">${packs.map(pack => {
@@ -1541,6 +1588,8 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     const total = (p.tasks || []).length;
     const filters = [
       ['all', `All (${total})`], ['new', `New (${counts.new || 0})`], ['update', `Updates (${counts.update || 0})`],
+      ['existing', `Existing (${counts.existing || 0})`], ['possible_update', `Possible updates (${counts.possible_update || 0})`],
+      ['user_modified', `User modified (${counts.user_modified || 0})`],
       ['duplicate', `Duplicates (${counts.duplicate || 0})`], ['deleted', `Deleted (${counts.deleted || 0})`],
       ['invalid', `Invalid (${counts.invalid || 0})`], ['missing_entities', `Needs config (${missing || 0})`],
     ];
@@ -1568,7 +1617,7 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
           <div class="summary-line"><span>Version</span><b>${this.escape(pack.version || 'Not provided')}</b></div>
         </div>
         ${pack.description ? `<p class="muted">${this.escape(pack.description)}</p>` : ''}
-        <div class="info-box">Task Packs always merge and cannot replace full storage, import settings, tombstone lists, or keep runtime/history/private data. Local deleted-task tombstones are still respected unless you intentionally restore a selected deleted task.</div>
+        <div class="info-box">Task Packs are templates. HMM uses task source metadata to detect existing tasks and possible updates, but nothing is recreated unless you select it in this wizard.</div>
       </div>` : ''}
       <div class="wizard-controls">
         <div><label>Show</label><div class="chip-row">${filters.map(([id,label]) => `<button class="chip ${this.importStatusFilter === id ? 'active' : ''}" data-import-filter="${id}">${this.escape(label)}</button>`).join('')}</div></div>
@@ -1904,6 +1953,8 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
           <div class="summary-line"><span>Mode</span><b>${isPack ? 'Merge' : (this.importMode === 'replace' ? 'Replace' : 'Merge')}</b></div>
           <div class="summary-line"><span>New tasks</span><b>${p.counts?.new || 0}</b></div>
           <div class="summary-line"><span>Existing tasks updated</span><b>${p.counts?.update || 0}</b></div>
+          <div class="summary-line"><span>Existing pack tasks</span><b>${p.counts?.existing || 0}</b></div>
+          <div class="summary-line"><span>User modified pack tasks</span><b>${p.counts?.user_modified || 0}</b></div>
           <div class="summary-line"><span>Previously deleted tasks found</span><b>${p.counts?.deleted || 0}</b></div>
           <div class="summary-line"><span>Settings changes</span><b>${p.settings_present && !isPack ? 'Available' : 'None'}</b></div>
           <div class="summary-line"><span>Mapped task entities</span><b>${entitySummary.mapped}</b></div>
@@ -1919,7 +1970,7 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
         <label class="option-card danger-option"><input type="radio" name="wizard-import-mode" value="replace" ${this.importMode === 'replace' ? 'checked' : ''}> <span><b>Replace HMM tasks with selected tasks</b><br><span class="muted">Recovery/migration mode. Existing HMM tasks not selected here will be removed.</span></span></label>
       </div>` : `<div class="wizard-section-card"><h3>Apply mode</h3><p class="muted">Task Packs are templates, so they always use merge mode.</p></div>`}
       ${advancedOptions ? `<div class="wizard-section-card"><h3>Advanced Options</h3>${advancedOptions}</div>` : ''}
-      ${hasUpdates ? '<div class="wizard-section-card"><h3>Import Summary</h3><div class="info-box"><b>Updates found:</b> selected tasks with matching IDs will update existing tasks when merge mode is used.</div></div>' : ''}
+      ${hasUpdates ? '<div class="wizard-section-card"><h3>Import Summary</h3><div class="info-box"><b>Updates found:</b> selected tasks with matching IDs or Task Pack source metadata will update existing tasks when merge mode is used.</div></div>' : ''}
       <div class="wizard-section-card"><h3>Selected tasks and assignments</h3>
         <div class="summary-list">${selectedTasks.map(task => this.renderReviewTaskAssignment(task)).join('') || '<div class="empty-list">No tasks selected.</div>'}</div>
       </div>
@@ -1972,7 +2023,7 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
       : 'No entity references';
     const checked = t.selected ? 'checked' : '';
     const disabled = t.status === 'invalid' ? 'disabled' : '';
-    const statusClass = t.status === 'new' ? 'ok' : t.status === 'invalid' || t.required_entity_missing ? 'warn' : '';
+    const statusClass = t.status === 'new' || t.status === 'possible_update' ? 'ok' : t.status === 'invalid' || t.required_entity_missing || t.status === 'user_modified' ? 'warn' : '';
     const pauseNote = t.required_entity_missing ? '<div class="entity-warning">Required entity missing. Configure this task before import.</div>' : '';
     const entityList = missingEntities.slice(0, 3).map(e => `<code>${this.escape(e.entity_id || e.id || '')}</code>`).join(' ');
     return `<div class="review-row ${disabled ? 'disabled' : ''}">
@@ -2305,6 +2356,34 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     } catch (err) {
       this.bulkDeleteBusy = false;
       this.bulkDeleteFeedback = { type: 'error', text: `Bulk delete failed: ${this._formatErrorMessage(err)}` };
+      this.render();
+    }
+  }
+
+  async factoryResetHmm() {
+    if (this.factoryResetBusy || this.factoryResetConfirmation !== 'RESET HMM') return;
+    if (!confirm('Factory Reset HMM Data? This permanently removes all HMM tasks, history, imports, runtime data, and Task Pack metadata.')) return;
+    this.factoryResetBusy = true;
+    this.factoryResetFeedback = null;
+    this.render();
+    try {
+      const result = await this._hass.callWS({ type: 'home_maintenance_manager/factory_reset', confirmation: this.factoryResetConfirmation });
+      const failed = Array.isArray(result?.failed) ? result.failed : [];
+      if (failed.length) {
+        this.factoryResetFeedback = { type: 'error', text: `Factory Reset completed with ${failed.length} failure${failed.length === 1 ? '' : 's'}: ${this.failedTaskSummary(failed)}` };
+      } else {
+        this.factoryResetConfirmation = "";
+        this.factoryResetFeedback = { type: 'success', text: `Factory Reset complete. Deleted ${result?.tasks_deleted ?? 0} task${(result?.tasks_deleted ?? 0) === 1 ? '' : 's'}, removed ${result?.entities_removed ?? 0} entities and ${result?.devices_removed ?? 0} devices.` };
+      }
+      this.tasks = [];
+      this.bulkSelectMode = false;
+      this.selectedTaskIds = new Set();
+      this.factoryResetBusy = false;
+      this.render();
+      setTimeout(() => this.loadData(), 700);
+    } catch (err) {
+      this.factoryResetBusy = false;
+      this.factoryResetFeedback = { type: 'error', text: `Factory Reset failed: ${this._formatErrorMessage(err)}` };
       this.render();
     }
   }
@@ -2860,6 +2939,14 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     this.shadowRoot.querySelectorAll('[data-action="save-notification-settings"]').forEach(el=>el.onclick=()=>this.saveNotificationSettings());
     this.shadowRoot.querySelectorAll('[data-action="test-notification"]').forEach(el=>el.onclick=()=>this.testNotification());
     this.shadowRoot.querySelectorAll('[data-action="export-json"]').forEach(el=>el.onclick=()=>this.exportJson());
+    this.shadowRoot.querySelectorAll('[data-action="factory-reset"]').forEach(el=>el.onclick=()=>this.factoryResetHmm());
+    const factoryResetConfirmation = this.shadowRoot.getElementById('factory-reset-confirmation');
+    if (factoryResetConfirmation) factoryResetConfirmation.oninput = () => {
+      this.factoryResetConfirmation = factoryResetConfirmation.value;
+      this.factoryResetFeedback = null;
+      const button = this.shadowRoot.querySelector('[data-action="factory-reset"]');
+      if (button) button.disabled = this.factoryResetConfirmation !== 'RESET HMM' || this.factoryResetBusy;
+    };
     this.shadowRoot.querySelectorAll('[data-install-built-in-pack]').forEach(el=>el.onclick=()=>this.installBuiltInTaskPack(el.dataset.installBuiltInPack));
     this.shadowRoot.querySelectorAll('[data-action="open-task-pack-export"]').forEach(el=>el.onclick=()=>this.openTaskPackExport());
     this.shadowRoot.querySelectorAll('[data-action="close-task-pack-export"]').forEach(el=>el.onclick=()=>{ this.taskPackExportOpen=false; this.render(); });
@@ -2924,6 +3011,8 @@ class HomeMaintenanceManagerPanel extends HTMLElement {
     if (catFilter) catFilter.onchange = () => { this.categoryFilter = catFilter.value; this.render(); };
     const statusFilter = this.shadowRoot.getElementById('status-filter');
     if (statusFilter) statusFilter.onchange = () => { this.statusFilter = statusFilter.value; this.render(); };
+    const taskPackFilter = this.shadowRoot.getElementById('task-pack-filter');
+    if (taskPackFilter) taskPackFilter.onchange = () => { this.taskPackFilter = taskPackFilter.value; this.render(); };
     const sortMode = this.shadowRoot.getElementById('sort-mode');
     if (sortMode) sortMode.onchange = () => { this.sortMode = sortMode.value; this.render(); };
     this.shadowRoot.querySelectorAll('[data-view-mode]').forEach(el=>el.onclick=()=>{ this.saveViewModePreference(el.dataset.viewMode); this.render(); });

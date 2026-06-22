@@ -578,6 +578,16 @@ def sanitize_task_pack_task(
     data["nfc_action"] = "disabled"
     data["mobile_notify_service"] = None
     data.setdefault("notification_mode", "automation_only")
+    template_task_id = str(data.get("id") or "")
+    imported_at = datetime.now(timezone.utc).isoformat()
+    data["source"] = {
+        "type": TASK_PACK_TYPE,
+        "pack_id": pack_metadata.get("id"),
+        "pack_name": pack_metadata.get("name"),
+        "pack_version": pack_metadata.get("version"),
+        "template_task_id": template_task_id,
+        "imported_at": imported_at,
+    }
     data["provenance"] = {
         "origin": "task_pack",
         "kind": pack_metadata.get("provenance", {}).get("kind", DEFAULT_PROVENANCE_KIND),
@@ -585,6 +595,8 @@ def sanitize_task_pack_task(
         "pack_name": pack_metadata.get("name"),
         "pack_version": pack_metadata.get("version"),
         "source": pack_metadata.get("source") or pack_metadata.get("source_url"),
+        "template_task_id": template_task_id,
+        "imported_at": imported_at,
     }
 
     requirement_by_ref = _requirement_lookup(requirements or [])
@@ -689,19 +701,21 @@ def build_task_pack_package(
 
 def installed_pack_record(
     pack_metadata: dict[str, Any],
-    imported_task_ids: list[str],
+    task_count: int,
     package_hash_value: str,
+    installed_at: str | None = None,
 ) -> dict[str, Any]:
     """Return the persisted installed-pack metadata record."""
     now = datetime.now(timezone.utc).isoformat()
     return {
-        "id": pack_metadata.get("id"),
-        "name": pack_metadata.get("name"),
+        "pack_id": pack_metadata.get("id"),
+        "pack_name": pack_metadata.get("name"),
         "version": pack_metadata.get("version"),
         "source": pack_metadata.get("source") or pack_metadata.get("source_url"),
         "provenance": pack_metadata.get("provenance", {}),
-        "installed_at": now,
-        "imported_task_ids": sorted(set(str(task_id) for task_id in imported_task_ids)),
+        "installed_at": installed_at or now,
+        "last_imported_at": now,
+        "task_count": int(task_count or 0),
         "package_hash": package_hash_value,
     }
 
@@ -709,13 +723,15 @@ def installed_pack_record(
 def merge_installed_pack_record(
     existing_record: dict[str, Any] | None,
     pack_metadata: dict[str, Any],
-    imported_task_ids: list[str],
+    task_count: int,
     package_hash_value: str,
 ) -> dict[str, Any]:
-    """Return an installed-pack record updated without duplicating repeat imports."""
+    """Return informational installed-pack metadata for the latest import."""
     existing_record = existing_record if isinstance(existing_record, dict) else {}
-    merged_task_ids = sorted(set((existing_record.get("imported_task_ids") or []) + list(imported_task_ids or [])))
-    record = installed_pack_record(pack_metadata, merged_task_ids, package_hash_value)
-    if existing_record.get("installed_at"):
-        record["installed_at"] = existing_record["installed_at"]
+    record = installed_pack_record(
+        pack_metadata,
+        task_count,
+        package_hash_value,
+        existing_record.get("installed_at"),
+    )
     return record

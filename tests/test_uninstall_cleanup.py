@@ -162,10 +162,14 @@ class FakeCoordinator:
             "task-2": FakeTask("task-2", "Pump"),
         }
         self.deleted: list[str] = []
+        self.cleared_metadata = False
 
     async def async_delete_task(self, task_id: str) -> None:
         self.deleted.append(task_id)
         del self.tasks[task_id]
+
+    async def async_clear_task_owned_metadata(self) -> None:
+        self.cleared_metadata = True
 
 
 def install_homeassistant_stubs() -> None:
@@ -342,7 +346,26 @@ class UninstallCleanupTests(unittest.TestCase):
             self.assertEqual(
                 connection.result,
                 {
-                    "deleted": [{"task_id": "task-1", "name": "Filter"}, {"task_id": "task-2", "name": "Pump"}],
+                    "deleted": [
+                        {
+                            "task_id": "task-1",
+                            "name": "Filter",
+                            "deleted": True,
+                            "entities_removed": 1,
+                            "devices_removed": 1,
+                            "device_removed": True,
+                            "warnings": [],
+                        },
+                        {
+                            "task_id": "task-2",
+                            "name": "Pump",
+                            "deleted": True,
+                            "entities_removed": 1,
+                            "devices_removed": 1,
+                            "device_removed": True,
+                            "warnings": [],
+                        },
+                    ],
                     "failed": [],
                 },
             )
@@ -370,10 +393,48 @@ class UninstallCleanupTests(unittest.TestCase):
             )
 
             self.assertIsNone(connection.error)
-            self.assertEqual(connection.result["deleted"], [{"task_id": "task-1", "name": "Filter"}])
+            self.assertEqual(connection.result["deleted"][0]["task_id"], "task-1")
+            self.assertEqual(connection.result["deleted"][0]["entities_removed"], 0)
             self.assertEqual(connection.result["failed"], [{"task_id": "missing", "name": "missing", "error": "Task was not found"}])
             self.assertEqual(coordinator.deleted, ["task-1"])
             self.assertIn("task-2", coordinator.tasks)
+        finally:
+            restore_modules(original_modules)
+
+    def test_factory_reset_deletes_tasks_cleans_registry_and_clears_metadata(self) -> None:
+        module, original_modules = load_hmm_module()
+        try:
+            coordinator = FakeCoordinator()
+            hass = FakeHass()
+            hass.data = {"home_maintenance_manager": {"entry-1": coordinator}}
+            hass.entity_registry.entries = [
+                FakeEntityEntry("sensor.filter_status", "entry-1", "task-1_status", "task-device-1"),
+                FakeEntityEntry("button.pump_complete", "entry-1", "task-2_complete", "task-device-2"),
+            ]
+            hass.device_registry.devices = {
+                "task-device-1": FakeDevice("task-device-1", {("home_maintenance_manager", "task-1")}),
+                "task-device-2": FakeDevice("task-device-2", {("home_maintenance_manager", "task-2")}),
+                "manager-device": FakeDevice("manager-device", {("home_maintenance_manager", "manager")}),
+            }
+            connection = FakeConnection()
+
+            asyncio.run(
+                module.websocket_factory_reset(
+                    hass,
+                    connection,
+                    {"id": 1, "type": "home_maintenance_manager/factory_reset", "confirmation": "RESET HMM"},
+                )
+            )
+
+            self.assertIsNone(connection.error)
+            self.assertEqual(connection.result["tasks_deleted"], 2)
+            self.assertEqual(connection.result["entities_removed"], 2)
+            self.assertEqual(connection.result["devices_removed"], 2)
+            self.assertEqual(connection.result["failed"], [])
+            self.assertEqual(coordinator.deleted, ["task-1", "task-2"])
+            self.assertTrue(coordinator.cleared_metadata)
+            self.assertEqual(sorted(hass.device_registry.removed), ["task-device-1", "task-device-2"])
+            self.assertIn("manager-device", hass.device_registry.devices)
         finally:
             restore_modules(original_modules)
 

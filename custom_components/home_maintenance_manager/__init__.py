@@ -56,6 +56,7 @@ TASK_SCHEMA = vol.Schema({
     vol.Optional("baseline_method", default=""): vol.Any(cv.string, None),
     vol.Optional("baseline_ago_value", default=""): vol.Any(cv.string, vol.Coerce(float), None),
     vol.Optional("baseline_ago_unit", default="days"): vol.Any(cv.string, None),
+    vol.Optional("source", default={}): dict,
     vol.Optional("provenance", default={}): dict,
 })
 
@@ -148,33 +149,29 @@ async def websocket_bulk_delete_tasks(hass: HomeAssistant, connection, msg) -> N
             task_ids.append(task_id)
             seen.add(task_id)
 
-    deleted: list[dict[str, str]] = []
+    deleted: list[dict[str, Any]] = []
     failed: list[dict[str, str]] = []
-    cleanup_tasks: list[tuple[str, str | None]] = []
+    entry = _entry_for_coordinator(hass, coordinator)
+    unloaded = False
+    if task_ids and entry is not None:
+        unloaded = await hass.config_entries.async_unload(entry.entry_id)
     for task_id in task_ids:
-        task = coordinator.tasks.get(task_id)
-        if task is None:
-            failed.append({"task_id": task_id, "name": task_id, "error": "Task was not found"})
-            continue
-        task_name = task.name
         try:
-            await coordinator.async_delete_task(task_id)
+            result = await async_delete_task_permanently(hass, entry, coordinator, task_id)
         except Exception as err:  # pragma: no cover - defensive per-task reporting
             _LOGGER.exception("Home Maintenance Manager bulk delete failed for task %s", task_id)
-            failed.append({"task_id": task_id, "name": task_name, "error": str(err)})
+            failed.append({"task_id": task_id, "name": task_id, "error": str(err)})
             continue
-        deleted.append({"task_id": task_id, "name": task_name})
-        cleanup_tasks.append((task_id, task_name))
+        if result.get("deleted"):
+            deleted.append(result)
+        else:
+            failed.append({"task_id": task_id, "name": result.get("name") or task_id, "error": result.get("error") or "Task was not found"})
 
-    if cleanup_tasks:
-        entry = _entry_for_coordinator(hass, coordinator)
-        if entry is not None:
-            await _async_reload_entry_after_task_deletes(hass, entry, cleanup_tasks)
-        else:  # pragma: no cover - configured entries should be present during panel use
-            _LOGGER.warning(
-                "Could not find Home Maintenance Manager config entry while cleaning up %s bulk-deleted task(s)",
-                len(cleanup_tasks),
-            )
+    if entry is not None:
+        if unloaded:
+            await hass.config_entries.async_setup(entry.entry_id)
+        elif deleted:
+            await hass.config_entries.async_reload(entry.entry_id)
 
     connection.send_result(msg["id"], {"deleted": deleted, "failed": failed})
 
@@ -364,6 +361,58 @@ async def websocket_import_apply(hass: HomeAssistant, connection, msg) -> None:
         hass.async_create_task(hass.config_entries.async_reload(entries[0].entry_id))
     connection.send_result(msg["id"], result)
 
+
+@websocket_api.websocket_command({
+    vol.Required("type"): f"{DOMAIN}/factory_reset",
+    vol.Required("confirmation"): cv.string,
+})
+@websocket_api.async_response
+async def websocket_factory_reset(hass: HomeAssistant, connection, msg) -> None:
+    """Delete all HMM task-owned data while preserving integration configuration."""
+    if str(msg.get("confirmation") or "") != "RESET HMM":
+        connection.send_error(msg["id"], "confirmation_required", "Type RESET HMM to confirm Factory Reset.")
+        return
+    coordinator = _coordinator_for_entry(hass)
+    if coordinator is None:
+        connection.send_error(msg["id"], "not_found", "Home Maintenance Manager coordinator was not found")
+        return
+    entry = _entry_for_coordinator(hass, coordinator)
+    task_ids = list(coordinator.tasks)
+    unloaded = False
+    if entry is not None:
+        unloaded = await hass.config_entries.async_unload(entry.entry_id)
+
+    deleted: list[dict[str, Any]] = []
+    failed: list[dict[str, str]] = []
+    warnings: list[str] = []
+    for task_id in task_ids:
+        try:
+            result = await async_delete_task_permanently(hass, entry, coordinator, task_id)
+        except Exception as err:  # pragma: no cover
+            _LOGGER.exception("Home Maintenance Manager Factory Reset failed for task %s", task_id)
+            failed.append({"task_id": task_id, "name": task_id, "error": str(err)})
+            continue
+        if result.get("deleted"):
+            deleted.append(result)
+            warnings.extend(str(warning) for warning in result.get("warnings") or [] if warning)
+        else:
+            failed.append({"task_id": task_id, "name": result.get("name") or task_id, "error": result.get("error") or "Task was not found"})
+
+    await coordinator.async_clear_task_owned_metadata()
+    if entry is not None:
+        if unloaded:
+            await hass.config_entries.async_setup(entry.entry_id)
+        else:
+            await hass.config_entries.async_reload(entry.entry_id)
+
+    connection.send_result(msg["id"], {
+        "tasks_deleted": len(deleted),
+        "entities_removed": sum(int(item.get("entities_removed") or 0) for item in deleted),
+        "devices_removed": sum(int(item.get("devices_removed") or 0) for item in deleted),
+        "failed": failed,
+        "warnings": warnings,
+    })
+
 @websocket_api.websocket_command({vol.Required("type"): f"{DOMAIN}/get_backup_status"})
 @websocket_api.async_response
 async def websocket_get_backup_status(hass: HomeAssistant, connection, msg) -> None:
@@ -508,6 +557,7 @@ async def async_setup(hass: HomeAssistant, config: dict[str, Any]) -> bool:
     websocket_api.async_register_command(hass, websocket_import_data)
     websocket_api.async_register_command(hass, websocket_import_preview)
     websocket_api.async_register_command(hass, websocket_import_apply)
+    websocket_api.async_register_command(hass, websocket_factory_reset)
     websocket_api.async_register_command(hass, websocket_update_notification_settings)
     websocket_api.async_register_command(hass, websocket_test_notification)
     await _async_register_panel(hass)
@@ -521,7 +571,7 @@ async def _async_cleanup_task_registry_entries(
     entry: ConfigEntry,
     task_id: str,
     task_name: str | None = None,
-) -> None:
+) -> dict[str, Any]:
     """Remove registry entries for a deleted maintenance task.
 
     Home Assistant can keep deleted task devices around as unavailable if the
@@ -535,6 +585,8 @@ async def _async_cleanup_task_registry_entries(
     device_registry = dr.async_get(hass)
 
     device_ids: set[str] = set()
+    entities_removed = 0
+    warnings: list[str] = []
     device = device_registry.async_get_device({(DOMAIN, task_id)})
     if device is not None:
         device_ids.add(device.id)
@@ -552,7 +604,9 @@ async def _async_cleanup_task_registry_entries(
                 device_ids.add(entity_entry.device_id)
             try:
                 entity_registry.async_remove(entity_entry.entity_id)
+                entities_removed += 1
             except Exception:  # pragma: no cover - cleanup should not block delete
+                warnings.append(f"Could not remove entity {entity_entry.entity_id}")
                 _LOGGER.debug(
                     "Could not remove entity registry entry %s for deleted HMM task %s",
                     entity_entry.entity_id,
@@ -566,12 +620,16 @@ async def _async_cleanup_task_registry_entries(
     if device is not None:
         device_ids.add(device.id)
 
+    devices_removed = 0
     for device_id in list(device_ids):
         try:
             dev = device_registry.async_get(device_id)
-            if dev is not None:
+            identifiers = getattr(dev, "identifiers", set()) if dev is not None else set()
+            if dev is not None and (DOMAIN, task_id) in identifiers:
                 device_registry.async_remove_device(device_id)
+                devices_removed += 1
         except Exception:  # pragma: no cover - registry cleanup should not block delete
+            warnings.append(f"Could not remove device {device_id}")
             _LOGGER.debug(
                 "Could not remove device registry entry %s for deleted HMM task %s (%s)",
                 device_id,
@@ -579,6 +637,52 @@ async def _async_cleanup_task_registry_entries(
                 task_name or "unknown name",
                 exc_info=True,
             )
+    return {
+        "entities_removed": entities_removed,
+        "devices_removed": devices_removed,
+        "device_removed": devices_removed > 0,
+        "warnings": warnings,
+    }
+
+
+async def async_delete_task_permanently(
+    hass: HomeAssistant,
+    entry: ConfigEntry | None,
+    coordinator: MaintenanceCoordinator,
+    task_id: str,
+) -> dict[str, Any]:
+    """Permanently delete one task and its task-specific HA registry artifacts."""
+    task_id = str(task_id)
+    task = coordinator.tasks.get(task_id)
+    if task is None:
+        return {
+            "task_id": task_id,
+            "name": task_id,
+            "deleted": False,
+            "entities_removed": 0,
+            "devices_removed": 0,
+            "device_removed": False,
+            "warnings": [],
+            "error": "Task was not found",
+        }
+    task_name = task.name
+    await coordinator.async_delete_task(task_id)
+    cleanup = {
+        "entities_removed": 0,
+        "devices_removed": 0,
+        "device_removed": False,
+        "warnings": [],
+    }
+    if entry is not None:
+        cleanup = await _async_cleanup_task_registry_entries(hass, entry, task_id, task_name)
+    else:
+        cleanup["warnings"] = ["Home Maintenance Manager config entry was not found; registry cleanup was skipped."]
+    return {
+        "task_id": task_id,
+        "name": task_name,
+        "deleted": True,
+        **cleanup,
+    }
 
 
 async def _async_reload_entry_after_task_deletes(
@@ -696,11 +800,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     async def handle_delete_task(call):
         task_id = call.data["task_id"]
-        task_name = coordinator.tasks.get(task_id).name if task_id in coordinator.tasks else None
-        await coordinator.async_delete_task(task_id)
-        hass.async_create_task(
-            _async_reload_entry_after_options_change(task_id, task_name)
-        )
+        unload_ok = await hass.config_entries.async_unload(entry.entry_id)
+        result = await async_delete_task_permanently(hass, entry, coordinator, task_id)
+        if unload_ok:
+            await hass.config_entries.async_setup(entry.entry_id)
+        else:
+            await hass.config_entries.async_reload(entry.entry_id)
+        if not result.get("deleted"):
+            _LOGGER.warning("Home Maintenance Manager delete requested for missing task %s", task_id)
 
     hass.services.async_register(DOMAIN, SERVICE_MARK_COMPLETE, handle_mark_complete, schema=vol.Schema({vol.Required("task_id"): cv.string, vol.Optional("method", default="service"): cv.string, vol.Optional("notes"): cv.string}))
     hass.services.async_register(DOMAIN, SERVICE_SNOOZE, handle_snooze, schema=vol.Schema({vol.Required("task_id"): cv.string, vol.Optional("days", default=7): vol.Coerce(int)}))

@@ -424,6 +424,7 @@ class MaintenanceTask:
     baseline_method: str | None = None
     baseline_ago_value: float | str | None = None
     baseline_ago_unit: str | None = None
+    source: dict[str, Any] = field(default_factory=dict)
     provenance: dict[str, Any] = field(default_factory=dict)
     late_count: int = 0
     completion_history: list[dict[str, Any]] = field(default_factory=list)

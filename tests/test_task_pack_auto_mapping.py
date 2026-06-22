@@ -239,6 +239,9 @@ class TaskPackAutoMappingTests(unittest.TestCase):
 
         task = captured["package"]["tasks"][0]
         self.assertEqual(task["rules"][0]["entity"], "sensor.mock_device_runtime")
+        self.assertEqual(task["source"]["type"], "task_pack")
+        self.assertEqual(task["source"]["pack_id"], "hmm.qa")
+        self.assertEqual(task["source"]["template_task_id"], "qa_filter")
         self.assertEqual(captured["mode"], "merge")
 
     def test_explicit_user_mapping_overrides_auto_mapping(self) -> None:
@@ -370,7 +373,9 @@ class TaskPackAutoMappingTests(unittest.TestCase):
         self.assertEqual(store.data["tasks"], [])
         self.assertIn("qa_filter", store.data["deleted_task_ids"])
         installed = store.data["settings"]["installed_task_packs"]["hmm.qa"]
-        self.assertEqual(installed["imported_task_ids"], [])
+        self.assertEqual(installed["pack_id"], "hmm.qa")
+        self.assertEqual(installed["task_count"], 1)
+        self.assertNotIn("imported_task_ids", installed)
 
         restarted, restart_store = make_stored_coordinator(["sensor.mock_device_runtime"], store.data)
         asyncio.run(restarted.async_load({}, []))
@@ -386,6 +391,26 @@ class TaskPackAutoMappingTests(unittest.TestCase):
         asyncio.run(restarted.async_apply_import_preview(qa_pack(), selected_ids=["qa_filter"], restore_deleted=True))
         self.assertIn("qa_filter", restarted.tasks)
         self.assertNotIn("qa_filter", restarted.deleted_task_ids)
+
+    def test_startup_uses_empty_unified_task_list_as_source_of_truth(self) -> None:
+        coordinator, store = make_stored_coordinator(
+            [],
+            {
+                "version": 2,
+                "tasks": [],
+                "settings": {},
+                "deleted_task_ids": [],
+            },
+        )
+        coordinator.legacy_store = MemoryStore({"tasks": [{"id": "legacy_task", "name": "Legacy task"}]})
+
+        asyncio.run(coordinator.async_load(
+            {"tasks": [{"id": "option_task", "name": "Option task"}]},
+            [{"id": "yaml_task", "name": "YAML task"}],
+        ))
+
+        self.assertEqual(coordinator.tasks, {})
+        self.assertEqual(store.data["tasks"], [])
 
 
 if __name__ == "__main__":

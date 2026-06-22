@@ -96,6 +96,19 @@ class FrontendScheduleEditorTests(unittest.TestCase):
         self.assertIn("Could not delete ${failed.length} task", self.source)
         self.assertIn("this.failedTaskSummary(failed)", self.source)
 
+    def test_task_pack_source_filters_are_rendered_from_tasks(self) -> None:
+        self.assertIn("taskPackOptions()", self.source)
+        self.assertIn("Filter by Task Pack", self.source)
+        self.assertIn("this.taskPackId(t) === this.taskPackFilter", self.source)
+        self.assertIn("this.taskOriginLabel(a).localeCompare(this.taskOriginLabel(b))", self.source)
+
+    def test_factory_reset_requires_confirmation_and_formats_result(self) -> None:
+        self.assertIn("Type RESET HMM to confirm", self.source)
+        self.assertIn("type: 'home_maintenance_manager/factory_reset'", self.source)
+        self.assertIn("confirmation: this.factoryResetConfirmation", self.source)
+        self.assertIn("Factory Reset complete. Deleted", self.source)
+        self.assertIn("Factory Reset failed: ${this._formatErrorMessage(err)}", self.source)
+
     def test_error_formatter_handles_object_errors_without_object_object(self) -> None:
         self.assertIn('_formatErrorMessage(err, fallback = "Unknown error")', self.source)
         for key in ('"message"', '"error"', '"reason"', '"detail"'):

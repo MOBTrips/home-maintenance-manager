@@ -1,5 +1,8 @@
 ## 0.7.4
 
+- Reworked Task Pack tracking so tasks carry their own source metadata, installed Task Packs are informational only, startup never recreates missing tasks from pack metadata, and Task Pack imports classify existing, possible-update, user-modified, and previously removed tasks for explicit review.
+- Reworked task deletion around one permanent delete path that removes task storage/runtime/history/NFC/notification state and cleans task-specific Home Assistant entities/devices through registry APIs, with structured bulk-delete results.
+- Added an Advanced / Danger Zone Factory Reset HMM Data action for development and QA that requires typing `RESET HMM`, deletes all tasks through the permanent delete path, clears task/import/pack metadata, and preserves integration configuration/global settings.
 - Added Service due as a schedule type and replaced combined schedule dropdown choices with Maintenance Rule #1, optional Maintenance Rule #2, and Due Logic.
 - Fixed remaining release candidate issues for metered task creation, metered display units, session-counter accumulation, and import wizard task-configuration scroll position.
 - Fixed release QA issues in the v0.7.4 UI refresh: task editor placeholder copy, compact progress bars, urgent sorting, import wizard scrolling, metered source type persistence, and HA device navigation context.

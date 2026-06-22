@@ -12,6 +12,25 @@ Task Packs are reusable Home Maintenance Manager task templates. They are meant 
 - Declare entity requirements that can be mapped to local Home Assistant entities during import.
 - Track installed pack metadata in HMM storage for future update/reinstall workflows.
 
+## Task Source Metadata
+
+Tasks are the source of truth. When a Task Pack task is imported, HMM stores the pack origin on the task itself:
+
+```json
+{
+  "source": {
+    "type": "task_pack",
+    "pack_id": "hmm.basic_homeowner",
+    "pack_name": "Basic Homeowner Maintenance",
+    "pack_version": "1.0.0",
+    "template_task_id": "replace_furnace_filter",
+    "imported_at": "2026-06-22T12:00:00Z"
+  }
+}
+```
+
+This metadata is used for Task Pack filtering, origin display, import review, future update detection, and future pack reporting. Installed Task Pack records do not own tasks and are never used to recreate tasks.
+
 ## Safety Rules
 
 Task Packs are always handled as templates:
@@ -20,7 +39,7 @@ Task Packs are always handled as templates:
 - They never replace full HMM storage.
 - They never delete existing user tasks.
 - They never import HMM settings.
-- They do not carry tombstone lists. Local deleted-task tombstones are respected unless the user intentionally restores a selected deleted task in the import review.
+- They do not carry deleted-task lists. Previously removed tasks stay removed unless the user intentionally restores a selected task in the import review.
 - Runtime history, completion history, activity history, NFC tag IDs, Home Assistant device IDs, and private notification targets are stripped before saving.
 
 Required runtime, metered, or service due entity references that remain unresolved during import are imported paused so due status is not calculated from the wrong source. Metered mappings also validate unit compatibility during apply. A local entity with an incompatible unit, such as W for a gallons requirement, is rejected instead of silently importing stale task-pack meter metadata.
@@ -59,7 +78,7 @@ The export workflow sanitizes selected tasks the same way imports do. It strips 
 
 ## Installed Packs
 
-Settings shows installed Task Packs from HMM storage, including pack name, version, installed date, and imported task count. This is local metadata only; v0.7.3 does not contact an online repository or check for updates.
+Settings shows installed Task Packs from HMM storage, including pack name, version, installed date, last imported date, and task count from the last import. This is informational metadata only; ownership lives on each task's `source` field. HMM never uses installed Task Pack metadata to reconstruct or repair tasks. v0.7.4 does not contact an online repository or check for updates.
 
 ## Built-In Library
 

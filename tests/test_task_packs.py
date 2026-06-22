@@ -132,6 +132,10 @@ class TaskPackTests(unittest.TestCase):
         self.assertNotIn("snoozed_until", task)
         self.assertNotIn("completion_history", task)
         self.assertNotIn("activity_history", task)
+        self.assertEqual(task["source"]["type"], "task_pack")
+        self.assertEqual(task["source"]["pack_id"], "hmm.test")
+        self.assertEqual(task["source"]["template_task_id"], "test_task")
+        self.assertTrue(task["source"]["imported_at"])
         self.assertEqual(task["provenance"]["origin"], "task_pack")
         self.assertEqual(task["provenance"]["pack_id"], "hmm.test")
 
@@ -191,33 +195,36 @@ class TaskPackTests(unittest.TestCase):
     def test_installed_pack_record(self) -> None:
         record = installed_pack_record(
             {"id": "hmm.test", "name": "Test Pack", "version": "1.0.0", "source": "bundled"},
-            ["task_b", "task_a", "task_a"],
+            2,
             "abc123",
         )
-        self.assertEqual(record["id"], "hmm.test")
-        self.assertEqual(record["imported_task_ids"], ["task_a", "task_b"])
+        self.assertEqual(record["pack_id"], "hmm.test")
+        self.assertEqual(record["pack_name"], "Test Pack")
+        self.assertEqual(record["task_count"], 2)
+        self.assertNotIn("imported_task_ids", record)
         self.assertEqual(record["package_hash"], "abc123")
         self.assertTrue(record["installed_at"])
+        self.assertTrue(record["last_imported_at"])
 
     def test_installed_pack_record_repeat_import_updates_without_duplicate(self) -> None:
         existing = {
-            "id": "hmm.test",
-            "name": "Test Pack",
+            "pack_id": "hmm.test",
+            "pack_name": "Test Pack",
             "version": "1.0.0",
             "installed_at": "2026-01-01T00:00:00+00:00",
-            "imported_task_ids": ["task_a", "task_b"],
             "package_hash": "old",
         }
         record = merge_installed_pack_record(
             existing,
             {"id": "hmm.test", "name": "Test Pack", "version": "1.0.1", "source": "bundled"},
-            ["task_b", "task_c"],
+            3,
             "new",
         )
-        self.assertEqual(record["id"], "hmm.test")
+        self.assertEqual(record["pack_id"], "hmm.test")
         self.assertEqual(record["version"], "1.0.1")
         self.assertEqual(record["installed_at"], "2026-01-01T00:00:00+00:00")
-        self.assertEqual(record["imported_task_ids"], ["task_a", "task_b", "task_c"])
+        self.assertEqual(record["task_count"], 3)
+        self.assertNotIn("imported_task_ids", record)
         self.assertEqual(record["package_hash"], "new")
 
     def test_build_task_pack_package_templates_local_entities(self) -> None:

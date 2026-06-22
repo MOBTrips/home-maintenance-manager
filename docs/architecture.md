@@ -51,6 +51,10 @@ A task may optionally be associated with an asset, Home Assistant entity, NFC ta
 
 HMM uses Home Assistant storage for integration-owned data. The storage version is managed by the integration and may require migrations as the project moves toward 1.0.
 
+`data.tasks` is the task source of truth. Startup loads active tasks from that list only; installed Task Pack metadata, deleted-task metadata, and Home Assistant registry artifacts are not task authorities and must not recreate tasks. Task Pack origin lives on each task in `task.source`, while `installed_task_packs` is informational metadata for display, future update review, filtering, and reporting.
+
+Task-specific Home Assistant entities and devices are generated artifacts. Deleting a task permanently removes it from HMM storage and cleans up task-specific registry entries through Home Assistant registry APIs. Integration-level entities and devices are preserved.
+
 ## Home Assistant integration points
 
 HMM uses several Home Assistant platform capabilities:

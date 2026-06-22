@@ -96,18 +96,106 @@ class MaintenanceCoordinator:
         self.deleted_task_ids: set[str] = set()
         self.loaded_data: dict[str, Any] = {}
 
+    def _installed_pack_records(self) -> dict[str, dict[str, Any]]:
+        installed = self.storage_settings.get("installed_task_packs")
+        return installed if isinstance(installed, dict) else {}
+
+    def _normalize_installed_task_packs(self) -> bool:
+        """Keep installed Task Pack records informational only."""
+        installed = self.storage_settings.get("installed_task_packs")
+        if not isinstance(installed, dict):
+            return False
+        changed = False
+        normalized: dict[str, dict[str, Any]] = {}
+        for raw_key, raw_record in installed.items():
+            if not isinstance(raw_record, dict):
+                continue
+            pack_id = str(raw_record.get("pack_id") or raw_record.get("id") or raw_key or "").strip()
+            if not pack_id:
+                continue
+            record = dict(raw_record)
+            record["pack_id"] = pack_id
+            record["pack_name"] = record.get("pack_name") or record.get("name") or pack_id
+            record.pop("id", None)
+            record.pop("name", None)
+            record.pop("imported_task_ids", None)
+            if "task_count" not in record:
+                record["task_count"] = sum(
+                    1
+                    for task in self.tasks.values()
+                    if isinstance(task.source, dict)
+                    and task.source.get("type") == TASK_PACK_TYPE
+                    and task.source.get("pack_id") == pack_id
+                )
+            record.setdefault("last_imported_at", record.get("installed_at") or "")
+            normalized[pack_id] = record
+            if record != raw_record or str(raw_key) != pack_id:
+                changed = True
+        if normalized != installed:
+            self.storage_settings["installed_task_packs"] = normalized
+            changed = True
+        return changed
+
+    def _source_from_task_pack_provenance(
+        self,
+        task_data: dict[str, Any],
+        installed_records: dict[str, dict[str, Any]] | None = None,
+    ) -> dict[str, Any]:
+        """Return source metadata for older Task Pack imports when recoverable."""
+        if isinstance(task_data.get("source"), dict) and task_data["source"].get("type"):
+            return dict(task_data["source"])
+        provenance = task_data.get("provenance") if isinstance(task_data.get("provenance"), dict) else {}
+        pack_id = provenance.get("pack_id")
+        pack_name = provenance.get("pack_name")
+        pack_version = provenance.get("pack_version")
+        installed_records = installed_records or {}
+        if not pack_id:
+            task_id = str(task_data.get("id") or "")
+            for record in installed_records.values():
+                if not isinstance(record, dict):
+                    continue
+                imported_ids = {str(item) for item in (record.get("imported_task_ids") or [])}
+                if task_id in imported_ids:
+                    pack_id = record.get("pack_id") or record.get("id")
+                    pack_name = record.get("pack_name") or record.get("name")
+                    pack_version = record.get("version")
+                    break
+        if not pack_id:
+            return {}
+        return {
+            "type": TASK_PACK_TYPE,
+            "pack_id": str(pack_id),
+            "pack_name": str(pack_name or pack_id),
+            "pack_version": str(pack_version or ""),
+            "template_task_id": str(provenance.get("template_task_id") or task_data.get("id") or ""),
+            "imported_at": str(provenance.get("imported_at") or dt_util.utcnow().isoformat()),
+        }
+
+    def _migrate_task_source_metadata(
+        self,
+        task_data: dict[str, Any],
+        installed_records: dict[str, dict[str, Any]] | None = None,
+    ) -> dict[str, Any]:
+        data = dict(task_data)
+        source = self._source_from_task_pack_provenance(data, installed_records)
+        if source:
+            data["source"] = source
+        return data
+
     async def async_load(self, config_entry_options: dict[str, Any] | None = None, yaml_tasks: list[dict[str, Any]] | None = None) -> None:
         """Load the v0.6 unified storage file and migrate older HMM data.
 
-        v0.6 uses one HA Store file named ``home_maintenance_manager`` as the
+        The unified HA Store file named ``home_maintenance_manager`` is the
         authoritative database for tasks, runtime/history, NFC assignments, and
         HMM-owned settings. Older releases used ``home_maintenance_manager.tasks``
-        plus config-entry options. This loader imports both without overwriting
-        richer runtime/history already present in storage.
+        plus config-entry options. Those older sources are migrated only when
+        the unified store does not exist yet; once it exists, ``data.tasks`` is
+        the task source of truth, including an empty list.
         """
         config_entry_options = dict(config_entry_options or {})
         yaml_tasks = list(yaml_tasks or [])
-        data = await self.store.async_load() or {}
+        raw_data = await self.store.async_load()
+        data = raw_data or {}
         legacy_data = await self.legacy_store.async_load() or {}
 
         tasks_by_id: dict[str, dict[str, Any]] = {}
@@ -115,62 +203,51 @@ class MaintenanceCoordinator:
         self.migration_info = dict(data.get("migration", {}) or {})
         completed_sources = set(self.migration_info.get("migrated_from", []) or [])
         self.deleted_task_ids = {str(task_id) for task_id in (data.get("deleted_task_ids", []) or [])}
+        self.storage_settings = dict(data.get("settings", {}) or {})
+        installed_records = self._installed_pack_records()
 
-        for item in data.get("tasks", []) or []:
-            if isinstance(item, dict) and item.get("id"):
-                task_id = str(item["id"])
-                if task_id not in self.deleted_task_ids:
-                    tasks_by_id[task_id] = dict(item)
-
-        legacy_tasks = legacy_data.get("tasks", []) if isinstance(legacy_data, dict) else []
-        if legacy_tasks and LEGACY_STORAGE_KEY not in completed_sources:
-            migrated_from.append(LEGACY_STORAGE_KEY)
-            for item in legacy_tasks:
-                if not isinstance(item, dict) or not item.get("id"):
-                    continue
-                task_id = str(item["id"])
-                if task_id in self.deleted_task_ids:
-                    continue
-                if task_id not in tasks_by_id:
-                    tasks_by_id[task_id] = dict(item)
-
-        option_tasks = config_entry_options.get("tasks", []) or []
-        if option_tasks and "config_entry.options.tasks" not in completed_sources:
-            migrated_from.append("config_entry.options.tasks")
-            for item in option_tasks:
-                if not isinstance(item, dict) or not item.get("id"):
-                    continue
-                task_id = str(item["id"])
-                if task_id in self.deleted_task_ids:
-                    continue
-                if task_id in tasks_by_id:
-                    # Preserve runtime/history from storage, but refresh editable
-                    # task configuration from the config entry record.
-                    existing = dict(tasks_by_id[task_id])
-                    runtime_keys = {
-                        "last_completed", "last_completed_by", "last_completion_method",
-                        "runtime_seconds", "completion_history", "activity_history",
-                        "snoozed_until", "snooze_count", "totalized_usage",
-                    }
-                    preserved = {k: existing[k] for k in runtime_keys if k in existing}
-                    merged = dict(item)
-                    merged.update(preserved)
-                    tasks_by_id[task_id] = merged
-                else:
-                    tasks_by_id[task_id] = dict(item)
-
-        if yaml_tasks:
-            # YAML remains a declarative compatibility source. Do not resurrect
-            # tasks the user explicitly deleted from HMM storage.
-            migrated_from.append("configuration.yaml")
-            for item in yaml_tasks:
+        if raw_data is not None:
+            # The unified storage task list is authoritative. If it is empty,
+            # HMM starts empty; legacy/config-entry/YAML sources do not repair
+            # or recreate tasks.
+            for item in data.get("tasks", []) or []:
                 if isinstance(item, dict) and item.get("id"):
                     task_id = str(item["id"])
-                    if task_id not in self.deleted_task_ids:
-                        tasks_by_id.setdefault(task_id, dict(item))
+                    tasks_by_id[task_id] = self._migrate_task_source_metadata(item, installed_records)
 
-        self.storage_settings = dict(data.get("settings", {}) or {})
-        self._prune_deleted_task_ids_from_installed_packs()
+        else:
+            legacy_tasks = legacy_data.get("tasks", []) if isinstance(legacy_data, dict) else []
+            if legacy_tasks and LEGACY_STORAGE_KEY not in completed_sources:
+                migrated_from.append(LEGACY_STORAGE_KEY)
+                for item in legacy_tasks:
+                    if not isinstance(item, dict) or not item.get("id"):
+                        continue
+                    task_id = str(item["id"])
+                    if task_id in self.deleted_task_ids:
+                        continue
+                    if task_id not in tasks_by_id:
+                        tasks_by_id[task_id] = dict(item)
+
+            option_tasks = config_entry_options.get("tasks", []) or []
+            if option_tasks and "config_entry.options.tasks" not in completed_sources:
+                migrated_from.append("config_entry.options.tasks")
+                for item in option_tasks:
+                    if not isinstance(item, dict) or not item.get("id"):
+                        continue
+                    task_id = str(item["id"])
+                    if task_id in self.deleted_task_ids:
+                        continue
+                    if task_id not in tasks_by_id:
+                        tasks_by_id[task_id] = dict(item)
+
+            if yaml_tasks:
+                migrated_from.append("configuration.yaml")
+                for item in yaml_tasks:
+                    if isinstance(item, dict) and item.get("id"):
+                        task_id = str(item["id"])
+                        if task_id not in self.deleted_task_ids:
+                            tasks_by_id.setdefault(task_id, dict(item))
+
         option_notification_settings = config_entry_options.get("notification_settings")
         if option_notification_settings and "notification_settings" not in self.storage_settings:
             self.storage_settings["notification_settings"] = dict(option_notification_settings)
@@ -184,6 +261,7 @@ class MaintenanceCoordinator:
             })
 
         self.tasks = {task_id: MaintenanceTask.from_dict(item) for task_id, item in tasks_by_id.items()}
+        self._normalize_installed_task_packs()
         installed_packs = self.storage_settings.get("installed_task_packs") or {}
         _LOGGER.warning(
             "HMM startup: %s active tasks, %s deleted task IDs, %s installed packs",
@@ -286,22 +364,6 @@ class MaintenanceCoordinator:
             data["provenance"] = {"origin": origin, "kind": kind or origin}
         return data
 
-    def _prune_deleted_task_ids_from_installed_packs(self) -> bool:
-        """Remove deleted task IDs from installed Task Pack metadata."""
-        installed = self.storage_settings.get("installed_task_packs")
-        if not isinstance(installed, dict) or not self.deleted_task_ids:
-            return False
-        changed = False
-        for record in installed.values():
-            if not isinstance(record, dict):
-                continue
-            imported_ids = [str(task_id) for task_id in (record.get("imported_task_ids") or [])]
-            filtered_ids = sorted(task_id for task_id in set(imported_ids) if task_id not in self.deleted_task_ids)
-            if filtered_ids != sorted(set(imported_ids)):
-                record["imported_task_ids"] = filtered_ids
-                changed = True
-        return changed
-
     async def _cleanup_nfc_notifications(self, task_ids: list[str]) -> None:
         """Dismiss stale NFC persistent/mobile notifications for changed assignments."""
         settings = self._notification_settings()
@@ -358,6 +420,10 @@ class MaintenanceCoordinator:
         task_data = self._normalize_nfc_config(task_data)
         task_id = str(task_data["id"])
         task_data["id"] = task_id
+        if not isinstance(task_data.get("source"), dict) or not task_data.get("source"):
+            existing_source = self.tasks.get(task_id).source if task_id in self.tasks else None
+            if existing_source:
+                task_data["source"] = dict(existing_source)
         if not isinstance(task_data.get("provenance"), dict) or not task_data.get("provenance"):
             existing_provenance = self.tasks.get(task_id).provenance if task_id in self.tasks else None
             if existing_provenance:
@@ -365,7 +431,7 @@ class MaintenanceCoordinator:
             else:
                 task_data = self._ensure_task_provenance(task_data, "manual", "manual")
         # If a user intentionally recreates/imports a task with the same ID,
-        # clear the tombstone that prevented legacy migration resurrection.
+        # clear the deleted-task marker used by import review.
         self.deleted_task_ids.discard(task_id)
         old_tags = list(self.tasks.get(task_id).nfc_tags or []) if task_id in self.tasks else []
         old_action = self.tasks.get(task_id).nfc_action if task_id in self.tasks else None
@@ -386,17 +452,36 @@ class MaintenanceCoordinator:
 
     async def async_delete_task(self, task_id: str) -> None:
         task_id = str(task_id)
-        # Persist a deletion tombstone so legacy/config-entry migration sources
-        # cannot resurrect the task on reload, reinstall, or integration re-add.
+        # Persist a deleted-task marker for import review. Startup never uses
+        # this metadata to repair tasks; data.tasks is authoritative.
         self.deleted_task_ids.add(task_id)
         if task_id in self.tasks:
             del self.tasks[task_id]
-        self._prune_deleted_task_ids_from_installed_packs()
+        self._normalize_installed_task_packs()
         await self.async_save()
         await self._cleanup_nfc_notifications([task_id])
         self._setup_tracking()
         self._notify()
         await self.async_check_notifications()
+
+    async def async_clear_task_owned_metadata(self) -> None:
+        """Clear task/import metadata while preserving global integration settings."""
+        self.deleted_task_ids.clear()
+        for key in (
+            "installed_task_packs",
+            "task_pack_metadata",
+            "import_metadata",
+            "nfc_links",
+            "history",
+            "logs",
+            "runtime_data",
+            "task_progress",
+        ):
+            self.storage_settings.pop(key, None)
+        self.migration_info["task_data_reset_at"] = dt_util.utcnow().isoformat()
+        await self.async_save()
+        self._setup_tracking()
+        self._notify()
 
 
     def export_data(self) -> dict[str, Any]:
@@ -434,8 +519,8 @@ class MaintenanceCoordinator:
         ``merge`` adds new tasks and updates matching task IDs while preserving
         runtime/history for existing tasks unless the import includes those fields.
         ``replace`` makes the imported package the full task database and records
-        tombstones for tasks removed by the replace so legacy migration sources
-        cannot resurrect them later.
+        deleted-task markers for tasks removed by the replace so reviewed
+        imports can identify previously removed task IDs.
         """
         if not isinstance(package, dict):
             raise ValueError("Import data must be a JSON object")
@@ -556,10 +641,10 @@ class MaintenanceCoordinator:
                 record = merge_installed_pack_record(
                     existing_record,
                     normalized_pack["pack"],
-                    list(imported.keys()),
+                    len(imported),
                     normalized_pack["package_hash"],
                 )
-                installed[str(record["id"])] = record
+                installed[str(record["pack_id"])] = record
 
         await self.async_save()
         if changed_nfc_task_ids:
@@ -828,13 +913,26 @@ class MaintenanceCoordinator:
         mode = str(mode or "merge").lower()
         if package_type == TASK_PACK_TYPE:
             mode = "merge"
+        pack = parsed.get("pack") if isinstance(parsed.get("pack"), dict) else {}
+        pack_id = str(pack.get("id") or "")
+        pack_version = str(pack.get("version") or "")
         existing_by_name = {((t.name or "").strip().lower(), (t.category or "General").strip().lower()): tid for tid, t in self.tasks.items()}
         entity_ids = set(self.hass.states.async_entity_ids())
         registry_context = self._entity_registry_context()
         requirements = parsed.get("entity_requirements") if isinstance(parsed.get("entity_requirements"), list) else []
         auto_entity_mapping = self._task_pack_auto_entity_mapping(requirements, entity_ids) if package_type == TASK_PACK_TYPE else {}
         preview_tasks = []
-        counts = {"new": 0, "update": 0, "duplicate": 0, "deleted": 0, "invalid": 0, "conflict": 0}
+        counts = {
+            "new": 0,
+            "update": 0,
+            "existing": 0,
+            "possible_update": 0,
+            "user_modified": 0,
+            "duplicate": 0,
+            "deleted": 0,
+            "invalid": 0,
+            "conflict": 0,
+        }
         entity_counts = {"found": 0, "missing": 0, "required_missing": 0}
         for idx, item in enumerate(raw_tasks):
             if not isinstance(item, dict) or not item.get("id") or not item.get("name"):
@@ -842,10 +940,38 @@ class MaintenanceCoordinator:
                 preview_tasks.append(row); counts["invalid"] += 1; continue
             task_id = str(item["id"])
             key = ((item.get("name") or "").strip().lower(), (item.get("category") or "General").strip().lower())
-            if task_id in self.tasks:
-                status = "update"
-            elif task_id in self.deleted_task_ids:
+            existing_task = self.tasks.get(task_id)
+            if task_id in self.deleted_task_ids and existing_task is None:
                 status = "deleted"
+            elif package_type == TASK_PACK_TYPE and existing_task is not None:
+                source = existing_task.source if isinstance(existing_task.source, dict) else {}
+                template_task_id = str(item.get("source", {}).get("template_task_id") if isinstance(item.get("source"), dict) else item.get("id"))
+                same_template = (
+                    source.get("type") == TASK_PACK_TYPE
+                    and str(source.get("pack_id") or "") == pack_id
+                    and str(source.get("template_task_id") or existing_task.id) == template_task_id
+                )
+                if not same_template:
+                    status = "duplicate"
+                elif str(source.get("pack_version") or "") != pack_version:
+                    status = "possible_update"
+                    counts["update"] += 1
+                else:
+                    existing_data = existing_task.as_dict()
+                    incoming_data = MaintenanceTask.from_dict(dict(item)).as_dict()
+                    compare_existing = {
+                        k: v
+                        for k, v in existing_data.items()
+                        if k not in {"source", "provenance", "runtime_seconds", "totalized_usage", "last_seen_states", "last_completed", "last_completed_by", "last_completion_method", "late_count", "completion_history", "activity_history", "snoozed_until"}
+                    }
+                    compare_incoming = {
+                        k: v
+                        for k, v in incoming_data.items()
+                        if k not in {"source", "provenance", "runtime_seconds", "totalized_usage", "last_seen_states", "last_completed", "last_completed_by", "last_completion_method", "late_count", "completion_history", "activity_history", "snoozed_until"}
+                    }
+                    status = "existing" if compare_existing == compare_incoming else "user_modified"
+            elif task_id in self.tasks:
+                status = "update"
             elif key in existing_by_name:
                 status = "duplicate"
             else:
@@ -873,8 +999,8 @@ class MaintenanceCoordinator:
                 else:
                     entity_counts["found"] += 1
                 refs.append(ref)
-            selected = status in {"new", "update"} and (package_type == TASK_PACK_TYPE or not required_missing)
-            if package_type == "task_pack" and status == "deleted":
+            selected = status in {"new", "update", "possible_update"} and (package_type == TASK_PACK_TYPE or not required_missing)
+            if package_type == "task_pack" and status in {"deleted", "existing", "user_modified"}:
                 selected = False
             schedule_type = " + ".join(dict.fromkeys(str(rule.get("type") or "rule") for rule in (item.get("rules") or []) if isinstance(rule, dict)))
             preview_tasks.append({"index": idx, "id": task_id, "name": item.get("name"), "category": item.get("category", "General"), "status": status, "selected": selected, "required_entity_missing": required_missing, "schedule_type": schedule_type, "entities": refs})
@@ -891,7 +1017,7 @@ class MaintenanceCoordinator:
             "entity_counts": entity_counts,
             "tasks": preview_tasks,
             "settings_present": isinstance(parsed.get("settings"), dict) and package_type != TASK_PACK_TYPE,
-            "warnings": (["Task Packs are templates and always merge. Settings, history, NFC tags, device IDs, tombstone lists, and private notification targets are ignored. Local deleted-task tombstones are still respected unless you intentionally restore a selected deleted task."] if package_type == TASK_PACK_TYPE else []) + (["Required missing entities will pause affected runtime/counter tasks unless remapped."] if entity_counts["required_missing"] else []),
+            "warnings": (["Task Packs are templates and always merge. Settings, history, NFC tags, device IDs, deleted-task lists, and private notification targets are ignored. Previously removed tasks stay removed unless you intentionally restore a selected task."] if package_type == TASK_PACK_TYPE else []) + (["Required missing entities will pause affected runtime/counter tasks unless remapped."] if entity_counts["required_missing"] else []),
         }
 
     async def async_apply_import_preview(self, package: dict[str, Any], selected_ids: list[str] | None = None, mode: str = "merge", entity_mapping: dict[str, Any] | None = None, import_settings: bool = True, restore_deleted: bool = False, task_entity_mapping: dict[str, Any] | None = None) -> dict[str, Any]:

@@ -18,7 +18,7 @@ This file contains:
 - NFC tag assignments
 - snooze state
 - HMM-owned settings, including notification settings
-- installed Task Pack metadata
+- informational installed Task Pack metadata
 - storage migration metadata
 
 ## Home Assistant backups
@@ -109,7 +109,7 @@ Import supports two modes:
 | Mode | Behavior |
 |---|---|
 | Merge | Adds imported tasks and updates matching task IDs while keeping existing tasks. |
-| Replace | Replaces all HMM tasks/settings with the import file and records deletion tombstones for removed task IDs. |
+| Replace | Replaces all HMM tasks/settings with the import file and records removed task IDs for import review. |
 
 Use Home Assistant full backups for complete recovery of a Home Assistant instance. Use HMM JSON export/import for task sharing, moving HMM data between instances, support troubleshooting, and future Task Packs.
 
@@ -120,6 +120,14 @@ Settings also includes a local **Browse built-in packs** library. Built-in packs
 
 ## Import Review and Task Pack Foundation
 
-v0.7.3 includes a reviewed import flow. HMM previews backup-style exports and Task Pack JSON before changing storage. The preview classifies tasks as new, update, duplicate, deleted, or invalid and reports entity references as found or missing. Task Pack missing entities are reviewed in a queue with required/optional filters, ranked suggestions, and a final summary of mapped, cleared, skipped, unresolved, and paused-task outcomes. Runtime and counter rule entities are treated as required references; when they cannot be resolved, the task is imported safely instead of silently running against a bad entity.
+v0.7.4 includes a reviewed import flow. HMM previews backup-style exports and Task Pack JSON before changing storage. The preview classifies backup tasks as new, update, duplicate, deleted, or invalid. Task Pack previews also use task-level source metadata to identify existing pack tasks, possible updates, user-modified tasks, and previously removed tasks. Entity references are reported as found or missing. Task Pack missing entities are reviewed in a queue with required/optional filters, ranked suggestions, and a final summary of mapped, cleared, skipped, unresolved, and paused-task outcomes. Runtime and counter rule entities are treated as required references; when they cannot be resolved, the task is imported safely instead of silently running against a bad entity.
 
-Task Packs are templates, not system backups. HMM strips Home Assistant-specific device IDs, NFC tag IDs, completion history, runtime history, deleted tombstone lists, settings, and private notification targets during Task Pack import. Task Packs always merge and cannot replace full storage or delete existing user tasks. Local deleted-task tombstones are still respected unless the user intentionally restores a selected deleted task in the import review.
+Task Packs are templates, not system backups. HMM strips Home Assistant-specific device IDs, NFC tag IDs, completion history, runtime history, deleted-task lists, settings, and private notification targets during Task Pack import. Task Packs always merge and cannot replace full storage or delete existing user tasks. Deleted tasks are not recreated from Task Pack metadata; they return only through explicit import review selection.
+
+## Startup and Cleanup
+
+The source of truth is `data.tasks` in HMM storage. If a task is not present in `data.tasks`, HMM treats it as nonexistent. Startup does not reconstruct tasks from installed Task Packs, old imported task ID lists, deleted task ID metadata, or Home Assistant entity/device registries.
+
+Deleting a task is permanent. Single delete, bulk delete, and future pack-scoped delete operations use the same backend path to remove the task from storage, clear task runtime/history/NFC/notification state, and remove task-specific Home Assistant entities and devices through Home Assistant registry APIs. Integration-level entities and the Home Maintenance Manager device are preserved.
+
+For development and QA, Settings includes **Advanced / Danger Zone → Factory Reset HMM Data**. It requires typing `RESET HMM`, deletes all tasks through the permanent delete path, clears task/import/Task Pack metadata, reloads the integration, and preserves integration configuration plus global settings.
